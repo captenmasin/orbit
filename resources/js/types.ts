@@ -3,6 +3,14 @@ export interface Repository {
     name: string;
     remote_url: string;
     web_url?: string;
+    provider_revision?: number;
+    provider_connection_id?: string | null;
+    provider_name?: string | null;
+    default_branch?: string | null;
+    provider_url?: string | null;
+    remote_commit_at?: string | null;
+    provider_connection?: ProviderConnection | null;
+    provider_snapshots?: ProviderSnapshot[];
 }
 
 export interface ProjectFolder {
@@ -62,8 +70,10 @@ export interface PackageRoot {
     scan_error: string | null;
     scanned_at: string | null;
     scan_attempted_at: string | null;
+    outdated?: DependencyUpdates | null;
     snapshot: {
         version: number;
+        fingerprint?: string;
         path: string;
         files: Record<string, DependencySource>;
         unsupported_lockfiles: string[];
@@ -96,6 +106,8 @@ export interface Project {
     id: string;
     name: string;
     description: string | null;
+    notes?: string | null;
+    assets?: { id: string; name: string; size: number; mime_type: string | null; url: string; preview_url: string | null }[];
     status: string;
     revision: number;
     icon_type: 'initials' | 'emoji' | 'image';
@@ -107,10 +119,31 @@ export interface Project {
     repositories: Repository[];
     folders: ProjectFolder[];
     links: ProjectLink[];
+    secrets?: ProjectSecret[];
     repositories_count?: number;
     folders_count?: number;
     last_commit_at: string | null;
     board_columns?: BoardColumn[];
+}
+
+export type SidebarProject = Pick<Project, 'id' | 'name' | 'icon_type' | 'icon_emoji' | 'icon_url'>;
+
+export interface DependencyUpdates {
+    checked_at: string;
+    fingerprint: string;
+    checked: number;
+    unavailable: number;
+    skipped: number;
+    packages: { name: string; ecosystem: string; current: string; latest: string }[];
+}
+
+export interface ProjectSecret {
+    id: string;
+    project_id: string;
+    environment: string;
+    name: string;
+    revision: number;
+    updated_at: string;
 }
 
 export interface BoardTask {
@@ -142,4 +175,19 @@ export interface CatalogFilters {
     status: string;
     tag: string;
     sort: string;
+}
+
+export interface ProviderConnection {
+    id: string; provider: 'github' | 'gitlab'; label: string; login: string; revision: number;
+    state: string; retry_at: string | null; verified_at: string | null;
+}
+export interface ProviderSnapshot {
+    id: string; resource: string; state: string; error: string | null; next_page: number | null;
+    checked_at: string | null; succeeded_at: string | null;
+    payload: {
+        commit?: { sha: string; title: string; committed_at: string; url: string } | null;
+        default_branch?: string | null; provider_name?: string;
+        sha?: string | null; branch?: string | null;
+        items?: { id: string; number?: string; title: string; state: string; url: string | null; updated_at?: string }[];
+    } | null;
 }

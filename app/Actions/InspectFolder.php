@@ -22,9 +22,6 @@ class InspectFolder
         foreach (['composer.json', 'package.json'] as $manifest) {
             try {
                 $data = app(ReadDependencies::class)->readJson($path, $manifest);
-                if (is_string($data->name ?? null) && trim($data->name) !== '') {
-                    $metadata['name'] = mb_substr(trim($data->name), 0, 255);
-                }
                 if (is_string($data->description ?? null)) {
                     $metadata['description'] = mb_substr($data->description, 0, 10000);
                 }

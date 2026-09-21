@@ -16,14 +16,14 @@ class WorkspaceTest extends TestCase
     public function test_projects_can_be_created_opened_and_edited_without_stale_overwrites(): void
     {
         $this->get('/')->assertOk()->assertInertia(fn (Assert $page): Assert => $page
-            ->component('Workspace')->has('projects.data', 0)->where('selectedProject', null));
+            ->component('Dashboard')->has('projects.data', 0)->missing('selectedProject'));
         $response = $this->post('/projects', ['name' => '  Orbit  ', 'status' => 'Idea']);
         $project = Project::sole();
         $url = '/projects/'.$project->id;
         $response->assertRedirect($url);
         $this->assertSame('Orbit', $project->name);
         $this->get($url)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
-            ->assertInertia(fn (Assert $page): Assert => $page->component('Workspace')
+            ->assertInertia(fn (Assert $page): Assert => $page->component('ShowProject')
                 ->where('selectedProject.id', $project->id)->where('selectedProject.revision', 1));
 
         $this->withHeader('X-Inertia', 'true')->put($url, [
@@ -83,7 +83,7 @@ class WorkspaceTest extends TestCase
         $version = $page->inertiaPage()['version'];
         $this->withHeaders(['X-Inertia' => 'true', 'X-Inertia-Version' => $version])->get('/?page=2')
             ->assertOk()->assertHeader('X-Inertia', 'true')->assertHeader('Cache-Control', 'no-store, private')
-            ->assertJsonPath('component', 'Workspace')->assertJsonCount(1, 'props.projects.data')
+            ->assertJsonPath('component', 'Dashboard')->assertJsonCount(1, 'props.projects.data')
             ->assertJsonPath('props.projects.prev_page_url', '/?page=1');
         $this->get('/projects/missing')->assertNotFound();
     }

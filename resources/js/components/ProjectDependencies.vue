@@ -19,6 +19,18 @@ const selectedId = ref('');
 watch(roots, value => { if (!value.some(root => root.id === selectedId.value)) selectedId.value = value[0]?.id ?? ''; }, { immediate: true });
 const selected = computed(() => roots.value.find(root => root.id === selectedId.value));
 const snapshot = computed(() => selected.value?.snapshot);
+const updates = computed(() => selected.value?.outdated);
+const updatesStale = computed(() => !!updates.value && (updates.value.fingerprint !== snapshot.value?.fingerprint || !['Current', 'Partial'].includes(selected.value?.scan_state ?? '')));
+const updateCheck = useHttp({});
+const updateError = ref('');
+async function checkUpdates() {
+    if (!selected.value) return;
+    updateError.value = '';
+    try {
+        await updateCheck.post(`/projects/${props.project.id}/roots/${selected.value.id}/outdated`);
+        emit('changed');
+    } catch { updateError.value = String(Object.values(updateCheck.errors)[0] ?? 'Could not check for updates. Try again.'); }
+}
 const frameworks = computed(() => dependencyRows(snapshot.value ?? null).filter(row => ['laravel/framework', 'vue', 'react', 'next', 'nuxt', 'svelte', '@angular/core'].includes(row.name) && row.identity === 'Direct'));
 const query = ref('');
 const page = ref(0);
@@ -83,6 +95,19 @@ async function saveRoot(action = 'save') {
             <Alert v-if="selected.scan_error" variant="destructive"><AlertDescription>{{ selected.scan_error }}. Previous results are retained.</AlertDescription></Alert>
             <Alert v-if="snapshot && selected.scan_state !== 'Current' && selected.scan_state !== 'Partial'"><AlertDescription>Showing the previous inspection while this root is {{ selected.scan_state.toLowerCase() }}.</AlertDescription></Alert>
             <template v-if="snapshot">
+                <section class="space-y-3 rounded-lg border p-4" aria-label="Dependency updates">
+                    <div class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-medium">Dependency updates</h3><Button variant="outline" size="sm" :disabled="updateCheck.processing || !['Current', 'Partial'].includes(selected.scan_state)" @click="checkUpdates">{{ updateCheck.processing ? 'Checking…' : 'Check for updates' }}</Button></div>
+                    <FieldDescription>Compare locked direct dependencies with the latest stable releases on public npm and Packagist. New major versions may require changes to your project.</FieldDescription>
+                    <p v-if="updateError" class="text-sm text-destructive" role="alert">{{ updateError }}</p>
+                    <template v-if="updates">
+                        <p class="text-xs text-muted-foreground">Checked {{ date(updates.checked_at) }} · {{ updates.checked }} packages checked</p>
+                        <Alert v-if="updatesStale"><AlertDescription>These results are from a previous inspection. Refresh this root and check again.</AlertDescription></Alert>
+                        <Alert v-if="updates.unavailable || updates.skipped"><AlertDescription>{{ updates.unavailable }} packages could not be checked. {{ updates.skipped }} skipped (missing lock data, local dependencies, or the 100-package limit).</AlertDescription></Alert>
+                        <p v-if="!updates.packages.length && !updatesStale" class="text-sm">{{ updates.unavailable || updates.skipped ? 'No updates found among the packages checked.' : updates.checked ? 'All checked dependencies are up to date.' : 'No locked direct dependencies to check.' }}</p>
+                        <Table v-if="updates.packages.length"><TableHeader><TableRow><TableHead>Package</TableHead><TableHead>Locked</TableHead><TableHead>Latest</TableHead></TableRow></TableHeader><TableBody><TableRow v-for="item in updates.packages" :key="`${item.ecosystem}:${item.name}`"><TableCell>{{ item.name }} <span class="text-xs text-muted-foreground">{{ item.ecosystem }}</span></TableCell><TableCell>{{ item.current }}</TableCell><TableCell><Badge variant="secondary">{{ item.latest }}</Badge></TableCell></TableRow></TableBody></Table>
+                    </template>
+                    <p v-else class="text-sm text-muted-foreground">Updates have not been checked yet.</p>
+                </section>
                 <div class="flex flex-wrap gap-2">
                     <template v-for="tool in ['php', 'node']" :key="tool"><Badge v-if="snapshot.runtimes[tool]?.version" variant="secondary">{{ tool === 'php' ? 'PHP' : 'Node' }} {{ snapshot.runtimes[tool]?.version }} · detected</Badge></template>
                     <Badge v-for="framework in frameworks" :key="framework.name" variant="secondary">{{ framework.name }} {{ framework.version ?? framework.required }} · {{ framework.version ? 'locked' : 'required' }}{{ framework.stale ? ' · previous data' : '' }}</Badge>

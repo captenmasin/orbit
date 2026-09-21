@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { Link, router, useForm, useHttp } from '@inertiajs/vue3';
-import { useDocumentVisibility, useIntervalFn, useObjectUrl, useSessionStorage, useWindowFocus } from '@vueuse/core';
+import { useObjectUrl, useSessionStorage } from '@vueuse/core';
 import { ArrowDownIcon, ArrowUpIcon, FolderPlusIcon, PlusIcon, Trash2Icon } from '@lucide/vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -14,17 +14,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import OpenTargetButton from '@/components/OpenTargetButton.vue';
 import ProjectIcon from '@/components/ProjectIcon.vue';
-import ProjectBoard from '@/components/ProjectBoard.vue';
-import ProjectDependencies from '@/components/ProjectDependencies.vue';
+import ProjectTagsInput from '@/components/ProjectTagsInput.vue';
+import LinkIcon from '@/components/LinkIcon.vue';
+import { repositoryName } from '@/lib/project';
 import type { FolderPreview, Project, ProjectFolder, ProjectLink, Repository } from '@/types';
 
-const props = defineProps<{ project?: Project; scanFolders?: ProjectFolder[]; statuses: string[]; native: boolean; message?: string | null }>();
+const props = defineProps<{ project?: Project; statuses: string[]; native: boolean; message?: string | null }>();
 const formId = props.project?.id ?? 'create';
-const tab = props.project ? useSessionStorage(`project:${formId}:tab`, 'overview', { flush: 'sync' }) : ref('overview');
-const tagsText = ref(props.project?.tags.map(tag => tag.name).join(', ') ?? '');
+const tab = props.project ? useSessionStorage(`project:${formId}:edit-tab`, 'overview', { flush: 'sync' }) : ref('overview');
+if (typeof window !== 'undefined' && window.location.hash === '#notes') tab.value = 'overview';
 function values() {
     return {
-        name: props.project?.name ?? '', description: props.project?.description ?? '',
+        name: props.project?.name ?? '', description: props.project?.description ?? '', notes: props.project?.notes ?? '',
         status: props.project?.status ?? props.statuses[0]!,
         icon_type: props.project?.icon_type ?? 'initials', icon_emoji: props.project?.icon_emoji ?? '',
         icon_file: null as File | null, tags: props.project?.tags.map(tag => tag.name) ?? [],
@@ -36,7 +37,7 @@ function values() {
 }
 const form = useForm(values());
 watch(() => props.project?.revision, () => {
-    if (!form.isDirty && tagsText.value === (props.project?.tags.map(tag => tag.name).join(', ') ?? '')) {
+    if (!form.isDirty) {
         form.defaults(values());
         form.reset();
     }
@@ -48,42 +49,8 @@ const removeOpen = ref(false);
 const relinking = ref<string | null>(null);
 const inspection = useHttp<{ path: string }, { folder: FolderPreview | null }>({ path: '' });
 const date = (value?: string | null) => value ? new Date(value).toLocaleString() : 'No known commit';
-const scan = useHttp({ kind: 'all' as 'all' | 'folder' | 'root', id: null as string | null, only_stale: false });
-const scanError = ref('');
-const visible = useDocumentVisibility();
-const focused = useWindowFocus();
-const active = computed(() => visible.value === 'visible' && focused.value);
-const pending = computed(() => (props.scanFolders ?? []).some(folder => [folder, ...(folder.package_roots ?? [])].some(target => ['Queued', 'Scanning'].includes(target.scan_state ?? ''))));
-const latestCommit = computed(() => [...(props.scanFolders ?? [])].filter(folder => folder.last_commit_at).sort((a, b) => b.last_commit_at!.localeCompare(a.last_commit_at!))[0]);
-const folderScan = (folder: ProjectFolder) => props.scanFolders?.find(saved => saved.id === folder.id && saved.path === folder.path) ?? folder;
-let lastAutomaticCheck = 0;
-let reloadingInspection = false;
-function reloadInspection() {
-    if (reloadingInspection) return;
-    reloadingInspection = true;
-    router.reload({ only: ['inspection'], onFinish: () => { reloadingInspection = false; } });
-}
-async function refresh(kind: 'all' | 'folder' | 'root' = 'all', id: string | null = null, onlyStale = false) {
-    if (!props.project || scan.processing) return;
-    Object.assign(scan, { kind, id, only_stale: onlyStale });
-    scanError.value = '';
-    try {
-        await scan.post(`/projects/${props.project.id}/inspection`);
-        reloadInspection();
-    } catch { scanError.value = 'Inspection could not be queued. Try refreshing again.'; }
-}
-function checkInspection() {
-    if (!props.project || !active.value) return;
-    if (Date.now() - lastAutomaticCheck >= 60000) {
-        lastAutomaticCheck = Date.now();
-        void refresh('all', null, true);
-    } else if (pending.value) reloadInspection();
-}
-useIntervalFn(checkInspection, 2000);
-watch(active, () => { lastAutomaticCheck = 0; checkInspection(); }, { immediate: true });
 
 function submit() {
-    form.tags = tagsText.value.split(',').map(tag => tag.trim()).filter(Boolean);
     form.transform(data => ({ ...data, _method: props.project ? 'put' : 'post' })).post(props.project ? `/projects/${props.project.id}` : '/projects', {
         preserveScroll: true,
         errorBag: props.project ? 'editProject' : 'createProject',
@@ -91,7 +58,6 @@ function submit() {
             if (props.project) {
                 form.defaults(values());
                 form.reset();
-                tagsText.value = props.project.tags.map(tag => tag.name).join(', ');
             }
         },
         onError: errors => {
@@ -137,7 +103,7 @@ function useFolder() {
         const key = (url: string) => url.replace(/^\w+@([^:]+):/, 'https://$1/').replace(/^ssh:\/\/(?:[^@/]+@)?/, 'https://').replace(/\.git\/?$/, '').replace(/\/$/, '');
         const existing = form.repositories.find(repo => key(repo.remote_url) === key(folder.remote_url!));
         repositoryId = existing?.id ?? crypto.randomUUID();
-        if (!existing) form.repositories.push({ id: repositoryId, name: folder.name, remote_url: folder.remote_url });
+        if (!existing) form.repositories.push({ id: repositoryId, name: repositoryName(folder.remote_url) || folder.name, remote_url: folder.remote_url });
     }
     const data: ProjectFolder = {
         id: current?.id ?? crypto.randomUUID(), path: folder.path, repository_id: repositoryId,
@@ -164,11 +130,16 @@ function moveLink(index: number, direction: number) {
     form.links.splice(index + direction, 0, link!);
     form.clearErrors();
 }
+function updateRemote(repo: Repository, value: string) {
+    const previous = repositoryName(repo.remote_url);
+    if (!repo.name || repo.name === previous) repo.name = repositoryName(value);
+    repo.remote_url = value;
+}
 function addRepository() {
     form.repositories.push({ id: crypto.randomUUID(), name: '', remote_url: '' });
 }
 function addLink() {
-    form.links.push({ id: crypto.randomUUID(), label: '', url: '', category: '', icon: '' });
+    form.links.push({ id: crypto.randomUUID(), label: '', url: '', category: '' });
 }
 </script>
 
@@ -176,22 +147,17 @@ function addLink() {
     <Tabs v-model="tab">
         <TabsList aria-label="Project sections">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger v-if="project" value="board">Board</TabsTrigger>
-            <TabsTrigger v-if="project" value="dependencies">Dependencies</TabsTrigger>
             <TabsTrigger value="repositories">Repositories</TabsTrigger>
             <TabsTrigger value="links">Links</TabsTrigger>
         </TabsList>
-        <TabsContent v-if="project" value="board"><ProjectBoard :project="project" /></TabsContent>
-        <Alert v-if="scanError" variant="destructive"><AlertDescription>{{ scanError }}</AlertDescription></Alert>
-        <TabsContent v-if="project" value="dependencies"><ProjectDependencies :project="project" :folders="scanFolders ?? []" :native="native" :busy="scan.processing" @refresh="refresh" @changed="reloadInspection" /></TabsContent>
-    <form v-show="tab !== 'board' && tab !== 'dependencies'" class="w-full max-w-3xl" novalidate @submit.prevent="submit">
+    <form class="w-full max-w-3xl" novalidate @submit.prevent="submit">
         <FieldGroup>
             <Alert v-if="form.hasErrors" variant="destructive" role="alert">
                 <AlertDescription>
                     <ul class="list-disc pl-4">
                         <li v-for="(error, key) in form.errors" :id="`${formId}-${key}-error`" :key="key">{{ error }}</li>
                     </ul>
-                    <div v-if="form.errors.revision"><Button type="button" variant="outline" @click="router.get(`/projects/${project!.id}`)">Reload project</Button></div>
+                    <div v-if="form.errors.revision"><Button type="button" variant="outline" @click="router.get(`/projects/${project!.id}/edit`)">Reload project</Button></div>
                 </AlertDescription>
             </Alert>
                 <TabsContent value="overview">
@@ -239,10 +205,13 @@ function addLink() {
                         </FieldSet>
                         <Field :data-invalid="!!form.errors.tags">
                             <FieldLabel :for="`${formId}-tags`">Tags</FieldLabel>
-                            <Input :id="`${formId}-tags`" v-model="tagsText" name="tags" placeholder="php, vue, personal" />
-                            <FieldDescription>Separate tags with commas.</FieldDescription>
+                            <ProjectTagsInput :id="`${formId}-tags`" v-model="form.tags" :invalid="!!form.errors.tags" />
                         </Field>
-                        <FieldDescription v-if="latestCommit">Latest known local commit: {{ date(latestCommit.last_commit_at) }} · {{ latestCommit.branch ?? latestCommit.git_state }} · {{ latestCommit.path }}<template v-if="latestCommit.commit_subject"><br>{{ latestCommit.commit_subject }}</template></FieldDescription>
+                        <Field id="notes" :data-invalid="!!form.errors.notes">
+                            <FieldLabel :for="`${formId}-notes`">Notes</FieldLabel>
+                            <Textarea :id="`${formId}-notes`" v-model="form.notes" :rows="8" maxlength="50000" placeholder="Decisions, setup instructions, ideas…" :aria-invalid="!!form.errors.notes" />
+                            <FieldDescription>Markdown supported.</FieldDescription>
+                        </Field>
                     </FieldGroup>
                 </TabsContent>
                 <TabsContent value="repositories">
@@ -253,11 +222,11 @@ function addLink() {
                             <FieldGroup v-for="(repo, index) in form.repositories" :key="repo.id">
                                 <Field>
                                     <FieldLabel :for="`${repo.id}-name`">Repository name</FieldLabel>
-                                    <Input :id="`${repo.id}-name`" v-model="repo.name" maxlength="255" :aria-invalid="!!form.errors[`repositories.${index}.name`]" />
+                                    <Input :id="`${repo.id}-name`" v-model="repo.name" placeholder="Filled from the remote URL" maxlength="255" :aria-invalid="!!form.errors[`repositories.${index}.name`]" />
                                 </Field>
                                 <Field>
                                     <FieldLabel :for="`${repo.id}-url`">Remote URL</FieldLabel>
-                                    <Input :id="`${repo.id}-url`" v-model="repo.remote_url" placeholder="https://github.com/owner/repository.git" maxlength="2048" :aria-invalid="!!form.errors[`repositories.${index}.remote_url`]" />
+                                    <Input :id="`${repo.id}-url`" :model-value="repo.remote_url" @update:model-value="updateRemote(repo, String($event))" placeholder="https://github.com/owner/repository.git" maxlength="2048" :aria-invalid="!!form.errors[`repositories.${index}.remote_url`]" />
                                 </Field>
                                 <div class="flex flex-wrap gap-2">
                                     <OpenTargetButton v-if="project?.repositories.some(saved => saved.id === repo.id)" :project-id="project.id" kind="repositories" :id="repo.id" :native="native" :href="repo.web_url" label="Open repository" />
@@ -274,14 +243,13 @@ function addLink() {
                                     <span class="break-all font-medium">{{ folder.path }}</span>
                                     <Badge :variant="folder.availability === 'Available' ? 'secondary' : 'destructive'">{{ folder.availability }}</Badge>
                                 </div>
-                                <FieldDescription>{{ folderScan(folder).git_state }}<template v-if="folderScan(folder).branch"> · {{ folderScan(folder).branch }}</template><template v-if="folderScan(folder).last_commit_at"> · {{ date(folderScan(folder).last_commit_at) }} · {{ folderScan(folder).last_commit_hash?.slice(0, 8) }}</template></FieldDescription>
-                                <FieldDescription v-if="folderScan(folder).commit_subject">{{ folderScan(folder).commit_subject }}</FieldDescription>
-                                <FieldDescription v-if="folderScan(folder).git_root" class="break-all">Git root: {{ folderScan(folder).git_root }}<template v-if="folderScan(folder).git_remote"><br>Remote: {{ folderScan(folder).git_remote }}</template></FieldDescription>
-                                <div v-if="folderScan(folder).scan_state" class="flex flex-wrap items-center gap-2">
-                                    <Badge variant="secondary">{{ folderScan(folder).scan_state }}</Badge>
-                                    <span v-if="folderScan(folder).scan_error" class="text-sm text-destructive">{{ folderScan(folder).scan_error }}. Previous results retained.</span>
-                                    <span v-if="folderScan(folder).scanned_at" class="text-sm text-muted-foreground">Scanned {{ date(folderScan(folder).scanned_at) }}</span>
-                                    <Button type="button" size="sm" variant="outline" :disabled="scan.processing || ['Queued', 'Scanning'].includes(folderScan(folder).scan_state!)" @click="refresh('folder', folder.id)">Refresh Git</Button>
+                                <FieldDescription>{{ folder.git_state }}<template v-if="folder.branch"> · {{ folder.branch }}</template><template v-if="folder.last_commit_at"> · {{ date(folder.last_commit_at) }} · {{ folder.last_commit_hash?.slice(0, 8) }}</template></FieldDescription>
+                                <FieldDescription v-if="folder.commit_subject">{{ folder.commit_subject }}</FieldDescription>
+                                <FieldDescription v-if="folder.git_root" class="break-all">Git root: {{ folder.git_root }}<template v-if="folder.git_remote"><br>Remote: {{ folder.git_remote }}</template></FieldDescription>
+                                <div v-if="folder.scan_state" class="flex flex-wrap items-center gap-2">
+                                    <Badge variant="secondary">{{ folder.scan_state }}</Badge>
+                                    <span v-if="folder.scan_error" class="text-sm text-destructive">{{ folder.scan_error }}. Previous results retained.</span>
+                                    <span v-if="folder.scanned_at" class="text-sm text-muted-foreground">Scanned {{ date(folder.scanned_at) }}</span>
                                 </div>
                                 <Field>
                                     <FieldLabel :for="`${folder.id}-repository`">Repository</FieldLabel>
@@ -309,7 +277,7 @@ function addLink() {
                     <FieldGroup>
                         <FieldDescription v-if="!form.links.length">No links added.</FieldDescription>
                         <FieldSet v-for="(link, index) in form.links" :key="link.id">
-                            <FieldLegend>{{ link.label || 'New link' }}</FieldLegend>
+                            <FieldLegend><span class="flex items-center gap-2"><LinkIcon :url="link.url" />{{ link.label || 'New link' }}</span></FieldLegend>
                             <FieldGroup>
                                 <Field>
                                     <FieldLabel :for="`${link.id}-label`">Label</FieldLabel>
@@ -324,13 +292,9 @@ function addLink() {
                                         <FieldLabel :for="`${link.id}-category`">Category (optional)</FieldLabel>
                                         <Input :id="`${link.id}-category`" :model-value="link.category ?? ''" list="link-categories" maxlength="50" @update:model-value="link.category = String($event)" />
                                     </Field>
-                                    <Field>
-                                        <FieldLabel :for="`${link.id}-icon`">Emoji (optional)</FieldLabel>
-                                        <Input :id="`${link.id}-icon`" :model-value="link.icon ?? ''" maxlength="32" @update:model-value="link.icon = String($event)" />
-                                    </Field>
                                 </div>
                                 <div class="flex flex-wrap gap-2">
-                                    <OpenTargetButton v-if="project?.links.some(saved => saved.id === link.id)" :project-id="project.id" kind="links" :id="link.id" :native="native" :href="project.links.find(saved => saved.id === link.id)?.url" :label="link.icon ? `${link.icon} Open link` : 'Open link'" />
+                                    <OpenTargetButton v-if="project?.links.some(saved => saved.id === link.id)" :project-id="project.id" kind="links" :id="link.id" :native="native" :href="project.links.find(saved => saved.id === link.id)?.url" label="Open link" />
                                     <Button type="button" variant="outline" size="icon-sm" :aria-label="`Move ${link.label || 'link'} up`" :disabled="index === 0" @click="moveLink(index, -1)"><ArrowUpIcon aria-hidden="true" /></Button>
                                     <Button type="button" variant="outline" size="icon-sm" :aria-label="`Move ${link.label || 'link'} down`" :disabled="index === form.links.length - 1" @click="moveLink(index, 1)"><ArrowDownIcon aria-hidden="true" /></Button>
                                     <Button type="button" variant="ghost" size="sm" @click="form.links.splice(index, 1); form.clearErrors()"><Trash2Icon aria-hidden="true" />Remove link</Button>
@@ -344,7 +308,8 @@ function addLink() {
             <Field orientation="horizontal">
                 <Button type="submit" :disabled="form.processing || inspection.processing">{{ form.processing ? 'Saving…' : (project ? 'Save changes' : 'Create project') }}</Button>
                 <Button v-if="!project" as-child variant="outline"><Link href="/">Cancel</Link></Button>
-                <Button v-else type="button" variant="outline" :disabled="form.processing" @click="archive">{{ project.status === 'Archived' ? 'Restore project' : 'Archive project' }}</Button>
+                <Button v-if="project" as-child variant="outline"><Link :href="`/projects/${project.id}`">Cancel</Link></Button>
+                <Button v-if="project" type="button" variant="outline" :disabled="form.processing" @click="archive">{{ project.status === 'Archived' ? 'Restore project' : 'Archive project' }}</Button>
                 <Button v-if="project" type="button" variant="destructive" :disabled="form.processing" @click="removeOpen = true">Remove project</Button>
             </Field>
             <FieldDescription v-if="project && message && !form.processing && !form.isDirty" role="status">{{ message }}</FieldDescription>

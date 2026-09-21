@@ -38,7 +38,16 @@ class ReadDependencies
         }
         $unsupported = array_values(array_filter(['yarn.lock', 'pnpm-lock.yaml'], fn ($file) => file_exists($path.'/'.$file)));
 
-        return ['version' => 1, 'path' => $path, 'files' => $files, 'unsupported_lockfiles' => $unsupported];
+        $snapshot = ['version' => 1, 'path' => $path, 'files' => $files, 'unsupported_lockfiles' => $unsupported];
+
+        return [...$snapshot, 'fingerprint' => self::fingerprint($snapshot)];
+    }
+
+    public static function fingerprint(array $snapshot): string
+    {
+        $files = array_map(fn (array $file): array => array_intersect_key($file, array_flip(['state', 'entries', 'requirements'])), $snapshot['files'] ?? []);
+
+        return hash('sha256', json_encode($files, JSON_THROW_ON_ERROR));
     }
 
     public function readJson(string $path, string $file, int $limit = self::MANIFEST_LIMIT): stdClass

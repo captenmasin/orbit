@@ -26,6 +26,7 @@ class SaveProject
         $data = Validator::make($input, [
             'name' => ['required', 'string', 'max:255', 'regex:/\S/u'],
             'description' => ['nullable', 'string', 'max:10000'],
+            'notes' => ['sometimes', 'nullable', 'string', 'max:50000'],
             'status' => ['required', Rule::in(Project::STATUSES)],
             'revision' => [$id ? 'required' : 'prohibited', 'integer', 'min:1'],
             'icon_type' => ['sometimes', Rule::in(['initials', 'emoji', 'image'])],
@@ -35,7 +36,7 @@ class SaveProject
             'tags.*' => ['required', 'string', 'max:50', 'regex:/\S/u'],
             'repositories' => ['sometimes', 'array', 'max:100'],
             'repositories.*.id' => ['required', 'uuid', 'distinct'],
-            'repositories.*.name' => ['required', 'string', 'max:255', 'regex:/\S/u'],
+            'repositories.*.name' => ['nullable', 'string', 'max:255', 'regex:/\S/u'],
             'repositories.*.remote_url' => ['required', 'string', 'max:2048', 'distinct', new ProjectUrl(repository: true)],
             'folders' => ['sometimes', 'array', 'max:100'],
             'folders.*.id' => ['required', 'uuid', 'distinct'],
@@ -46,7 +47,6 @@ class SaveProject
             'links.*.label' => ['required', 'string', 'max:255', 'regex:/\S/u'],
             'links.*.url' => ['required', 'string', 'max:2048', new ProjectUrl],
             'links.*.category' => ['nullable', 'string', 'max:50'],
-            'links.*.icon' => $emoji,
         ])->validate();
 
         $revision = $data['revision'] ?? null;
@@ -105,6 +105,7 @@ class SaveProject
             $project = DB::transaction(function () use ($data, $id, $revision, $current, $type, $newIcon, $oldIcon) {
                 $attributes = [
                     'name' => trim($data['name']), 'description' => $data['description'] ?? null, 'status' => $data['status'],
+                    'notes' => array_key_exists('notes', $data) ? $data['notes'] : $current?->notes,
                     'icon_type' => $type, 'icon_emoji' => $type === 'emoji' ? $data['icon_emoji'] : null,
                     'icon_path' => $type === 'image' ? ($newIcon ?: $oldIcon) : null,
                     'archived_at' => $data['status'] === 'Archived' ? ($current?->archived_at ?? now()) : null,
@@ -124,6 +125,7 @@ class SaveProject
                 }
                 // Save repositories before checkouts, and detach checkouts before removing a repository.
                 foreach ($data['repositories'] ?? [] as $repository) {
+                    $repository['name'] = $repository['name'] ?? Repository::nameFromUrl($repository['remote_url']);
                     $project->repositories()->updateOrCreate(['id' => $repository['id']], Arr::only($repository, ['name', 'remote_url']));
                 }
                 if (isset($data['folders'])) {

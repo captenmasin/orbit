@@ -21,7 +21,7 @@ class PackageRoot extends Model
     protected function casts(): array
     {
         return [
-            'executable_overrides' => 'array', 'snapshot' => 'array', 'revision' => 'integer',
+            'executable_overrides' => 'array', 'snapshot' => 'array', 'outdated' => 'array', 'revision' => 'integer',
             'scanned_at' => 'datetime', 'scan_attempted_at' => 'datetime', 'scan_started_at' => 'datetime',
         ];
     }

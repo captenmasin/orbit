@@ -202,7 +202,7 @@ class ProjectCatalogTest extends TestCase
                 'GIT_AUTHOR_DATE' => '2026-01-02T10:00:00Z', 'GIT_COMMITTER_DATE' => '2026-02-03T11:00:00Z',
             ]))->mustRun();
         }
-        $this->postJson('/folders/inspect', ['path' => $path])->assertJsonPath('folder.name', 'Detected name')
+        $this->postJson('/folders/inspect', ['path' => $path])->assertJsonPath('folder.name', 'preview')
             ->assertJsonPath('folder.description', 'Detected description')->assertJsonPath('folder.branch', 'main')
             ->assertJsonPath('folder.remote_url', 'git@github.com:example/catalog.git')
             ->assertJsonPath('folder.last_commit_at', '2026-02-03T11:00:00+00:00');

@@ -43,7 +43,7 @@ class ProjectFolder extends Model
             if ($folder->wasChanged('path')) {
                 $folder->packageRoots()->update([
                     'scan_token' => null, 'scan_state' => 'Not scanned', 'scan_error' => null,
-                    'snapshot' => null, 'scanned_at' => null,
+                    'snapshot' => null, 'outdated' => null, 'scanned_at' => null,
                     'scan_job_id' => null, 'scan_attempted_at' => null, 'scan_started_at' => null,
                     'revision' => DB::raw('revision + 1'),
                 ]);

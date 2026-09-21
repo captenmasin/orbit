@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { webcrypto } from 'node:crypto';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { compileScript, parse } from '@vue/compiler-sfc';
@@ -8,53 +9,87 @@ import * as vueuse from '@vueuse/core';
 import ts from 'typescript';
 import * as vue from 'vue';
 
-test('project tabs survive remounts and inspection updates preserve unsaved catalog input', async t => {
-    const stored = new Map();
-    const storage = {
-        getItem: key => stored.get(key) ?? null,
-        setItem: (key, value) => stored.set(key, value),
-        removeItem: key => stored.delete(key),
-    };
-    // Keep VueUse's real storage behavior, substituting only the browser storage backend.
-    const modules = {
-        vue,
-        '@inertiajs/vue3': inertia,
-        '@vueuse/core': { ...vueuse, useSessionStorage: (key, value, options) => vueuse.useStorage(key, value, storage, options) },
-    };
-    const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ProjectForm.vue', import.meta.url), 'utf8'));
-    const script = compileScript(descriptor, { id: 'project-tab-test' });
-    const { outputText } = ts.transpileModule(script.content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
-    const context = { exports: {}, require: name => modules[name] ?? {} };
+function script(source, modules) {
+    const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
+    const context = { exports: {}, require: name => modules[name] ?? {}, crypto: webcrypto, URL };
     runInNewContext(outputText, context);
-    function mount(id) {
+    return context.exports;
+}
+const projectHelpers = script(readFileSync(new URL('../resources/js/lib/project.ts', import.meta.url), 'utf8'), {});
+
+function harness(t) {
+    const stored = new Map();
+    const storage = { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) };
+    const modules = { vue, '@inertiajs/vue3': inertia, '@/lib/project': projectHelpers,
+        '@vueuse/core': { ...vueuse, useSessionStorage: (key, value, options) => vueuse.useStorage(key, value, storage, options) } };
+    return function mount(file, input) {
+        const { descriptor } = parse(readFileSync(new URL(`../resources/js/${file}.vue`, import.meta.url), 'utf8'));
+        const component = script(compileScript(descriptor, { id: 'project-tab-test' }).content, modules).default;
         const scope = vue.effectScope();
         t.after(() => scope.stop());
-        const props = vue.reactive({ project: id ? { id, tags: [], revision: 1 } : undefined, scanFolders: [], statuses: ['Idea'], native: false });
-        const form = scope.run(() => context.exports.default.setup(props, { expose() {} }));
-        return { form, props, unmount: () => scope.stop() };
-    }
+        const props = vue.reactive(input);
+        const state = scope.run(() => component.setup(props, { expose() {} }));
+        return { state, props, unmount: () => scope.stop() };
+    };
+}
 
-    for (const tab of ['board', 'dependencies', 'repositories', 'links', 'overview']) {
-        const current = mount('project-a');
-        current.form.tab.value = tab;
+test('project view tabs survive navigation and follow each selected project', async t => {
+    const mount = harness(t);
+    const view = id => mount('pages/ShowProject', { selectedProject: { id, tags: [], revision: 1 }, inspection: [], activity: [], connections: [], native: false, notesHtml: '' });
+    for (const tab of ['board', 'dependencies', 'secrets', 'overview']) {
+        const current = view('project-a');
+        current.state.tab.value = tab;
         current.unmount();
-        const reloaded = mount('project-a');
-        assert.equal(reloaded.form.tab.value, tab, 'Even an immediate reload restores the current tab');
+        const reloaded = view('project-a');
+        assert.equal(reloaded.state.tab.value, tab);
         reloaded.unmount();
     }
-    mount('project-a').form.tab.value = 'board';
-    assert.equal(mount('project-b').form.tab.value, 'overview');
-    const create = mount();
-    create.form.tab.value = 'links';
-    create.unmount();
-    assert.equal(mount().form.tab.value, 'overview');
-    assert.equal(mount('project-a').form.tab.value, 'board');
-
-    const draft = mount('dirty-project');
-    draft.form.form.name = 'Unsaved catalog name';
-    draft.props.scanFolders = [{ id: 'folder', path: '/project', branch: 'new-branch', last_commit_at: '2026-09-15T12:00:00Z' }];
+    const current = view('project-a');
+    current.state.tab.value = 'board';
+    current.props.selectedProject = { id: 'project-b', tags: [], revision: 1 };
     await vue.nextTick();
-    assert.equal(draft.form.form.name, 'Unsaved catalog name');
-    assert.equal(draft.form.latestCommit.value.branch, 'new-branch');
-    assert.equal(draft.props.project.revision, 1);
+    assert.equal(current.state.tab.value, 'overview');
+    current.props.selectedProject = { id: 'project-a', tags: [], revision: 1 };
+    await vue.nextTick();
+    assert.equal(current.state.tab.value, 'board');
+    current.props.inspection = [{ id: 'folder', path: '/project', branch: 'main', last_commit_at: '2026-09-15T12:00:00Z' }];
+    await vue.nextTick();
+    assert.equal(current.state.latestCommit.value.branch, 'main');
+    current.props.activity = [{ remote_commit_at: '2026-09-19T12:00:00Z', default_branch: 'release', provider_name: 'team/repo', provider_snapshots: [{ resource: 'overview', state: 'Stale' }] }];
+    await vue.nextTick();
+    assert.equal(current.state.latestCommit.value.branch, 'release');
+    assert.match(current.state.latestCommit.value.path, /Stale/);
+});
+
+test('edit forms retain dirty names, notes and tags when the saved revision changes', async t => {
+    const mount = harness(t);
+    const current = mount('components/ProjectForm', { project: { id: 'project-a', tags: [], revision: 1 }, statuses: ['Idea'], native: false });
+    current.state.form.name = 'Unsaved name';
+    current.state.form.notes = 'Unsaved notes';
+    current.state.form.tags = ['new-tag'];
+    await vue.nextTick();
+    current.props.project.revision = 2;
+    await vue.nextTick();
+    assert.equal(current.state.form.name, 'Unsaved name');
+    assert.equal(current.state.form.notes, 'Unsaved notes');
+    assert.deepEqual(Array.from(current.state.form.tags), ['new-tag']);
+    const create = mount('components/ProjectForm', { statuses: ['Idea'], native: false });
+    assert.equal(create.state.tab.value, 'overview');
+});
+
+test('folder creation uses the folder name and derives repository names without overwriting custom names', t => {
+    const mount = harness(t);
+    const current = mount('components/ProjectForm', { statuses: ['Idea'], native: false });
+    current.state.preview.value = { name: 'Folder name', path: '/projects/Folder name', remote_url: 'git@github.com:owner/repository.git', description: 'Description', git_state: 'Git repository' };
+    current.state.useFolder();
+    assert.equal(current.state.form.name, 'Folder name');
+    assert.equal(current.state.form.repositories[0].name, 'repository');
+    const repo = current.state.form.repositories[0];
+    current.state.updateRemote(repo, 'https://github.com/owner/next.git');
+    assert.equal(repo.name, 'next');
+    repo.name = 'Custom label';
+    current.state.updateRemote(repo, 'ssh://git@github.com/owner/another.git');
+    assert.equal(repo.name, 'Custom label');
+    assert.equal(projectHelpers.repositoryName('ssh://git@github.com/owner/repository.git'), 'repository');
+    assert.equal(projectHelpers.repositoryName('not a URL'), '');
 });

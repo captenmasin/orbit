@@ -1,8 +1,19 @@
 # Milestone 3 — Local inspection
 
-Status: planned. Written 15 September 2026. Depends on the catalog and completed boards milestone. This document specifies future work; it does not certify that work as implemented.
+Status: complete, verified 19 September 2026 in the signed 0.4.0 Apple Silicon package. Written 15 September 2026. The specification below is retained with implementation decisions and verification evidence recorded here.
 
 Parent: [Product plan](../PLAN.md). Next: [Milestone 4 — GitHub/GitLab](PLAN-04-provider-activity.md).
+
+## Implementation and verification — 19 September 2026
+
+- Implemented explicit relative package roots, independent revision checks, additive migrations, and token-guarded background scans. Existing catalog and board records were preserved. A root relink/overlap/delete regression prevents obsolete jobs from publishing.
+- Composer and npm lockfile versions 1–3 preserve required constraints, resolved versions, development scope, nested locations, and workspace links. Yarn/pnpm lockfiles remain explicitly unsupported. Reads are capped at 256 KB per manifest, 16 MB per lockfile, and 20,000 entries, with structure and containment validation.
+- Runtime probes use `/` as their working directory to avoid loading project configuration. PHP/Node must resolve to native binaries; Composer PHARs and known package-manager CLI scripts use the selected interpreter. Corepack, arbitrary wrappers, project executables, and Orbit’s bundled runtimes are excluded. Probes strip injection variables and have three-second/64 KB limits; no installation or compatibility solving occurs.
+- NativePHP owns one database worker on the `inspection` queue. Jobs have a 45-second timeout, the worker 60 seconds, and retry visibility 90 seconds. Automatic refresh checks the selected active project at one-minute intervals when older than five minutes; pending scans poll every two seconds. Derived props preserve unsaved form input.
+- All 71 PHP tests passed (851 assertions), plus four JavaScript regressions, Vue type checking and a production build. Tests cover the matrix below, including malformed sources, process limits, stale revisions, and draft preservation. Test storage now lives outside the repository so non-Git fixtures remain non-Git after repository initialization.
+- Packaged UI checks used two Git checkouts and a nested JavaScript root. The UI showed distinct branches, the HEAD committer date, both nested Vue versions, and a changed manifest constraint independently of its unchanged lockfile. Saved roots and overrides survived restart.
+- Quit during an observed `Scanning` state stopped the worker and probe children. Relaunch retained prior results; after the queue visibility budget the interrupted job became stale and could be retried. Controlled slow executables produced `Timed out` results. Moving the root away produced `Missing folder` without erasing the previous snapshot; restoring it recovered successfully.
+- Native folder selection and external runtime detection passed on a normal GUI launch. The signed bundle and DMG checks passed; original packaged/development data matched backups after fixture cleanup. See [the desktop integration record](desktop-integration.md) for packaging details and the non-reproduced initial server-exit observation. A second macOS profile and notarization remain separate release checks.
 
 ## Outcome
 
@@ -134,12 +145,12 @@ Use existing PHPUnit facilities, real temporary Git fixtures for Git semantics, 
 
 ## Completion checklist
 
-- [ ] Supported source/version labels are correct across the verification matrix.
-- [ ] Explicit roots and overrides survive restart and folder relinking.
-- [ ] Scans are bounded, run outside UI requests, and never execute project scripts.
-- [ ] Failed and obsolete scans cannot erase good snapshots or user edits.
-- [ ] Catalog commit sorting retains correct timestamps and visible source provenance.
-- [ ] Desktop remains usable while several targets are queued; normal Quit still works.
-- [ ] Migration, focused tests, production build, and packaged checks are recorded.
+- [x] Supported source/version labels are correct across the verification matrix.
+- [x] Explicit roots and overrides survive restart and folder relinking.
+- [x] Scans are bounded, run outside UI requests, and never execute project scripts.
+- [x] Failed and obsolete scans cannot erase good snapshots or user edits.
+- [x] Catalog commit sorting retains correct timestamps and visible source provenance.
+- [x] Desktop remains usable while several targets are queued; normal Quit still works.
+- [x] Migration, focused tests, production build, and packaged checks are recorded.
 
 No GitHub/GitLab requests, secret vault, dependency installation/upgrades, recursive disk indexing, or filesystem watcher is part of this milestone. Continue with [Milestone 4](PLAN-04-provider-activity.md) once these checks pass.

@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\CheckDependencyUpdates;
 use App\Actions\ProbeRuntimes;
 use App\Actions\QueueInspection;
+use App\Actions\ReadDependencies;
+use App\Models\PackageRoot;
 use App\Models\Project;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,6 +16,24 @@ use Illuminate\Validation\ValidationException;
 
 class InspectionController extends Controller
 {
+    public function outdated(Project $project, PackageRoot $root, CheckDependencyUpdates $check): JsonResponse
+    {
+        abort_unless($root->folder->project_id === $project->id, 404);
+        if (! $root->snapshot || ! in_array($root->scan_state, ['Current', 'Partial'], true)) {
+            throw ValidationException::withMessages(['root' => 'Refresh this package root before checking for updates.']);
+        }
+        $result = $check->handle($root->snapshot);
+        DB::transaction(function () use ($root, $result): void {
+            $current = $root->fresh();
+            if (! $current || $current->revision !== $root->revision || ReadDependencies::fingerprint($current->snapshot ?? []) !== $result['fingerprint']) {
+                throw ValidationException::withMessages(['root' => 'This package root changed. Check for updates again.']);
+            }
+            $current->forceFill(['outdated' => $result])->save();
+        });
+
+        return response()->json(['checked' => true]);
+    }
+
     public function refresh(Request $request, Project $project, QueueInspection $queue): JsonResponse
     {
         $data = $request->validate([
@@ -78,6 +99,7 @@ class InspectionController extends Controller
                 'revision' => $root ? $root->revision + 1 : 1, 'scan_token' => null, 'scan_job_id' => null,
                 'scan_state' => 'Not scanned', 'scan_error' => null, 'scan_attempted_at' => null, 'scan_started_at' => null,
                 'snapshot' => $relative === $root?->relative_path ? $root?->snapshot : null,
+                'outdated' => $relative === $root?->relative_path ? $root?->outdated : null,
                 'scanned_at' => $relative === $root?->relative_path ? $root?->scanned_at : null,
             ])->save();
         });

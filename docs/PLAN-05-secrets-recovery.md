@@ -2,7 +2,7 @@
 
 Status: planned. Written 15 September 2026. Depends on completed provider activity and its native credential-encryption foundation. This is an implementation plan, not a claim of a working vault or backup format.
 
-Parent: [Product plan](../PLAN.md). Previous: [GitHub/GitLab](PLAN-04-provider-activity.md). Next: [Public beta](PLAN-06-public-beta.md).
+Parent: [Product plan](../PLAN.md). Previous: [GitHub/GitLab](PLAN-04-provider-activity.md). Next: [Project knowledge and migration](PLAN-06-project-knowledge.md).
 
 ## Outcome
 
@@ -172,4 +172,4 @@ Use focused PHPUnit tests with native facade/HTTP doubles for controllable failu
 - [ ] Catalog/board ordering, icons, links, roots, and relinking survive recovery.
 - [ ] Formatting, focused tests, production build, and packaged evidence are recorded.
 
-Proceed to public beta only after the recovery demonstration passes. If another macOS profile or required packaging capability is unavailable, keep that check open rather than treating a mock or empty app-data directory as equivalent.
+Continue with [Milestone 6 — Project knowledge and migration](PLAN-06-project-knowledge.md). Public beta is milestone 7 and still requires the recovery demonstration to pass. If another macOS profile or required packaging capability is unavailable, keep that check open rather than treating a mock or empty app-data directory as equivalent.

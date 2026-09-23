@@ -7,6 +7,7 @@ use App\Actions\RecordAccessEvent;
 use App\EnvFile;
 use App\Models\Project;
 use App\Models\ProjectSecret;
+use App\Rules\ProjectUrl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -33,6 +34,9 @@ class SecretController extends Controller
                     'environment' => $data['environment'],
                     'name' => $data['name'],
                     'ciphertext' => $ciphertext,
+                    'service' => $data['service'],
+                    'description' => $data['description'],
+                    'management_url' => $data['management_url'],
                 ]);
                 $events->handle('create', 'Succeeded', secretId: $secret->id);
 
@@ -52,9 +56,11 @@ class SecretController extends Controller
         $entries = $this->takeEntries($request, $envFile);
         $data = $request->validate([
             'environment' => ['required', 'string', 'max:100', 'regex:/\S/u'],
+            'service' => ['nullable', 'string', 'max:100'],
             'project_revision' => ['required', 'integer', 'min:1'],
         ]);
         $environment = trim($data['environment']);
+        $service = isset($data['service']) ? (trim($data['service']) ?: null) : null;
         try {
             $names = array_keys($entries);
             $ciphertexts = [];
@@ -63,13 +69,13 @@ class SecretController extends Controller
             }
             unset($entries);
 
-            return DB::transaction(function () use ($project, $names, $ciphertexts, $environment, $data, $events): JsonResponse {
+            return DB::transaction(function () use ($project, $names, $ciphertexts, $environment, $service, $data, $events): JsonResponse {
                 if ($project->secrets()->where('environment', $environment)->whereIn('name', $names)->exists()) {
                     throw ValidationException::withMessages(['entries' => 'Some secret names already exist in this environment.']);
                 }
                 $this->advanceProjectRevision($project, (int) $data['project_revision']);
                 foreach ($names as $name) {
-                    $secret = $project->secrets()->create(['environment' => $environment, 'name' => $name, 'ciphertext' => $ciphertexts[$name]]);
+                    $secret = $project->secrets()->create(['environment' => $environment, 'name' => $name, 'ciphertext' => $ciphertexts[$name], 'service' => $service]);
                     $events->handle('create', 'Succeeded', secretId: $secret->id);
                 }
 
@@ -247,6 +253,69 @@ class SecretController extends Controller
         }
     }
 
+    public function updateMetadata(Request $request, Project $project, string $secret): JsonResponse
+    {
+        $data = $this->revision($request);
+        $context = $this->context($request);
+        $current = $project->secrets()->select(['id', 'project_id', 'revision'])->findOrFail($secret);
+
+        return DB::transaction(function () use ($project, $current, $data, $context): JsonResponse {
+            $this->advanceProjectRevision($project, $data['project_revision']);
+            if (! ProjectSecret::whereKey($current->id)->where('project_id', $project->id)->where('revision', $data['revision'])->update([
+                ...$context,
+                'revision' => $current->revision + 1,
+                'updated_at' => now(),
+            ])) {
+                throw new ConflictHttpException('This secret changed. Reload before editing its context.');
+            }
+
+            return response()->json(['saved' => true]);
+        });
+    }
+
+    public function bulkMetadata(Request $request, Project $project): JsonResponse
+    {
+        $data = $request->validate([
+            'project_revision' => ['required', 'integer', 'min:1'],
+            'secrets' => ['required', 'array', 'min:1', 'max:1000'],
+            'secrets.*.id' => ['required', 'uuid', 'distinct'],
+            'secrets.*.revision' => ['required', 'integer', 'min:1'],
+            'environment' => ['sometimes', 'required', 'string', 'max:100', 'regex:/\S/u'],
+            'service' => ['sometimes', 'nullable', 'string', 'max:100'],
+        ]);
+        if (! array_key_exists('environment', $data) && ! array_key_exists('service', $data)) {
+            throw ValidationException::withMessages(['secrets' => 'Choose an environment or category to update.']);
+        }
+        $changes = [];
+        if (array_key_exists('environment', $data)) {
+            $changes['environment'] = trim($data['environment']);
+        }
+        if (array_key_exists('service', $data)) {
+            $changes['service'] = isset($data['service']) ? (trim($data['service']) ?: null) : null;
+        }
+
+        return DB::transaction(function () use ($project, $data, $changes): JsonResponse {
+            $selected = collect($data['secrets'])->keyBy('id');
+            $secrets = $project->secrets()->whereIn('id', $selected->keys())->get();
+            if ($secrets->count() !== $selected->count() || $secrets->contains(fn (ProjectSecret $secret): bool => $secret->revision !== (int) $selected[$secret->id]['revision'])) {
+                throw new ConflictHttpException('Some secrets changed. Reload before updating them.');
+            }
+            if (isset($changes['environment'])) {
+                if ($secrets->pluck('name')->unique()->count() !== $secrets->count() || $project->secrets()->where('environment', $changes['environment'])->whereIn('name', $secrets->pluck('name'))->whereNotIn('id', $selected->keys())->exists()) {
+                    throw ValidationException::withMessages(['environment' => 'The selected secrets would have duplicate names in that environment.']);
+                }
+            }
+            $this->advanceProjectRevision($project, (int) $data['project_revision']);
+            foreach ($secrets as $secret) {
+                if (! ProjectSecret::whereKey($secret->id)->where('revision', $secret->revision)->update([...$changes, 'revision' => $secret->revision + 1, 'updated_at' => now()])) {
+                    throw new ConflictHttpException('Some secrets changed. Reload before updating them.');
+                }
+            }
+
+            return response()->json(['saved' => true, 'updated' => $secrets->count()]);
+        });
+    }
+
     public function destroy(Request $request, Project $project, string $secret, RecordAccessEvent $events): JsonResponse
     {
         $data = $this->revision($request);
@@ -323,7 +392,7 @@ class SecretController extends Controller
     }
 
     /**
-     * @return array{environment: string, name: string, project_revision: int}
+     * @return array{environment: string, name: string, project_revision: int, service: ?string, description: ?string, management_url: ?string}
      */
     private function metadata(Request $request, Project $project): array
     {
@@ -337,7 +406,23 @@ class SecretController extends Controller
             throw ValidationException::withMessages(['name' => 'A secret with this name already exists in this environment.']);
         }
 
-        return [...$data, 'project_revision' => (int) $data['project_revision']];
+        return [...$data, ...$this->context($request), 'project_revision' => (int) $data['project_revision']];
+    }
+
+    /** @return array{service: ?string, description: ?string, management_url: ?string} */
+    private function context(Request $request): array
+    {
+        $data = $request->validate([
+            'service' => ['nullable', 'string', 'max:100'],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'management_url' => ['nullable', 'string', 'max:2048', new ProjectUrl],
+        ]);
+
+        return [
+            'service' => isset($data['service']) ? (trim($data['service']) ?: null) : null,
+            'description' => $data['description'] ?? null,
+            'management_url' => $data['management_url'] ?? null,
+        ];
     }
 
     /**

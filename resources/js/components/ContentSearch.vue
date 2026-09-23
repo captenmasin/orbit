@@ -1,0 +1,67 @@
+<script setup lang="ts">
+import { onBeforeUnmount, ref, watch } from 'vue';
+import { Link } from '@inertiajs/vue3';
+import { SearchIcon } from '@lucide/vue';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Field, FieldLabel } from '@/components/ui/field';
+
+const props = defineProps<{ projectId?: string }>();
+const emit = defineEmits<{ navigate: [] }>();
+type Result = { id: string; project: string; type: string; title: string; excerpt: string; url: string };
+const query = ref('');
+const results = ref<Result[]>([]);
+const searched = ref(false);
+const loading = ref(false);
+const hasMore = ref(false);
+const error = ref('');
+let request: AbortController | undefined;
+
+async function search() {
+    request?.abort();
+    const current = new AbortController();
+    request = current;
+    loading.value = true;
+    error.value = '';
+    try {
+        const parameters = new URLSearchParams({ q: query.value });
+        if (props.projectId) parameters.set('project_id', props.projectId);
+        const response = await fetch(`/search?${parameters}`, { signal: current.signal, headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error();
+        const body = await response.json() as { results: Result[]; has_more: boolean };
+        if (current.signal.aborted) return;
+        results.value = body.results;
+        hasMore.value = body.has_more;
+        searched.value = true;
+    } catch {
+        if (!current.signal.aborted) error.value = 'Search could not be completed. Try again.';
+    } finally {
+        if (!current.signal.aborted) loading.value = false;
+    }
+}
+watch(() => props.projectId, () => { request?.abort(); results.value = []; searched.value = false; loading.value = false; });
+onBeforeUnmount(() => request?.abort());
+</script>
+
+<template>
+    <div class="grid min-w-0 gap-3">
+        <form class="flex items-end gap-2" @submit.prevent="search">
+            <Field class="min-w-0 flex-1"><FieldLabel :for="projectId ? 'project-content-search' : 'workspace-content-search'">{{ projectId ? 'Search this project' : 'Search workspace' }}</FieldLabel><Input :id="projectId ? 'project-content-search' : 'workspace-content-search'" v-model="query" maxlength="255" placeholder="Documents, tasks, links, secret names…" /></Field>
+            <Button type="submit" variant="outline" :disabled="loading"><SearchIcon aria-hidden="true" />{{ loading ? 'Searching…' : 'Search' }}</Button>
+        </form>
+        <p v-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
+        <div v-if="searched" class="grid gap-2">
+            <p class="text-sm text-muted-foreground" role="status">{{ results.length }} results<template v-if="hasMore"> · Showing up to 10 per type. Refine your search for more.</template></p>
+            <ul v-if="results.length" class="max-h-96 divide-y overflow-y-auto rounded-md border">
+                <li v-for="result in results" :key="`${result.type}-${result.id}`">
+                    <Link :href="result.url" class="block space-y-1 p-3 hover:bg-muted focus-visible:outline-2" @click="emit('navigate')">
+                        <div class="flex flex-wrap items-center gap-2"><Badge variant="secondary" class="capitalize">{{ result.type }}</Badge><span class="break-all font-medium">{{ result.title }}</span></div>
+                        <p class="text-xs text-muted-foreground">{{ result.project }}</p>
+                        <p v-if="result.excerpt" class="break-words text-sm text-muted-foreground">{{ result.excerpt }}</p>
+                    </Link>
+                </li>
+            </ul>
+        </div>
+    </div>
+</template>

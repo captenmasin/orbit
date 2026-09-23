@@ -10,12 +10,20 @@ use Illuminate\Support\Facades\File;
 use Inertia\Testing\AssertableInertia as Assert;
 use Native\Desktop\Dialog;
 use Native\Desktop\Facades\Clipboard;
+use Native\Desktop\Facades\System;
 use RuntimeException;
 use Tests\TestCase;
 
 class ProjectSecretTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->unlockVault();
+    }
 
     public function test_a_secret_keeps_its_exact_value_out_of_workspace_data_and_blocks_stale_project_removal(): void
     {
@@ -78,10 +86,12 @@ class ProjectSecretTest extends TestCase
         $url = '/projects/'.$project->id.'/secrets/paste';
         $this->postJson($url, [
             'environment' => 'Default',
+            'service' => 'Application',
             'entries' => "APP_LOCALE=en\r\nAPP_FAKER_LOCALE=en_US\r\n",
             'project_revision' => 1,
         ])->assertOk()->assertExactJson(['saved' => true]);
         $this->assertSame(['APP_FAKER_LOCALE', 'APP_LOCALE'], $project->secrets()->pluck('name')->all());
+        $this->assertSame(['Application', 'Application'], $project->secrets()->pluck('service')->all());
         $this->assertSame(2, $project->fresh()->revision);
         $this->assertDatabaseCount('credential_access_events', 2);
 
@@ -147,6 +157,36 @@ class ProjectSecretTest extends TestCase
         }
     }
 
+    public function test_env_import_preserves_empty_values_returned_by_native_encryption(): void
+    {
+        config(['nativephp-internal.running' => true]);
+        $project = Project::factory()->create();
+        $path = tempnam(sys_get_temp_dir(), 'orbit-env-');
+        File::put($path, "APP_NAME=Orbit\nDB_PASSWORD=\n");
+        $this->mock(Dialog::class, function ($mock) use ($path): void {
+            $mock->shouldReceive('files->withHiddenFiles->title->button->asSheet->open')->once()->andReturn($path);
+        });
+        System::shouldReceive('canEncrypt')->times(3)->andReturn(true);
+        System::shouldReceive('encrypt')->once()->with('Orbit')->andReturn('native-ciphertext');
+        System::shouldReceive('encrypt')->once()->with('')->andReturn('');
+        System::shouldReceive('decrypt')->once()->with('')->andReturn('');
+
+        try {
+            $this->postJson('/projects/'.$project->id.'/secrets/import/preview', ['environment' => 'Local'])->assertOk();
+            $this->postJson('/projects/'.$project->id.'/secrets/import', ['environment' => 'Local', 'project_revision' => 1])
+                ->assertOk()->assertExactJson(['saved' => true, 'imported' => 2, 'skipped' => 0]);
+            $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page): Assert => $page
+                ->has('selectedProject.secrets', 2)->where('selectedProject.secrets.1.name', 'DB_PASSWORD')
+                ->where('selectedProject.secrets.1.environment', 'Local')->missing('selectedProject.secrets.1.ciphertext'));
+            $secret = $project->secrets()->where('name', 'DB_PASSWORD')->sole();
+            $this->unlockVault();
+            $this->getJson('/projects/'.$project->id.'/secrets/'.$secret->id.'/value?revision=1')->assertExactJson(['value' => '']);
+            $this->assertSame(2, $project->fresh()->revision);
+        } finally {
+            File::delete($path);
+        }
+    }
+
     public function test_native_env_export_writes_only_selected_secrets_after_destination_preview(): void
     {
         config(['nativephp-internal.running' => true]);
@@ -166,6 +206,7 @@ class ProjectSecretTest extends TestCase
                 $mock->shouldReceive('decrypt')->once()->with('locale-ciphertext')->andReturn('en');
                 $mock->shouldReceive('decrypt')->once()->with('faker-ciphertext')->andReturn('en_US');
             });
+            $this->unlockVault();
             $this->postJson('/projects/'.$project->id.'/secrets/export', [...$selection, 'project_revision' => 1, 'overwrite' => false])
                 ->assertOk()->assertExactJson(['exported' => true]);
             $this->assertSame("APP_LOCALE=\"en\"\nAPP_FAKER_LOCALE=\"en_US\"\n", File::get($path));
@@ -190,6 +231,7 @@ class ProjectSecretTest extends TestCase
         try {
             $this->postJson('/projects/'.$project->id.'/secrets/export/preview', $selection)->assertOk();
             File::put($path, 'intervening contents');
+            $this->unlockVault();
             $this->postJson('/projects/'.$project->id.'/secrets/export', [...$selection, 'project_revision' => 1, 'overwrite' => false])
                 ->assertUnprocessable()->assertJsonValidationErrors('names');
             $this->assertSame('intervening contents', File::get($path));
@@ -228,6 +270,7 @@ class ProjectSecretTest extends TestCase
         });
 
         $url = '/projects/'.$project->id.'/secrets/'.$secret->id.'/value?revision=1';
+        $this->unlockVault();
         $this->getJson($url)->assertOk()->assertExactJson(['value' => "multiline\nvalue"])->assertHeader('Cache-Control', 'no-store, private');
         $this->assertDatabaseHas('credential_access_events', ['secret_id' => $secret->id, 'operation' => 'reveal', 'result' => 'Succeeded']);
         $other = Project::factory()->create();
@@ -252,6 +295,7 @@ class ProjectSecretTest extends TestCase
         Clipboard::shouldReceive('clear')->never();
 
         $url = '/projects/'.$project->id.'/secrets/'.$secret->id.'/copy';
+        $this->unlockVault();
         $this->postJson($url, ['revision' => 1])->assertOk()->assertExactJson(['copied' => true]);
         $this->deleteJson($url, ['revision' => 1])->assertOk()->assertExactJson(['cleared' => true]);
         $this->assertDatabaseHas('credential_access_events', ['secret_id' => $secret->id, 'operation' => 'copy', 'result' => 'Succeeded']);
@@ -278,5 +322,10 @@ class ProjectSecretTest extends TestCase
         $this->assertSame('fixture-ciphertext', $secret->fresh()->ciphertext);
         $this->assertSame(1, $secret->fresh()->revision);
         $this->assertSame(1, $project->fresh()->revision);
+    }
+
+    private function unlockVault(): void
+    {
+        $this->withSession(['secret_pin_unlocked_until' => now()->addMinutes(5)->timestamp]);
     }
 }

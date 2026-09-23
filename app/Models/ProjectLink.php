@@ -13,7 +13,14 @@ class ProjectLink extends Model
     /** @use HasFactory<ProjectLinkFactory> */
     use HasFactory, HasUuids;
 
-    protected $fillable = ['id', 'label', 'url', 'category', 'icon', 'position'];
+    protected $fillable = ['id', 'label', 'url', 'category', 'description', 'icon', 'position'];
+
+    protected $appends = ['description_html'];
+
+    public function getDescriptionHtmlAttribute(): string
+    {
+        return Task::renderDescription($this->description ?? '');
+    }
 
     public function project(): BelongsTo
     {

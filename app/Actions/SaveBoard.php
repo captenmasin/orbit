@@ -19,7 +19,7 @@ class SaveBoard
     public function handle(Project $project, array $input): void
     {
         $action = Validator::make($input, [
-            'action' => ['required', Rule::in(['column.save', 'column.move', 'column.delete', 'task.save', 'task.move', 'task.delete'])],
+            'action' => ['required', Rule::in(['column.save', 'column.move', 'column.delete', 'task.save', 'task.bulk', 'task.move', 'task.delete'])],
         ])->validate()['action'];
         $rules = match ($action) {
             'column.save' => ['name' => ['required', 'string', 'max:100', 'regex:/\S/u']],
@@ -34,13 +34,18 @@ class SaveBoard
                 'removed_attachment_ids' => ['sometimes', 'array', 'max:10'],
                 'removed_attachment_ids.*' => ['required', 'uuid', 'distinct'],
             ],
+            'task.bulk' => [
+                'column_id' => ['required', 'uuid'],
+                'titles' => ['required', 'array', 'min:1', 'max:200'],
+                'titles.*' => ['required', 'string', 'max:255', 'regex:/\S/u'],
+            ],
             'task.move' => ['column_id' => ['required', 'uuid'], 'position' => ['required', 'integer', 'min:0']],
             'task.delete' => [],
         };
         $data = Validator::make($input, [
             ...$rules,
             'revision' => ['required', 'integer', 'min:1'],
-            'id' => [str_ends_with($action, '.save') ? 'nullable' : 'required', 'uuid'],
+            'id' => [(str_ends_with($action, '.save') || $action === 'task.bulk') ? 'nullable' : 'required', 'uuid'],
         ])->validate();
 
         $newFiles = [];
@@ -57,6 +62,7 @@ class SaveBoard
                     'column.move' => $this->moveColumn($project, $data),
                     'column.delete' => $this->deleteColumn($project, $data),
                     'task.save' => $this->saveTask($project, $data, $newFiles, $removedFiles),
+                    'task.bulk' => $this->bulkTasks($project, $data),
                     'task.move' => $this->moveTask($project, $data),
                     'task.delete' => $this->deleteTask($project, $data, $removedFiles),
                 };
@@ -138,6 +144,19 @@ class SaveBoard
         $task->save();
         if ($previous && $previous->id !== $column->id) {
             $this->reorder($previous->tasks(), $previous->tasks()->pluck('id')->all());
+        }
+    }
+
+    private function bulkTasks(Project $project, array $data): void
+    {
+        $column = $project->boardColumns()->findOrFail($data['column_id']);
+        $titles = array_map('trim', $data['titles']);
+        if (count(array_unique($titles)) !== count($titles) || Task::whereHas('column', fn ($query) => $query->where('project_id', $project->id))->whereIn('title', $titles)->exists()) {
+            throw ValidationException::withMessages(['titles' => 'Some titles already exist in this project or list. Deselect or rename duplicates before saving.']);
+        }
+        $position = ($column->tasks()->max('position') ?? -1) + 1;
+        foreach ($titles as $title) {
+            $column->tasks()->create(['title' => $title, 'position' => $position++]);
         }
     }
 

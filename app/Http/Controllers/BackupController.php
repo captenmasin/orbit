@@ -44,6 +44,9 @@ class BackupController extends Controller
             'include_secrets' => ['required', 'boolean'],
             'overwrite' => ['required', 'boolean'],
         ]);
+        if ($data['include_secrets']) {
+            abort_unless((int) $request->session()->get('secret_pin_unlocked_until', 0) > now()->timestamp, 423, 'Unlock secrets with your PIN.');
+        }
         $preview = $request->session()->pull('backup-export');
         if (! is_array($preview) || ! is_string($preview['path'] ?? null) || ! is_array($preview['state'] ?? null) || $this->destinationState($preview['path']) !== $preview['state']) {
             throw ValidationException::withMessages(['backup' => 'Choose the backup destination again before exporting.']);
@@ -110,6 +113,7 @@ class BackupController extends Controller
             }
             $state = $this->snapshot($preview['hash']);
             $restore->apply($restore->stage($backup->read($contents, $password), $crypto));
+            $request->session()->invalidate();
             DB::table('restore_states')->where('id', $state)->update(['phase' => 'Applied', 'updated_at' => now()]);
 
             return response()->json(['restored' => true]);
@@ -189,7 +193,7 @@ class BackupController extends Controller
 
     private function snapshot(string $sourceHash): string
     {
-        $database = config('database.connections.sqlite.database');
+        $database = DB::connection()->getDatabaseName();
         if (! is_string($database) || ! is_file($database)) {
             throw new RuntimeException('A private rollback snapshot could not be created.');
         }

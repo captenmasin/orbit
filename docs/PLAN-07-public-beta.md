@@ -1,14 +1,14 @@
-# Milestone 6 — Public beta
+# Milestone 7 — Public beta
 
-Status: planned. Written 15 September 2026. Depends on completed milestones 1–5 and closure of the remaining milestone 0 runtime checks. This plan does not publish or upload a release.
+Status: planned. Written 15 September 2026; renumbered 22 September 2026. Depends on completed milestones 1–6 and closure of the remaining milestone 0 runtime checks. This plan does not publish or upload a release.
 
-Parent: [Product plan](../PLAN.md). Previous: [Secrets and recovery](PLAN-05-secrets-recovery.md).
+Parent: [Product plan](../PLAN.md). Previous: [Project knowledge and migration](PLAN-06-project-knowledge.md).
 
 ## Outcome
 
 Distribute a signed, notarized macOS beta that installs on the advertised systems, upgrades an existing workspace without losing data or secret access, and receives authenticated updates through NativePHP's updater. Installation, recovery, limitations, and support instructions are accurate and usable by someone who has never run the development checkout.
 
-The exit demonstration starts with a downloaded release on a clean supported Mac/account, creates representative data, installs an update, and proves catalog, board, provider connections, and secrets still work after normal Quit/relaunch. A separate backup restores on a different account.
+The exit demonstration starts with a downloaded release on a clean supported Mac/account, creates representative data, installs an update, and proves catalog, documents, content search, board, provider connections, and grouped secrets still work after normal Quit/relaunch. A separate backup restores on a different account.
 
 ## Baseline to recheck
 
@@ -121,6 +121,7 @@ Prepare release-facing instructions covering:
 | --- | --- |
 | Install | Download link, verified publisher, supported OS/CPU, normal installation steps; no requirement for PHP/Node/Composer to run Orbit itself |
 | First use | Create/link a project, select roots, use the board, and connect a provider when desired |
+| Project knowledge | Edit documents, find content, organize links/secrets, and record a review |
 | Local tools | Runtime detection uses selected host executables; Orbit does not install project toolchains or run project scripts |
 | Data location | Where local workspace data lives, what project removal does, and that source folders remain untouched |
 | Connections | Supported providers/token scopes, local encrypted storage, replacement/disconnect, and provider-side revocation |
@@ -145,7 +146,7 @@ Build a real matrix with exact machine/OS/package entries before release. An unr
 | Real second macOS login | Create, quit, restart, and persist data with that account's home/Keychain; closes milestone 0 |
 | Intel, if advertised | Real x64 artifact runs all essential workflows; Rosetta-only testing is insufficient proof of native Intel support |
 | Minimum supported OS | Install/start, native dialogs, encryption, and updater work on the actual advertised minimum |
-| Populated upgrade | Catalog, board order, icons, roots, connections, secrets, and revisions survive migrations/relaunch |
+| Populated upgrade | Catalog, documents, review dates, link/secret groups, board order, icons, roots, connections, secrets, and revisions survive migrations/relaunch; content search still opens matching items |
 | Offline/provider failure | Local app works; snapshots remain honestly stale; no retry storm |
 | Interrupted scan/update | Clean process lifecycle; no lost edits, stuck worker, or incomplete replacement |
 | Wrong/corrupt backup and interrupted restore | Current workspace remains complete; recovery phase is clear |
@@ -170,7 +171,7 @@ Likely implementation areas: dependency manifests/lockfiles only where required,
 
 ## Completion checklist
 
-- [ ] Milestones 1–5 and the outstanding real second-account runtime check have evidence.
+- [ ] Milestones 1–6 and the outstanding real second-account runtime check have evidence.
 - [ ] Supported macOS/CPU versions and all provisional release decisions are recorded.
 - [ ] Fresh audits and production-boundary checks cover the actual bundled dependencies/artifact.
 - [ ] Application tests, native regression checks, formatting, and production build pass for the candidate.

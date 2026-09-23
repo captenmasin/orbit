@@ -2,7 +2,7 @@
 
 Draft: 8 September 2026. Based on the product interview. Confirmed decisions are separated from proposed defaults below; this is a plan, not an implementation.
 
-## Implementation status — 19 September 2026
+## Implementation status — 22 September 2026
 
 Milestone 1 (Catalog) is complete in the 0.2.0 development app. Projects support descriptions, statuses, tags, initials/emoji/uploaded raster icons, multiple repositories and folders, ordered categorized links, search/filter/sort, archive/restore, safe removal, and missing-folder relinking. Native folder selection previews manifest metadata and local HEAD commit information before saving. The whole catalog save is atomic and rejects stale revisions. A multi-repository project survived a full app restart, was found by its tag, and had a moved folder relinked without losing data. All 22 application tests (311 assertions), the production build, and desktop checks pass.
 
@@ -14,11 +14,13 @@ Milestone 4 is complete for the agreed GitHub scope in signed 0.5.2. Connections
 
 Following the initial ChatGPT-style direction, the user selected the [shadcn-vue sidebar-07 layout](https://www.shadcn-vue.com/blocks#sidebar-07) with default component styles and no overrides. The interface uses the classic Vega style, neutral theme, and locally bundled Inter font. Eyebrows and promotional copy are excluded. MCP clients and the desktop diagnostic block and functionality have been removed from implementation and future scope. NativePHP remains the desktop framework. The interface uses Inertia 3, Vue 3 with TypeScript, Tailwind CSS 4 and shadcn-vue. Laravel owns validation and persistence; Inertia handles navigation and forms.
 
-The latest signed package is 0.5.2 and includes the catalog, boards, local inspection, and provider activity. Packaged encryption/restart, invalid-token handling, and GitHub acceptance checks pass. GitLab and distinct-account live verification are deferred by the user. Packaging explicitly excludes Vite’s `public/hot` marker so the app uses its bundled production assets. Packaged upgrade, project persistence, normal Quit/relaunch, window reopening, clean app-data setup, and signature integrity checks pass on the current macOS profile. NativePHP's reentrant quit bug is fixed with a small compatibility patch. See [README.md](README.md) for setup and [the integration record](docs/desktop-integration.md) for evidence. A real second macOS profile is unavailable on this machine and remains the outstanding milestone 0 exit check. Dependency security updates and the portable backup decision also remain open; notarization and Intel validation are later release work. Milestones 5–6 remain planned. One initial PHP server exit during a prolonged native picker interaction was not reproduced on subsequent CLI and normal GUI launches; the integration record retains this observation for follow-up.
+The latest verified internal package is signed Apple Silicon 0.6.0 and includes the catalog, boards, local inspection, provider activity, secrets/recovery, and project knowledge features. Packaged encryption/restart, invalid-token handling, and GitHub acceptance checks pass. GitLab and distinct-account live verification are deferred by the user. Packaging excludes Vite’s `public/hot` marker so the app uses its bundled production assets. Packaged upgrade, project persistence, normal Quit/relaunch, window reopening, clean app-data setup, and signature integrity checks pass on the current macOS profile. NativePHP's reentrant quit bug is fixed with a small compatibility patch; milestone 6 also fixed native-dialog PHP timeouts and rollback snapshots selecting the wrong database. See [README.md](README.md) for setup and [the integration record](docs/desktop-integration.md) for evidence. A real second macOS profile remains the outstanding milestone 0 exit check. Dependency security updates, cross-profile recovery, notarization, and Intel validation remain separate release work; none is implied by milestone 6 completion.
+
+Milestone 6 is **complete** in the fourth signed 0.6.0 build, 22 September 2026: titled documents and Notes migration, grouped links, secret context, project/workspace content search, bulk ideas, explicit review dates, and schema 2 backups with schema 1 restore compatibility. All 166 PHP tests (1,726 assertions), 21 JavaScript tests, type checking, production build, Pint, and diff checks pass. Packaged acceptance passed for populated upgrades, document/search/review interactions, exact code copying, 600 × 600 keyboard use, encrypted backup/restore, and normal Quit/relaunch with exact restored rows/ciphertext and successful native Reveal. The original full profile was returned: all three projects and common original fields, provider ciphertext, and snapshots matched the pre-migration database; integrity was `ok`, with no foreign-key violations. Strict app signature and final DMG verification passed. See [Project knowledge and migration](docs/PLAN-06-project-knowledge.md) and [the integration record](docs/desktop-integration.md). Public beta remains milestone 7, with notarization, Intel, and second-profile checks still open.
 
 ## Product
 
-Orbit is a NativePHP desktop project manager for developers who want their projects, tasks, repositories, runtime information, links, and secrets in one place. Each developer manages their own local workspace.
+Orbit is a NativePHP desktop project manager for developers who want their projects, documentation, tasks, repositories, runtime information, links, and secrets in one place. Each developer manages their own local workspace.
 
 The primary workflow is: find a project, understand its status and recent activity, see what needs doing, and access its working context without hunting through folders and browser bookmarks.
 
@@ -35,6 +37,7 @@ The primary workflow is: find a project, understand its status and recent activi
 | Repositories | Local Git plus GitHub and GitLab integrations |
 | Dependencies | Manifest and lockfile information, plus installed local runtimes |
 | Links | Organized bookmarks that open their destinations |
+| Project knowledge | Titled Markdown documents, grouped links and secrets, content search, and explicit review dates |
 | Visual style | shadcn-vue sidebar-07 layout and default styles without overrides; no eyebrows or filler text |
 
 ### Proposed defaults, not yet confirmed
@@ -62,6 +65,8 @@ Use shadcn-vue's sidebar-07 structure: a sidebar that collapses to icons, a brea
 Each project has one board. Default columns are Backlog, To Do, In Progress, and Done; allow renaming, adding, removing, and reordering columns.
 
 A task has a title, optional description, column, and position. Support creating, editing, moving, reordering, and deleting tasks. Column deletion requires moving its remaining tasks to another column. Provide keyboard-accessible move controls alongside drag and drop.
+
+Milestone 6 adds previewed bulk creation from pasted idea lists into a selected column, preserving their order.
 
 Persist board moves atomically. A stale edit must return a conflict instead of silently overwriting newer changes. Team assignments, sprints, time tracking, and recurring tasks are outside this v1 proposal.
 
@@ -104,17 +109,31 @@ Latest-release lookups and automatic dependency upgrades are outside the selecte
 
 A link has a label, URL, optional category, icon, and display order. Include sensible categories such as Website, Social, Analytics, Inbox, Documentation, and Hosting, while allowing custom labels.
 
+Milestone 6 displays these categories as visible groups, preserving saved ordering within each group and keeping uncategorized links accessible.
+
 Open supported URLs in the default browser or registered application. Validate schemes; never treat a saved URL as an arbitrary shell command. No live analytics fetching is included.
 
 ### Secrets
 
 Store named project secrets, grouped by environment under the provisional scope. Support add, edit, delete, reveal, and copy. Values may be multiline, including pasted PEM text; file attachments are a separate feature.
 
+Milestone 6 adds an optional service/category, description, and management URL. Service groups are independent of environments: a Stripe group can contain production and development entries. These fields do not change secret uniqueness or the `.env` format.
+
 Use macOS-backed encryption and store ciphertext locally. Keep plaintext out of logs, ordinary search, project summaries, and provider error messages. Reveal only through an explicit UI action. Provider credentials use the same storage protection.
 
 Manual `.env` import previews names and collisions before saving; export requires selecting a destination and confirming any overwrite. Parsing never evaluates variables or commands. Import/export does not create ongoing synchronization with project files.
 
 Record operation, secret identifier, and time for secret access, never the value. Keep project data out of telemetry by default.
+
+### Project documentation and migration
+
+Milestone 6 replaces the single Notes field with titled, ordered Markdown documents. Preserve existing notes during migration. Support direct editing, heading navigation, and copying code blocks. Documents such as Hosting, Deployment, Database, and Email hold operational knowledge without requiring a separate infrastructure model.
+
+Search project and workspace content across documents, task titles/descriptions, links, and secret names/metadata. Results identify their project and content type and open the matching item. Never decrypt or index secret values for search.
+
+Keep project knowledge in editable Markdown documents. Encrypted workspace backups remain the recovery mechanism for secrets and binary assets.
+
+Store an optional project review date independently of edit, commit, and scan timestamps. Set it through an explicit review action. See [Milestone 6](docs/PLAN-06-project-knowledge.md) for migration safeguards and exit checks.
 
 ## Technical approach
 
@@ -128,12 +147,13 @@ For encryption, first inspect what the selected NativePHP version exposes. Where
 
 | Records | Purpose |
 | --- | --- |
-| Projects | Identity, description, icon, status, archive marker |
+| Projects | Identity, description, icon, status, archive marker, explicit review date |
+| Project documents | Project, title, Markdown body, display order, revision, timestamps |
 | Repositories and project folders | Remote identity, checkout paths, optional associations, scan metadata |
 | Tags and project/tag associations | Filtering and organization |
 | Board columns and tasks | Project-local ordering and task content |
 | Links | Categorized project bookmarks |
-| Secrets | Project, environment, name, ciphertext |
+| Secrets | Project, environment, name, ciphertext, optional service/category, description, management URL |
 | Provider connections | Provider/account metadata and encrypted credentials |
 | Access events | Bounded metadata-only secret-access history |
 
@@ -159,9 +179,10 @@ These are implementation milestones, not promises of calendar duration. Estimate
 | 3. Local inspection — complete | Git dates, manifest/lockfile parsing, selected executable probes | Passed: source/version regression matrix and packaged mixed-project demonstration, including interrupted-scan recovery |
 | 4. Provider activity — complete for agreed GitHub scope | Provider connections and cached activity views | GitHub private access, pagination, offline restart, revoked credentials and controlled rate limits verified; GitLab and a second distinct account deferred |
 | 5. Complete secrets and recovery | Environment secrets, import/export, portable backup/restore | Encrypted storage survives restart; backup restores on another profile; no plaintext in logs |
-| 6. Public beta | Signed distribution, updates, setup instructions, accessibility pass | Fresh install and upgrade pass on the published OS/CPU support matrix |
+| [6. Project knowledge and migration](docs/PLAN-06-project-knowledge.md) — complete | Titled documents, grouped links and secrets, content search, bulk ideas, review dates, compatible backups | Passed in signed 0.6.0: populated upgrades, document maintenance/search/copy/review, 600 × 600 keyboard use, encrypted recovery, and restart/decryption. Original full profile returned unchanged; app/DMG verification passed |
+| [7. Public beta](docs/PLAN-07-public-beta.md) | Signed distribution, updates, setup instructions, accessibility pass | Fresh install and upgrade pass on the published OS/CPU support matrix |
 
-A first internal build can stop after milestone 2; the public v1 scope includes every confirmed feature through milestone 6.
+A first internal build can stop after milestone 2; the public v1 scope includes every confirmed feature through milestone 7.
 
 Keep regression checks focused on data loss, authorization, parsing, ordering, and concurrent updates. Use small representative repositories and manifests to exercise multiple roots, malformed JSON, missing lockfiles, detached HEAD, and missing executables. Packaged-app checks are required for secret access, paths, and updating; browser-only tests cannot establish those behaviors.
 

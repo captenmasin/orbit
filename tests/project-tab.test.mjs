@@ -36,7 +36,7 @@ function harness(t) {
 test('project view tabs survive navigation and follow each selected project', async t => {
     const mount = harness(t);
     const view = id => mount('pages/ShowProject', { selectedProject: { id, tags: [], revision: 1 }, inspection: [], activity: [], connections: [], native: false, notesHtml: '' });
-    for (const tab of ['board', 'dependencies', 'secrets', 'overview']) {
+    for (const tab of ['documents', 'board', 'assets', 'dependencies', 'secrets', 'overview']) {
         const current = view('project-a');
         current.state.tab.value = tab;
         current.unmount();
@@ -61,17 +61,15 @@ test('project view tabs survive navigation and follow each selected project', as
     assert.match(current.state.latestCommit.value.path, /Stale/);
 });
 
-test('edit forms retain dirty names, notes and tags when the saved revision changes', async t => {
+test('edit forms retain dirty names and tags when the saved revision changes', async t => {
     const mount = harness(t);
     const current = mount('components/ProjectForm', { project: { id: 'project-a', tags: [], revision: 1 }, statuses: ['Idea'], native: false });
     current.state.form.name = 'Unsaved name';
-    current.state.form.notes = 'Unsaved notes';
     current.state.form.tags = ['new-tag'];
     await vue.nextTick();
     current.props.project.revision = 2;
     await vue.nextTick();
     assert.equal(current.state.form.name, 'Unsaved name');
-    assert.equal(current.state.form.notes, 'Unsaved notes');
     assert.deepEqual(Array.from(current.state.form.tags), ['new-tag']);
     const create = mount('components/ProjectForm', { statuses: ['Idea'], native: false });
     assert.equal(create.state.tab.value, 'overview');

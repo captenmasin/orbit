@@ -31,14 +31,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->trimStrings(except: ['description', 'token', 'value', 'entries', 'password', 'password_confirmation']);
+        $middleware->trimStrings(except: ['description', 'body', 'notes', 'token', 'value', 'entries', 'password', 'password_confirmation', 'pin', 'pin_confirmation', 'paths.*', 'directories.*']);
         $middleware->convertEmptyStringsToNull(except: [
             fn (Request $request): bool => $request->is('projects/*/secrets') || $request->is('projects/*/secrets/*'),
         ]);
         $middleware->web(append: [HandleInertiaRequests::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->dontFlash(['token', 'value', 'entries', 'password', 'password_confirmation']);
+        $exceptions->dontFlash(['token', 'value', 'entries', 'password', 'password_confirmation', 'pin', 'pin_confirmation']);
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );

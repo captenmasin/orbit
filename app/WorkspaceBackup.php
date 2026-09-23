@@ -26,13 +26,16 @@ class WorkspaceBackup
     {
         $records = [[
             'type' => 'workspace',
-            'data' => ['schema' => 1, 'created_at' => now()->toIso8601String(), 'includes_secrets' => $includeSecrets],
+            'data' => ['schema' => 3, 'created_at' => now()->toIso8601String(), 'includes_secrets' => $includeSecrets],
         ]];
         $assets = [];
-        foreach (['projects', 'tags', 'project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'board_columns', 'tasks'] as $table) {
+        foreach (['projects', 'tags', 'project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'project_documents', 'board_columns', 'tasks'] as $table) {
             $query = DB::table($table)->orderBy($table === 'project_tag' ? 'project_id' : 'id');
             foreach ($query->get() as $row) {
                 $data = (array) $row;
+                if ($table === 'projects') {
+                    $data['asset_folders'] = json_decode($data['asset_folders'] ?? '[]', true) ?? [];
+                }
                 if ($table === 'projects' && $data['icon_path']) {
                     $data['icon_asset_id'] = 'icon:'.$data['id'];
                     $assets[] = $this->asset($data['icon_asset_id'], $data['icon_path'], 'project-icons/');
@@ -61,7 +64,7 @@ class WorkspaceBackup
                         }
                         $assetId = $prefix.$data['id'].':'.$file['id'];
                         $assets[] = $this->asset($assetId, $file['path'], $table === 'projects' ? 'project-assets/' : 'task-attachments/');
-                        $data[$column][] = Arr::only($file, ['id', 'name', 'size']) + ['asset_id' => $assetId];
+                        $data[$column][] = Arr::only($file, $table === 'projects' ? ['id', 'name', 'size', 'folder_id'] : ['id', 'name', 'size']) + ['asset_id' => $assetId];
                     }
                 }
                 $records[] = ['type' => $table, 'data' => $data];
@@ -81,6 +84,9 @@ class WorkspaceBackup
                 'project_id' => $secret->project_id,
                 'environment' => $secret->environment,
                 'name' => $secret->name,
+                'service' => $secret->service,
+                'description' => $secret->description,
+                'management_url' => $secret->management_url,
                 'value' => $crypto->decrypt($secret->ciphertext),
                 'revision' => $secret->revision,
                 'created_at' => $secret->created_at?->toDateTimeString(),

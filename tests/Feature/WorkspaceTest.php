@@ -27,9 +27,9 @@ class WorkspaceTest extends TestCase
                 ->where('selectedProject.id', $project->id)->where('selectedProject.revision', 1));
 
         $this->withHeader('X-Inertia', 'true')->put($url, [
-            'name' => 'Updated project', 'description' => 'A description', 'status' => 'Active', 'revision' => 1,
+            'name' => 'Updated project', 'description' => 'A description', 'status' => 'Live', 'revision' => 1,
         ])->assertStatus(303)->assertRedirect($url);
-        $this->assertDatabaseHas('projects', ['id' => $project->id, 'name' => 'Updated project', 'status' => 'Active', 'revision' => 2]);
+        $this->assertDatabaseHas('projects', ['id' => $project->id, 'name' => 'Updated project', 'status' => 'Live', 'revision' => 2]);
         $this->flushHeaders()->get('/')->assertInertia(fn (Assert $page): Assert => $page
             ->where('projects.data.0.name', 'Updated project')->where('projects.data.0.description', 'A description'));
         $this->put($url, ['name' => 'Stale edit', 'status' => 'Idea', 'revision' => 1])->assertStatus(409);
@@ -62,7 +62,7 @@ class WorkspaceTest extends TestCase
 
     public function test_inertia_stale_edits_preserve_the_draft_and_return_a_form_error(): void
     {
-        $project = Project::create(['name' => 'Current name', 'status' => 'Active']);
+        $project = Project::create(['name' => 'Current name', 'status' => 'Live']);
         $url = '/projects/'.$project->id;
 
         $this->from($url)->withHeader('X-Inertia', 'true')->put($url, [
@@ -70,7 +70,7 @@ class WorkspaceTest extends TestCase
         ])->assertRedirect($url)
             ->assertSessionHasErrors(['revision' => 'This project changed. Reload it before saving again.'])
             ->assertSessionHasInput('description', 'Keep this text');
-        $this->assertDatabaseHas('projects', ['id' => $project->id, 'name' => 'Current name', 'status' => 'Active', 'revision' => 1]);
+        $this->assertDatabaseHas('projects', ['id' => $project->id, 'name' => 'Current name', 'status' => 'Live', 'revision' => 1]);
     }
 
     public function test_project_lists_are_paginated_and_missing_projects_are_not_found(): void

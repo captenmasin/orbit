@@ -22,10 +22,9 @@ import type { FolderPreview, Project, ProjectFolder, ProjectLink, Repository } f
 const props = defineProps<{ project?: Project; statuses: string[]; native: boolean; message?: string | null }>();
 const formId = props.project?.id ?? 'create';
 const tab = props.project ? useSessionStorage(`project:${formId}:edit-tab`, 'overview', { flush: 'sync' }) : ref('overview');
-if (typeof window !== 'undefined' && window.location.hash === '#notes') tab.value = 'overview';
 function values() {
     return {
-        name: props.project?.name ?? '', description: props.project?.description ?? '', notes: props.project?.notes ?? '',
+        name: props.project?.name ?? '', description: props.project?.description ?? '',
         status: props.project?.status ?? props.statuses[0]!,
         icon_type: props.project?.icon_type ?? 'initials', icon_emoji: props.project?.icon_emoji ?? '',
         icon_file: null as File | null, tags: props.project?.tags.map(tag => tag.name) ?? [],
@@ -139,7 +138,7 @@ function addRepository() {
     form.repositories.push({ id: crypto.randomUUID(), name: '', remote_url: '' });
 }
 function addLink() {
-    form.links.push({ id: crypto.randomUUID(), label: '', url: '', category: '' });
+    form.links.push({ id: crypto.randomUUID(), label: '', url: '', category: '', description: '' });
 }
 </script>
 
@@ -206,11 +205,6 @@ function addLink() {
                         <Field :data-invalid="!!form.errors.tags">
                             <FieldLabel :for="`${formId}-tags`">Tags</FieldLabel>
                             <ProjectTagsInput :id="`${formId}-tags`" v-model="form.tags" :invalid="!!form.errors.tags" />
-                        </Field>
-                        <Field id="notes" :data-invalid="!!form.errors.notes">
-                            <FieldLabel :for="`${formId}-notes`">Notes</FieldLabel>
-                            <Textarea :id="`${formId}-notes`" v-model="form.notes" :rows="8" maxlength="50000" placeholder="Decisions, setup instructions, ideas…" :aria-invalid="!!form.errors.notes" />
-                            <FieldDescription>Markdown supported.</FieldDescription>
                         </Field>
                     </FieldGroup>
                 </TabsContent>
@@ -293,6 +287,10 @@ function addLink() {
                                         <Input :id="`${link.id}-category`" :model-value="link.category ?? ''" list="link-categories" maxlength="50" @update:model-value="link.category = String($event)" />
                                     </Field>
                                 </div>
+                                <Field>
+                                    <FieldLabel :for="`${link.id}-description`">Description (Markdown)</FieldLabel>
+                                    <Textarea :id="`${link.id}-description`" :model-value="link.description ?? ''" maxlength="10000" :rows="4" :aria-invalid="!!form.errors[`links.${index}.description`]" placeholder="Access notes, setup steps, or account context" @update:model-value="link.description = String($event)" />
+                                </Field>
                                 <div class="flex flex-wrap gap-2">
                                     <OpenTargetButton v-if="project?.links.some(saved => saved.id === link.id)" :project-id="project.id" kind="links" :id="link.id" :native="native" :href="project.links.find(saved => saved.id === link.id)?.url" label="Open link" />
                                     <Button type="button" variant="outline" size="icon-sm" :aria-label="`Move ${link.label || 'link'} up`" :disabled="index === 0" @click="moveLink(index, -1)"><ArrowUpIcon aria-hidden="true" /></Button>

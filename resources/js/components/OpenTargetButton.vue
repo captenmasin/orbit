@@ -3,7 +3,7 @@ import { useHttp } from '@inertiajs/vue3';
 import { ExternalLinkIcon } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { FieldError } from '@/components/ui/field';
-const props = defineProps<{ projectId: string; kind: 'folders' | 'repositories' | 'links'; id: string; native: boolean; href?: string; label?: string }>();
+const props = defineProps<{ projectId: string; kind: 'folders' | 'repositories' | 'links' | 'secrets'; id: string; native: boolean; href?: string; label?: string }>();
 const request = useHttp({ target: '' });
 async function open() {
     try {

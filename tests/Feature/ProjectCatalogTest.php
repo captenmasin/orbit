@@ -32,7 +32,7 @@ class ProjectCatalogTest extends TestCase
         $repo = (string) Str::uuid();
         $checkout = (string) Str::uuid();
         $payload = [
-            'name' => 'Catalog project', 'description' => 'My workspace', 'status' => 'Active',
+            'name' => 'Catalog project', 'description' => 'My workspace', 'status' => 'Live',
             'icon_type' => 'emoji', 'icon_emoji' => '🪐', 'tags' => [' PHP ', 'php', 'Vue'],
             'repositories' => [
                 ['id' => $repo, 'name' => 'App', 'remote_url' => 'git@github.com:example/app.git'],
@@ -77,7 +77,7 @@ class ProjectCatalogTest extends TestCase
 
     public function test_search_filters_and_pagination_preserve_literal_search_and_sort_by_known_commit(): void
     {
-        $older = Project::factory()->create(['name' => 'Alpha 100%', 'description' => 'Backend', 'status' => 'Active']);
+        $older = Project::factory()->create(['name' => 'Alpha 100%', 'description' => 'Backend', 'status' => 'Live']);
         $newer = Project::factory()->create(['name' => 'Zulu', 'description' => 'Frontend', 'status' => 'Paused']);
         $unknown = Project::factory()->create(['name' => 'No commit']);
         $tag = Tag::factory()->create(['name' => 'php']);
@@ -85,7 +85,7 @@ class ProjectCatalogTest extends TestCase
         ProjectFolder::factory()->for($older)->create(['last_commit_at' => '2026-01-01 10:00:00']);
         ProjectFolder::factory()->for($newer)->create(['last_commit_at' => '2026-02-01 10:00:00']);
 
-        $this->get('/?q=PHP&status=Active&tag=php')->assertInertia(fn (Assert $page) => $page
+        $this->get('/?q=PHP&status=Live&tag=php')->assertInertia(fn (Assert $page) => $page
             ->has('projects.data', 1)->where('projects.data.0.id', $older->id));
         $this->get('/?q=%25')->assertInertia(fn (Assert $page) => $page->has('projects.data', 1));
         $this->get('/?q=frontend')->assertInertia(fn (Assert $page) => $page->where('projects.data.0.id', $newer->id));
@@ -127,7 +127,7 @@ class ProjectCatalogTest extends TestCase
     {
         $project = Project::factory()->create();
         $foreign = Repository::factory()->create();
-        $input = ['name' => 'Changed', 'status' => 'Active', 'revision' => 1];
+        $input = ['name' => 'Changed', 'status' => 'Live', 'revision' => 1];
         $this->put('/projects/'.$project->id, [...$input, 'repositories' => [[
             'id' => $foreign->id, 'name' => 'Hijacked', 'remote_url' => 'https://github.com/example/repo',
         ]]])->assertSessionHasErrors('repositories');

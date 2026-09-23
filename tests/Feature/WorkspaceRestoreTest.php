@@ -11,6 +11,7 @@ use App\WorkspaceRestore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class WorkspaceRestoreTest extends TestCase
@@ -75,5 +76,37 @@ class WorkspaceRestoreTest extends TestCase
         $this->assertNotSame('project-icons/source.png', $restored->icon_path);
         Storage::disk('local')->assertExists($restored->icon_path);
         $this->assertSame('notes', Storage::disk('local')->get(Task::findOrFail($task->id)->attachment_files[0]['path']));
+    }
+
+    #[DataProvider('unreferencedAssets')]
+    public function test_it_rejects_extra_assets_before_writing_files_or_replacing_records(string $assetId): void
+    {
+        Storage::fake('local');
+        Storage::disk('local')->put('protected.png', 'keep this file');
+        $project = Project::factory()->create(['name' => 'Keep this project']);
+        $crypto = $this->mock(ProtectCredential::class, fn ($mock) => $mock->shouldNotReceive('decrypt')->shouldNotReceive('encrypt'));
+        $records = app(WorkspaceBackup::class)->records(false, $crypto);
+        $records[] = ['type' => 'asset', 'data' => [
+            'id' => $assetId, 'chunk' => 0, 'chunks' => 1, 'mime' => 'image/png', 'content' => base64_encode('untrusted contents'),
+        ]];
+
+        try {
+            $restore = app(WorkspaceRestore::class);
+            $restore->apply($restore->stage($records, $crypto));
+            $this->fail('Unreferenced backup asset accepted.');
+        } catch (InvalidArgumentException) {
+            $this->assertDatabaseHas('projects', ['id' => $project->id, 'name' => 'Keep this project']);
+            $this->assertSame('keep this file', Storage::disk('local')->get('protected.png'));
+            $this->assertSame(['protected.png'], Storage::disk('local')->allFiles());
+        }
+    }
+
+    public static function unreferencedAssets(): array
+    {
+        return [
+            'path traversal' => ['icon:../../protected'],
+            'unowned icon' => ['icon:00000000-0000-4000-8000-000000000001'],
+            'unowned attachment' => ['attachment:00000000-0000-4000-8000-000000000001:00000000-0000-4000-8000-000000000002'],
+        ];
     }
 }

@@ -7,13 +7,20 @@ import * as inertia from '@inertiajs/vue3';
 import ts from 'typescript';
 import * as vue from 'vue';
 
-test('asset filters use detected types, include every file, and update after uploads and removal', t => {
+function mount(t, project) {
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ProjectAssets.vue', import.meta.url), 'utf8'));
     const script = compileScript(descriptor, { id: 'assets-test' });
     const { outputText } = ts.transpileModule(script.content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
     const modules = { vue, '@inertiajs/vue3': inertia };
     const context = { exports: {}, require: name => modules[name] ?? {} };
     runInNewContext(outputText, context);
+    const props = vue.reactive({ project });
+    const scope = vue.effectScope();
+    t.after(() => scope.stop());
+    return { props, state: scope.run(() => context.exports.default.setup(props, { expose() {} })) };
+}
+
+test('asset filters use detected types, include every file, and update after uploads and removal', t => {
     const props = vue.reactive({ project: { id: 'project', revision: 1, assets: [
         { name: 'photo.png', mime_type: 'image/png' },
         { name: 'scan.tiff', mime_type: 'image/tiff', preview_url: null },
@@ -31,9 +38,7 @@ test('asset filters use detected types, include every file, and update after upl
         { name: 'unknown.bin', mime_type: 'application/octet-stream' },
         { name: 'missing.png', mime_type: null },
     ] } });
-    const scope = vue.effectScope();
-    t.after(() => scope.stop());
-    const state = scope.run(() => context.exports.default.setup(props, { expose() {} }));
+    const { state } = mount(t, props.project);
 
     assert.equal(state.filteredAssets.value.length, 15);
     assert.deepEqual(Object.fromEntries(state.typeFilters.value.map(filter => [filter.type, filter.count])), {
@@ -58,4 +63,73 @@ test('asset filters use detected types, include every file, and update after upl
     assert.deepEqual(Array.from(state.filteredAssets.value, file => file.name), ['photo.png', 'new.pdf']);
     props.project.assets = undefined;
     assert.equal(state.filteredAssets.value.length, 0);
+});
+
+test('asset folders scope filters and upload and move destinations, and return to Assets when removed', async t => {
+    const { props, state } = mount(t, { id: 'project', revision: 3,
+        asset_folders: [{ id: 'logos', name: 'logo' }, { id: 'empty', name: 'Empty' }],
+        assets: [
+            { id: 'root', name: 'legacy.txt', mime_type: 'text/plain' },
+            { id: 'logo', name: 'logo.svg', mime_type: 'image/svg+xml', folder_id: 'logos' },
+            { id: 'brief', name: 'brief.pdf', mime_type: 'application/pdf', folder_id: 'logos' },
+        ],
+    });
+    assert.deepEqual(Array.from(state.filteredAssets.value, file => file.name), ['legacy.txt']);
+    state.selectedFolder.value = 'logos';
+    await vue.nextTick();
+    assert.deepEqual(Array.from(state.filteredAssets.value, file => file.name), ['logo.svg', 'brief.pdf']);
+    assert.equal(state.typeFilters.value.find(filter => filter.type === 'Images').count, 1);
+    state.selectedType.value = 'Documents';
+    assert.deepEqual(Array.from(state.filteredAssets.value, file => file.name), ['brief.pdf']);
+
+    props.project.revision = 4;
+    let upload;
+    t.mock.method(inertia.router, 'post', (url, data) => { upload = { url, data }; });
+    state.submit();
+    assert.equal(upload.data.folder_id, 'logos');
+    assert.equal(upload.data.revision, 4);
+    let move;
+    t.mock.method(inertia.router, 'put', (url, data) => { move = { url, data }; });
+    state.move({ id: 'logo' }, '');
+    assert.equal(move.url, '/projects/project/assets/logo');
+    assert.equal(move.data.folder_id, null);
+
+    state.selectedFolder.value = 'empty';
+    await vue.nextTick();
+    assert.equal(state.selectedType.value, '');
+    assert.equal(state.filteredAssets.value.length, 0);
+    props.project.asset_folders = [{ id: 'logos', name: 'logo' }];
+    await vue.nextTick();
+    assert.equal(state.selectedFolder.value, '');
+    assert.deepEqual(Array.from(state.filteredAssets.value, file => file.name), ['legacy.txt']);
+});
+
+test('folder drops retain nested and empty directories, and internal drags move assets', async t => {
+    const { state } = mount(t, { id: 'project', revision: 4,
+        asset_folders: [{ id: 'source', name: 'Source', parent_id: null }, { id: 'target', name: 'Target', parent_id: null }],
+        assets: [{ id: 'file', name: 'notes.txt', folder_id: 'source', mime_type: 'text/plain' }],
+    });
+    let upload;
+    let move;
+    t.mock.method(inertia.router, 'post', (url, data) => { upload = { url, data }; });
+    t.mock.method(inertia.router, 'put', (url, data) => { move = { url, data }; });
+
+    const file = { name: 'logo.svg' };
+    const fileEntry = { name: 'logo.svg', isDirectory: false, file: resolve => resolve(file) };
+    const emptyEntry = { name: 'Empty', isDirectory: true, createReader: () => ({ readEntries: resolve => resolve([]) }) };
+    let reads = 0;
+    const folderEntry = { name: 'Brand', isDirectory: true, createReader: () => ({ readEntries: resolve => resolve(reads++ === 0 ? [fileEntry, emptyEntry] : []) }) };
+    await state.dropOn({ dataTransfer: { getData: () => '', items: [{ kind: 'file', webkitGetAsEntry: () => folderEntry }], files: [] } }, 'target');
+    assert.equal(upload.url, '/projects/project/assets');
+    assert.equal(upload.data.folder_id, 'target');
+    assert.deepEqual(Array.from(upload.data.paths), ['Brand/logo.svg']);
+    assert.deepEqual(Array.from(upload.data.directories), ['Brand', 'Brand/Empty']);
+    assert.equal(upload.data.files[0].name, file.name);
+
+    await state.dropOn({ dataTransfer: { getData: () => JSON.stringify({ projectId: 'project', kind: 'file', id: 'file' }) } }, 'target');
+    assert.equal(move.url, '/projects/project/assets/file');
+    assert.equal(move.data.folder_id, 'target');
+    await state.dropOn({ dataTransfer: { getData: () => JSON.stringify({ projectId: 'project', kind: 'folder', id: 'source' }) } }, 'target');
+    assert.equal(move.url, '/projects/project/asset-folders/source');
+    assert.equal(move.data.parent_id, 'target');
 });

@@ -137,7 +137,7 @@ class LocalInspectionTest extends TestCase
         app(QueueInspection::class)->handle($root);
         $new = $this->folder('new');
         $this->put('/projects/'.$folder->project_id, [
-            'name' => $folder->project->name, 'status' => 'Active', 'revision' => 1,
+            'name' => $folder->project->name, 'status' => 'Live', 'revision' => 1,
             'folders' => [['id' => $folder->id, 'path' => $new, 'repository_id' => null]],
         ])->assertRedirect();
         $this->workOnce();

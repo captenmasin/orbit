@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import WorkspaceSidebar from '@/components/WorkspaceSidebar.vue';
+import ContentSearch from '@/components/ContentSearch.vue';
+import { SearchIcon } from '@lucide/vue';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
@@ -12,6 +15,7 @@ const page = usePage<{ sidebarProjects: SidebarProject[]; selectedProject?: Proj
 const project = computed(() => page.props.selectedProject);
 const titles: Record<string, string> = { Dashboard: 'Dashboard', CreateProject: 'New project', EditProject: 'Edit project', Connections: 'Connections', Backups: 'Backups' };
 const title = computed(() => titles[page.component] ?? project.value?.name ?? 'Orbit');
+const searchOpen = ref(false);
 </script>
 
 <template>
@@ -35,6 +39,7 @@ const title = computed(() => titles[page.component] ?? project.value?.name ?? 'O
                         <BreadcrumbItem><BreadcrumbPage class="line-clamp-1 break-all">{{ title }}</BreadcrumbPage></BreadcrumbItem>
                     </BreadcrumbList>
                 </Breadcrumb>
+                <Button variant="ghost" size="sm" class="ml-auto" @click="searchOpen = true"><SearchIcon aria-hidden="true" /><span class="hidden sm:inline">Search workspace</span><span class="sr-only sm:hidden">Search workspace</span></Button>
             </header>
             <main id="main" tabindex="-1" class="flex min-w-0 flex-1 flex-col gap-6 p-4 pt-0 lg:p-6 lg:pt-0">
                 <p v-if="page.props.message" class="text-sm text-muted-foreground" role="status">{{ page.props.message }}</p>
@@ -42,4 +47,5 @@ const title = computed(() => titles[page.component] ?? project.value?.name ?? 'O
             </main>
         </SidebarInset>
     </SidebarProvider>
+    <Dialog v-model:open="searchOpen"><DialogContent class="max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Search workspace</DialogTitle><DialogDescription>Find project documents, tasks, links, and non-secret credential context.</DialogDescription></DialogHeader><ContentSearch @navigate="searchOpen = false" /></DialogContent></Dialog>
 </template>

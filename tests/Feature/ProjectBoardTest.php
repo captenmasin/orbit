@@ -137,7 +137,7 @@ class ProjectBoardTest extends TestCase
             ->assertSessionHasInput('title', 'Keep this draft');
         $this->flushHeaders()->withCookie(config('session.cookie'), session()->getId())->withHeader('X-Inertia-Error-Bag', 'board')->get($url)
             ->assertInertia(fn (Assert $page): Assert => $page->where('errors.board.revision', 'This project changed. Reload the board before trying again.'));
-        $this->flushHeaders()->putJson($url, ['name' => 'Catalog edit', 'status' => 'Active', 'revision' => 2])->assertRedirect();
+        $this->flushHeaders()->putJson($url, ['name' => 'Catalog edit', 'status' => 'Live', 'revision' => 2])->assertRedirect();
         $this->putJson($url.'/board', [...$payload, 'revision' => 2])->assertConflict();
     }
 

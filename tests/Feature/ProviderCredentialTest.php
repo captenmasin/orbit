@@ -37,9 +37,9 @@ class ProviderCredentialTest extends TestCase
     public function test_null_or_plaintext_encryption_results_are_rejected(): void
     {
         config(['nativephp-internal.running' => true]);
-        System::shouldReceive('canEncrypt')->twice()->andReturn(true);
-        System::shouldReceive('encrypt')->with('dummy-token')->twice()->andReturn(null, 'dummy-token');
-        foreach ([1, 2] as $attempt) {
+        System::shouldReceive('canEncrypt')->times(3)->andReturn(true);
+        System::shouldReceive('encrypt')->with('dummy-token')->times(3)->andReturn(null, 'dummy-token', '');
+        foreach ([1, 2, 3] as $attempt) {
             try {
                 app(ProtectCredential::class)->encrypt('dummy-token');
                 $this->fail('Expected failure.');

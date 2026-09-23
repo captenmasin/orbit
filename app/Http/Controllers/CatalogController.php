@@ -60,7 +60,11 @@ class CatalogController extends Controller
                 throw ValidationException::withMessages(['target' => 'The folder could not be opened.']);
             }
         } else {
-            $url = $kind === 'repositories' ? $record->web_url : $record->url;
+            $url = match ($kind) {
+                'repositories' => $record->web_url,
+                'secrets' => $record->management_url,
+                default => $record->url,
+            };
             Validator::make(['target' => $url], ['target' => [new ProjectUrl]])->validate();
             Shell::openExternal($url);
         }

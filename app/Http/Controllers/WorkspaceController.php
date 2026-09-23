@@ -6,7 +6,6 @@ use App\Actions\SaveProject;
 use App\Models\Project;
 use App\Models\ProviderConnection;
 use App\Models\Tag;
-use App\Models\Task;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -60,11 +59,10 @@ class WorkspaceController extends Controller
 
     public function show(Request $request, Project $project): Response
     {
-        $project->load(['tags', 'repositories', 'folders', 'links', 'boardColumns.tasks', 'secrets:id,project_id,environment,name,revision,updated_at']);
+        $project->load(['tags', 'repositories', 'folders', 'links', 'documents', 'boardColumns.tasks', 'secrets:id,project_id,environment,name,service,description,management_url,revision,updated_at']);
 
         return $this->render($request, 'ShowProject', [
             'selectedProject' => $project,
-            'notesHtml' => Task::renderDescription($project->notes ?? ''),
             'connections' => fn () => ProviderConnection::orderBy('label')->get(),
             'activity' => fn () => $project->repositories()->with(['providerConnection', 'providerSnapshots'])->get(),
             'inspection' => fn () => $project->folders()->with('packageRoots')->get(),
@@ -81,7 +79,18 @@ class WorkspaceController extends Controller
 
     public function connections(Request $request): Response
     {
-        return $this->render($request, 'Connections', ['connections' => ProviderConnection::orderBy('label')->get()]);
+        return $this->render($request, 'Connections', [
+            'connections' => ProviderConnection::orderBy('label')->get(),
+            'mcp' => config('nativephp-internal.running') ? [
+                'command' => PHP_BINARY,
+                'args' => [base_path('artisan'), 'mcp:start', 'orbit'],
+                'env' => [
+                    'DB_CONNECTION' => 'sqlite',
+                    'DB_DATABASE' => DB::connection()->getDatabaseName(),
+                    'NATIVEPHP_RUNNING' => 'false',
+                ],
+            ] : null,
+        ]);
     }
 
     public function backups(Request $request): Response

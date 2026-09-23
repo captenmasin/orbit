@@ -2,6 +2,45 @@
 
 The current verification results are below. The later sections preserve the initial 0.1.0 spike on 14 September 2026, including the MCP clients and desktop diagnostic tools that were subsequently removed. The second macOS profile check is still open.
 
+## Project knowledge and migration — 0.6.0 complete, 22 September 2026
+
+Milestone 6 is **complete** in the fourth signed Apple Silicon 0.6.0 build. Document maintenance, search, encrypted recovery, 600 × 600 keyboard use, and normal Quit/relaunch passed. The original full profile has been returned and verified unchanged. `codesign --verify --deep --strict` passed for the final app and `hdiutil verify` passed for the final DMG. This is an internal signed package; notarization, Intel validation, and a second macOS user profile are not claimed. Earlier package evidence below applies to its recorded versions.
+
+- Implemented titled, ordered project documents with direct editing, safe Markdown, heading navigation, code copying, revision conflicts, and lossless migration of existing Notes. Added explicit review dates, visible ordered link groups, editable secret context, combined service/environment filters, and project/workspace content search with direct record navigation. Search never selects/decrypts secret values or provider credentials.
+- Added the independent bulk-task preview. Secret values remain excluded from ordinary previews, documents, session state, and logs; native encryption protects stored values.
+- Backups write schema 2 and accept restore schemas 1 and 2. New document/review/context fields and ordering are preserved; legacy Notes restore into a document. Fixed backup UI completion handling and rejection of orphan asset data during restore.
+- Full regressions passed: **166 PHP tests (1,726 assertions)** and **21 JavaScript tests**. The final PHP run is recorded in `/tmp/orbit-milestone6-tests-final.log`. Vue type checking, the production build, Pint, and diff checks passed. Coverage includes search disclosure, exact code-copy text, stale drafts, ownership, recovery compatibility, and the native database connection used for rollback snapshots.
+- Took pre-migration SQLite snapshots of the web, native development, and packaged workspaces at `/var/folders/8d/c15fpr252wb99pxjr7gn45440000gn/T/orbit-milestone6-lacfqvhd` (`web.sqlite`, `native-dev.sqlite`, `packaged.sqlite`). The isolated `acceptance-profile` remains retained as evidence.
+- Applied migrations to the populated web and native development databases. Comparisons preserved existing rows and copied Notes text exactly into documents. SQLite integrity returned `ok`; foreign-key checks reported zero violations.
+- Upgraded the original populated packaged workspace with signed 0.6.0. Every original field in projects, repositories, folders, links, board columns, tasks, provider connections (including ciphertext), and provider snapshots matched its pre-upgrade record. SQLite integrity was `ok`, with zero foreign-key violations. Normal Command-Q succeeded. After isolated acceptance, returned the entire original profile from its temporary parked location. Its three projects and every common pre-migration field in those tables again matched `packaged.sqlite` exactly; integrity was `ok` and foreign-key checks remained empty.
+- Verified direct document editing and reordering. Copied a fenced command through the UI and pasted it to verify its indentation and line breaks. Searching for Redis opened the exact Database document. Ordinary edits retained the review date; the explicit Mark reviewed action changed it. Edited the secret's non-secret context without revealing its value.
+- In the third signed 0.6.0 build, every row in the isolated workspace database matched after a normal Command-Q/relaunch. The dummy secret was then successfully revealed through native decryption, confirming encrypted value access survived restart.
+- At 600 × 600, reached document navigation, editing, Save, and Cancel through Tab navigation and scrolling. The search dialog fit and its results were keyboard-accessible; the secret context dialog was usable. All fixture rows still matched their snapshot after the failed restore and these window checks.
+- In the final fourth signed build, native encrypted restore reached `Applied`. Project metadata, document bodies/order, tasks, repositories, links, and secret context matched the backup semantically; empty nullable asset arrays normalized to `[]`. The rollback snapshot had mode 0600 and integrity `ok`. After normal Command-Q/relaunch, every restored fixture database row, including ciphertext, matched exactly, and native Reveal returned the dummy secret value. The final normal quit left no Orbit runtime processes.
+- Relaunched the returned original profile in final signed 0.6.0. The dashboard showed its original Novogamer, Orbit integration check, and Provider verification projects, with no acceptance fixture. Confirmed version 0.6.0 and that the bundled `BackupController` hash matched the current source.
+
+### Restore snapshot correction found during acceptance
+
+Packaged encrypted backup export succeeded: the 9,061-byte backup included one secret, and native restore preview correctly reported one project, four tasks, and one secret. Applying it returned the generic restore error before any workspace data changed. The rollback snapshot selected `database.connections.sqlite.database`, but NativePHP sets the active connection to `nativephp`. The one-line correction selects the current connection's database through `DB::connection()->getDatabaseName()`.
+
+A file-backed HTTP regression reproduced the same 422 response before the fix and passed afterward. It exercises preview through apply on a named native-style connection, verifies restored documents and re-encrypted secrets, and checks that the private 0600 rollback snapshot retains the pre-restore records. Ten focused backup/restore tests passed with 64 assertions; the full suite then passed with the totals above. Tests use an isolated storage directory removed by the existing test teardown. The fourth signed build includes this correction, and native apply, recovery, and post-restore restart/decryption passed.
+
+### Native picker timeout found during acceptance
+
+A prolonged native file-picker interaction terminated the bundled PHP server. A controlled reproduction isolated the bundled PHP execution timer: `max_execution_time=1` with `hard_timeout=2` exited with status 124 after 3.01 seconds; disabling the execution limit allowed the same wait to complete. The native app now supplies `max_execution_time=0` through `ProvidesPhpIni`, allowing a user to leave a native chooser open. Explicit background-operation timeouts remain in place. This is recorded separately from the earlier unreproduced picker observation in the 0.4.0 record.
+
+Final packaged acceptance:
+
+| Check | Observed result |
+| --- | --- |
+| Final signed 0.6.0 build and signature verification | Passed: fourth build includes both fixes; strict app signature and final DMG verification passed |
+| Upgrade the populated packaged workspace and preserve existing records | Passed: original full profile returned; three projects and all common original fields/ciphertext exactly preserved; integrity `ok`, no foreign-key errors |
+| Copy fenced commands and use document controls with the keyboard at 600 × 600 | Passed: exact code copy, document actions, search results, and context dialog |
+| Encrypted backup/restore of new fields and secret values | Passed: native restore `Applied`; metadata/content/order/context preserved, private rollback snapshot valid, dummy value decryptable |
+| Normal Command-Q/relaunch with new data preserved | Passed before and after restore: all fixture rows/ciphertext matched, native Reveal succeeded, and final quit left no Orbit runtime processes |
+
+Notarization, Intel validation, and the real second macOS profile remain open for the separate public-beta/release work; this milestone does not mark them passed. See [the milestone scope and acceptance table](PLAN-06-project-knowledge.md).
+
 ## Provider exit checks — 19 September 2026
 
 - In the signed 0.5.1 app, created Provider verification with public `laravel/framework`. Initial reads loaded 12 issues, 30 pull requests, nine Actions runs and three commit statuses. Load more reached 29 issues and 40 unique pull requests; the selected tab and results survived Command-R.

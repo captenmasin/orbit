@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Throwable;
 
 class WorkspaceRestore
 {
@@ -20,9 +21,9 @@ class WorkspaceRestore
      */
     public function stage(array $records, ProtectCredential $crypto): array
     {
-        $tables = array_fill_keys(['projects', 'tags', 'project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'board_columns', 'tasks', 'project_secrets'], []);
+        $tables = array_fill_keys(['projects', 'tags', 'project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'project_documents', 'board_columns', 'tasks', 'project_secrets'], []);
         $assets = [];
-        if (! isset($records[0]) || $records[0]['type'] !== 'workspace' || ($records[0]['data']['schema'] ?? null) !== 1 || ! is_string($records[0]['data']['created_at'] ?? null) || ! is_bool($records[0]['data']['includes_secrets'] ?? null)) {
+        if (! isset($records[0]) || $records[0]['type'] !== 'workspace' || ! in_array($records[0]['data']['schema'] ?? null, [1, 2, 3], true) || ! is_string($records[0]['data']['created_at'] ?? null) || ! is_bool($records[0]['data']['includes_secrets'] ?? null)) {
             $this->invalid();
         }
         $includesSecrets = $records[0]['data']['includes_secrets'];
@@ -55,6 +56,7 @@ class WorkspaceRestore
         $columns = $this->ids($tables['board_columns']);
         $tasks = $this->ids($tables['tasks']);
         $links = $this->ids($tables['project_links']);
+        $this->ids($tables['project_documents']);
         $secrets = $this->ids($tables['project_secrets']);
         foreach ($assets as $asset) {
             if (array_keys($asset['parts']) !== range(0, $asset['chunks'] - 1)) {
@@ -68,8 +70,48 @@ class WorkspaceRestore
             if (isset($project['position']) && (! is_int($project['position']) || $project['position'] < 0)) {
                 $this->invalid();
             }
+            $project['reviewed_at'] ??= null;
+            if (Validator::make($project, ['reviewed_at' => ['nullable', 'date_format:Y-m-d']])->fails()) {
+                $this->invalid();
+            }
             $project['asset_files'] ??= [];
             $this->validateFiles($project['asset_files'], 'project-file:'.$project['id'].':', $assets);
+            $project['asset_folders'] ??= [];
+            if ($records[0]['data']['schema'] === 1 && is_string($project['asset_folders'])) {
+                $project['asset_folders'] = json_decode($project['asset_folders'], true);
+            }
+            if (Validator::make(['folders' => $project['asset_folders']], [
+                'folders' => ['array', 'list', 'max:100'],
+                'folders.*' => ['array:id,name,parent_id'],
+                'folders.*.id' => ['required', 'uuid', 'distinct'],
+                'folders.*.name' => ['required', 'string', 'max:100', 'not_in:.,..', 'regex:~\A[^/\\\\\x00-\x1F]+\z~u'],
+                'folders.*.parent_id' => ['nullable', 'uuid'],
+            ])->fails()) {
+                $this->invalid();
+            }
+            $foldersById = array_column($project['asset_folders'], null, 'id');
+            $siblingNames = [];
+            foreach ($project['asset_folders'] as $folder) {
+                $parentId = $folder['parent_id'] ?? null;
+                $siblingKey = ($parentId ?? '')."\0".mb_strtolower($folder['name']);
+                if (($parentId !== null && ! isset($foldersById[$parentId])) || isset($siblingNames[$siblingKey])) {
+                    $this->invalid();
+                }
+                $siblingNames[$siblingKey] = true;
+                $ancestors = [];
+                while ($parentId !== null) {
+                    if ($parentId === $folder['id'] || isset($ancestors[$parentId])) {
+                        $this->invalid();
+                    }
+                    $ancestors[$parentId] = true;
+                    $parentId = $foldersById[$parentId]['parent_id'] ?? null;
+                }
+            }
+            foreach ($project['asset_files'] as $file) {
+                if (isset($file['folder_id']) && ! in_array($file['folder_id'], array_column($project['asset_folders'], 'id'), true)) {
+                    $this->invalid();
+                }
+            }
             if (($project['icon_type'] ?? null) === 'image') {
                 $assetId = $project['icon_asset_id'] ?? null;
                 if (! is_string($assetId) || $assetId !== 'icon:'.$project['id'] || ! isset($assets[$assetId]) || ! in_array($assets[$assetId]['mime'], ['image/png', 'image/jpeg', 'image/gif', 'image/webp'], true)) {
@@ -96,12 +138,25 @@ class WorkspaceRestore
             }
         }
         foreach ($tables['project_links'] as $link) {
-            if (! isset($projects[$link['project_id'] ?? '']) || ! $this->validUrl($link['url'] ?? null) || ! is_int($link['position'] ?? null)) {
+            if (! isset($projects[$link['project_id'] ?? '']) || ! $this->validUrl($link['url'] ?? null) || ! is_int($link['position'] ?? null) || Validator::make($link, ['description' => ['nullable', 'string', 'max:10000']])->fails()) {
                 $this->invalid();
             }
         }
         foreach ($tables['board_columns'] as $column) {
             if (! isset($projects[$column['project_id'] ?? '']) || ! is_int($column['position'] ?? null)) {
+                $this->invalid();
+            }
+        }
+        foreach ($tables['project_documents'] as $document) {
+            if (! isset($projects[$document['project_id'] ?? '']) || Validator::make(['document' => $document], [
+                'document' => ['array:id,project_id,title,body,position,revision,created_at,updated_at'],
+                'document.title' => ['required', 'string', 'max:255', 'regex:/\S/u'],
+                'document.body' => ['present', 'string', 'max:50000'],
+                'document.position' => ['required', 'integer', 'min:0'],
+                'document.revision' => ['required', 'integer', 'min:1'],
+                'document.created_at' => ['nullable', 'date'],
+                'document.updated_at' => ['nullable', 'date'],
+            ])->fails()) {
                 $this->invalid();
             }
         }
@@ -121,7 +176,21 @@ class WorkspaceRestore
                 $this->invalid();
             }
         }
+        $referencedAssets = [];
+        foreach ($tables['projects'] as $project) {
+            if (isset($project['icon_asset_id'])) {
+                $referencedAssets[] = $project['icon_asset_id'];
+            }
+            array_push($referencedAssets, ...array_column($project['asset_files'], 'asset_id'));
+        }
+        foreach ($tables['tasks'] as $task) {
+            array_push($referencedAssets, ...array_column($task['attachment_files'], 'asset_id'));
+        }
+        if (array_diff(array_keys($assets), $referencedAssets)) {
+            $this->invalid();
+        }
         $this->positions($tables['project_links'], 'project_id');
+        $this->positions($tables['project_documents'], 'project_id');
         $this->positions($tables['board_columns'], 'project_id');
         $this->positions($tables['tasks'], 'board_column_id');
         $names = [];
@@ -132,10 +201,30 @@ class WorkspaceRestore
                 $this->invalid();
             }
             $names[$key] = true;
+            if (Validator::make($secret, [
+                'service' => ['nullable', 'string', 'max:100'],
+                'description' => ['nullable', 'string', 'max:2000'],
+                'management_url' => ['nullable', 'string', 'max:2048', new ProjectUrl],
+            ])->fails()) {
+                $this->invalid();
+            }
             $secret['ciphertext'] = $crypto->encrypt($value);
             unset($secret['value']);
         }
         unset($secret);
+
+        foreach ($tables['projects'] as &$project) {
+            if (is_string($project['notes'] ?? null) && $project['notes'] !== '') {
+                $position = count(array_filter($tables['project_documents'], fn (array $document): bool => $document['project_id'] === $project['id']));
+                $records[] = ['type' => 'project_documents', 'data' => [
+                    'id' => (string) Str::uuid7(), 'project_id' => $project['id'], 'title' => 'Notes',
+                    'body' => $project['notes'], 'position' => $position, 'revision' => 1,
+                    'created_at' => $project['created_at'] ?? null, 'updated_at' => $project['updated_at'] ?? null,
+                ]];
+            }
+            $project['notes'] = null;
+        }
+        unset($project);
 
         return ['summary' => ['created_at' => $records[0]['data']['created_at'], 'projects' => count($projects), 'tasks' => count($tasks), 'secrets' => count($secrets), 'includes_secrets' => $includesSecrets], 'records' => $records];
     }
@@ -149,7 +238,7 @@ class WorkspaceRestore
         if (! is_array($records)) {
             $this->invalid();
         }
-        $tables = array_fill_keys(['projects', 'tags', 'project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'board_columns', 'tasks', 'project_secrets'], []);
+        $tables = array_fill_keys(['projects', 'tags', 'project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'project_documents', 'board_columns', 'tasks', 'project_secrets'], []);
         $assets = [];
         foreach ($records as $record) {
             if (! is_array($record) || ! is_string($record['type'] ?? null) || ! is_array($record['data'] ?? null)) {
@@ -181,6 +270,7 @@ class WorkspaceRestore
                 }
                 foreach ($tables['projects'] as $project) {
                     $project['icon_path'] = isset($project['icon_asset_id']) ? $paths[$project['icon_asset_id']] : null;
+                    $project['asset_folders'] = json_encode($project['asset_folders'] ?? [], JSON_THROW_ON_ERROR);
                     $project['asset_files'] = json_encode(array_map(function (array $file) use ($paths): array {
                         $file['path'] = $paths[$file['asset_id']];
                         unset($file['asset_id']);
@@ -190,7 +280,7 @@ class WorkspaceRestore
                     unset($project['icon_asset_id']);
                     DB::table('projects')->insert($project);
                 }
-                foreach (['project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'board_columns'] as $table) {
+                foreach (['project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'project_documents', 'board_columns'] as $table) {
                     foreach ($tables[$table] as $row) {
                         DB::table($table)->insert($row);
                     }
@@ -209,7 +299,7 @@ class WorkspaceRestore
                     DB::table('project_secrets')->insert($secret);
                 }
             });
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             Storage::disk('local')->delete($paths);
 
             throw $exception;

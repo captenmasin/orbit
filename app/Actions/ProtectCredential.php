@@ -26,7 +26,7 @@ class ProtectCredential
                 throw new RuntimeException;
             }
             $result = $decrypt ? System::decrypt($value) : System::encrypt($value);
-            if (! is_string($result) || (! $decrypt && ($result === '' || hash_equals($value, $result)))) {
+            if (! is_string($result) || (! $decrypt && $value !== '' && ($result === '' || hash_equals($value, $result)))) {
                 throw new RuntimeException;
             }
 

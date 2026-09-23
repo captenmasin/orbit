@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { Head, Link, router, useHttp } from '@inertiajs/vue3';
+import { computed, nextTick, ref, watch } from 'vue';
+import { Head, Link, router, useHttp, usePage } from '@inertiajs/vue3';
 import { useDocumentVisibility, useIntervalFn, useSessionStorage, useWindowFocus } from '@vueuse/core';
 import { PencilIcon, RefreshCwIcon } from '@lucide/vue';
 import ProjectIcon from '@/components/ProjectIcon.vue';
 import LinkIcon from '@/components/LinkIcon.vue';
-import OpenTargetButton from '@/components/OpenTargetButton.vue';
 import MarkdownContent from '@/components/MarkdownContent.vue';
+import OpenTargetButton from '@/components/OpenTargetButton.vue';
+import ProjectDocuments from '@/components/ProjectDocuments.vue';
+import ContentSearch from '@/components/ContentSearch.vue';
 import ProjectAssets from '@/components/ProjectAssets.vue';
 import ProjectBoard from '@/components/ProjectBoard.vue';
 import ProjectDependencies from '@/components/ProjectDependencies.vue';
@@ -17,11 +19,41 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { Project, ProjectFolder, ProviderConnection, Repository } from '@/types';
+import { ContextMenuContent, ContextMenuItem, ContextMenuPortal, ContextMenuRoot, ContextMenuTrigger } from 'reka-ui';
 
-const props = defineProps<{ selectedProject: Project; inspection: ProjectFolder[]; activity: Repository[]; connections: ProviderConnection[]; notesHtml: string; native: boolean }>();
+const props = defineProps<{ selectedProject: Project; inspection: ProjectFolder[]; activity: Repository[]; connections: ProviderConnection[]; native: boolean }>();
 const project = computed(() => props.selectedProject);
 const tab = useSessionStorage(() => `project:${project.value.id}:tab`, 'overview', { flush: 'sync' });
-watch(tab, value => { if (!['overview', 'board', 'dependencies', 'secrets'].includes(value)) tab.value = 'overview'; }, { immediate: true });
+watch(tab, value => { if (!['overview', 'documents', 'board', 'assets', 'dependencies', 'secrets'].includes(value)) tab.value = 'overview'; }, { immediate: true });
+const page = usePage();
+const query = computed(() => new URL(page.url ?? '/', 'http://orbit.local').searchParams);
+const targetDocumentId = computed(() => query.value.get('document'));
+const targetTaskId = computed(() => query.value.get('task'));
+const targetSecretId = computed(() => query.value.get('secret'));
+const targetLinkId = computed(() => query.value.get('link'));
+const missingLink = computed(() => !!targetLinkId.value && !(project.value.links ?? []).some(link => link.id === targetLinkId.value));
+const linkNotice = ref('');
+async function copyLink(url: string) {
+    try { await navigator.clipboard.writeText(url); linkNotice.value = 'URL copied.'; }
+    catch { linkNotice.value = 'Could not copy URL.'; }
+}
+const linkGroups = computed(() => {
+    const groups = new Map<string, Project['links']>();
+    for (const link of project.value.links ?? []) {
+        const category = link.category || 'Uncategorized';
+        if (!groups.has(category)) groups.set(category, []);
+        groups.get(category)!.push(link);
+    }
+    return Array.from(groups, ([category, links]) => ({ category, links }));
+});
+watch(query, value => {
+    const requested = value.get('tab');
+    if (requested && ['overview', 'documents', 'board', 'assets', 'dependencies', 'secrets'].includes(requested)) tab.value = requested;
+}, { immediate: true });
+watch([targetLinkId, tab, () => project.value.links], async () => {
+    await nextTick();
+    if (targetLinkId.value && !missingLink.value && tab.value === 'overview' && typeof document !== 'undefined') document.getElementById(`link-${targetLinkId.value}`)?.scrollIntoView({ block: 'center' });
+}, { immediate: true });
 const scan = useHttp({ kind: 'all' as 'all' | 'folder' | 'root', id: null as string | null, only_stale: false });
 const scanError = ref('');
 const visible = useDocumentVisibility();
@@ -70,13 +102,16 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                 <p v-if="project.archived_at" class="text-xs text-muted-foreground">Archived {{ date(project.archived_at) }}</p>
             </div>
         </div>
-        <Button as-child variant="outline"><Link :href="`/projects/${project.id}/edit`"><PencilIcon aria-hidden="true" />Edit project</Link></Button>
+        <div class="flex flex-wrap gap-2"><Button as-child variant="outline"><Link :href="`/projects/${project.id}/edit`"><PencilIcon aria-hidden="true" />Edit project</Link></Button></div>
     </div>
-    <Alert v-if="updateCount"><AlertDescription class="flex flex-wrap items-center justify-between gap-2"><span>{{ updateCount }} dependency {{ updateCount === 1 ? 'update' : 'updates' }} available across your package roots.</span><Button size="sm" variant="outline" @click="tab = 'dependencies'">Review updates</Button></AlertDescription></Alert>
+    <ContentSearch :project-id="project.id" />
+    <Alert v-if="updateCount"><AlertDescription class="flex flex-wrap items-center justify-between gap-2"><span>{{ updateCount }} {{ updateCount === 1 ? 'dependency is' : 'dependencies are' }} out of date.</span><Button size="sm" variant="outline" @click="tab = 'dependencies'">Dependencies</Button></AlertDescription></Alert>
     <Tabs v-model="tab">
         <TabsList aria-label="Project sections" class="max-w-full overflow-x-auto">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="documents">Documents</TabsTrigger>
             <TabsTrigger value="board">Board</TabsTrigger>
+            <TabsTrigger value="assets">Assets</TabsTrigger>
             <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
             <TabsTrigger value="secrets">Secrets</TabsTrigger>
         </TabsList>
@@ -87,24 +122,25 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                 <p class="break-words text-sm">{{ latestCommit.commit_subject }}</p>
                 <p class="break-all text-xs text-muted-foreground">{{ date(latestCommit.last_commit_at) }} · {{ latestCommit.branch ?? latestCommit.git_state }} · {{ latestCommit.path }}</p>
             </section>
-            <div class="grid items-start gap-6 xl:grid-cols-2">
-                <section class="space-y-3 rounded-lg border p-5" aria-labelledby="notes-title">
-                    <div class="flex items-center justify-between gap-2"><h2 id="notes-title" class="text-lg font-semibold">Notes</h2><Button as-child variant="ghost" size="sm"><Link :href="`/projects/${project.id}/edit#notes`">{{ project.notes ? 'Edit notes' : 'Add notes' }}</Link></Button></div>
-                    <MarkdownContent v-if="project.notes" :html="notesHtml" />
-                    <p v-else class="text-sm text-muted-foreground">Capture setup instructions, decisions, and ideas for this project.</p>
-                </section>
-                <section class="space-y-3 rounded-lg border p-5" aria-labelledby="links-title">
-                    <h2 id="links-title" class="text-lg font-semibold">Links</h2>
-                    <ul v-if="project.links.length" class="divide-y">
-                        <li v-for="link in project.links" :key="link.id" class="flex flex-wrap items-center gap-3 py-3">
+            <section class="space-y-3 rounded-lg border p-5" aria-labelledby="links-title">
+                <h2 id="links-title" class="text-lg font-semibold">Links</h2>
+                <p v-if="linkNotice" role="status" class="text-sm text-muted-foreground">{{ linkNotice }}</p>
+                <p v-if="missingLink" role="status" class="text-sm text-muted-foreground">This link was removed. Choose another link.</p>
+                <section v-for="group in linkGroups" :key="group.category" class="space-y-1" :aria-label="group.category">
+                    <h3 class="text-sm font-medium">{{ group.category }}</h3>
+                    <ul class="divide-y">
+                        <ContextMenuRoot v-for="link in group.links" :key="link.id">
+                        <ContextMenuTrigger as-child><li :id="`link-${link.id}`" class="flex flex-wrap items-center gap-3 rounded-md py-3" :class="{ 'bg-muted px-3': link.id === targetLinkId }">
                             <LinkIcon :url="link.url" />
-                            <div class="min-w-0 flex-1"><p class="break-words text-sm font-medium">{{ link.label }}</p><p class="break-all text-xs text-muted-foreground">{{ link.url }}</p><Badge v-if="link.category" variant="outline" class="mt-1">{{ link.category }}</Badge></div>
+                            <div class="min-w-0 flex-1"><p class="break-words text-sm font-medium">{{ link.label }}</p><p class="break-all text-xs text-muted-foreground">{{ link.url }}</p><MarkdownContent v-if="link.description_html" class="mt-2" :html="link.description_html" /></div>
                             <OpenTargetButton :project-id="project.id" kind="links" :id="link.id" :native="native" :href="link.url" :label="`Open ${link.label}`" />
-                        </li>
+                        </li></ContextMenuTrigger>
+                        <ContextMenuPortal><ContextMenuContent class="z-50 min-w-40 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"><ContextMenuItem as-child><a :href="link.url" target="_blank" rel="noopener noreferrer" class="block cursor-default rounded px-2 py-1.5 outline-none focus:bg-accent">Open link</a></ContextMenuItem><ContextMenuItem class="cursor-default rounded px-2 py-1.5 outline-none focus:bg-accent" @select="copyLink(link.url)">Copy URL</ContextMenuItem></ContextMenuContent></ContextMenuPortal>
+                        </ContextMenuRoot>
                     </ul>
-                    <p v-else class="text-sm text-muted-foreground">No links added.</p>
                 </section>
-            </div>
+                <p v-if="!project.links.length" class="text-sm text-muted-foreground">No links added.</p>
+            </section>
             <section class="space-y-4 rounded-lg border p-5" aria-labelledby="repositories-title">
                 <h2 id="repositories-title" class="text-lg font-semibold">Repositories</h2>
                 <div v-for="repo in project.repositories" :key="repo.id" class="flex flex-wrap items-center justify-between gap-3">
@@ -127,10 +163,11 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                 </div>
                 <p v-if="!inspection.length" class="text-sm text-muted-foreground">No folders linked.</p>
             </section>
-            <ProjectAssets :key="project.id" :project="project" />
         </TabsContent>
-        <TabsContent value="board" class="pt-4"><ProjectBoard :key="project.id" :project="project" /></TabsContent>
+        <TabsContent value="documents" class="pt-4"><ProjectDocuments :key="project.id" :project="project" :target-document-id="targetDocumentId" /></TabsContent>
+        <TabsContent value="board" class="pt-4"><ProjectBoard :key="project.id" :project="project" :target-task-id="targetTaskId" /></TabsContent>
+        <TabsContent value="assets" class="pt-4"><ProjectAssets :key="project.id" :project="project" /></TabsContent>
         <TabsContent value="dependencies" class="pt-4"><ProjectDependencies :key="project.id" :project="project" :folders="inspection" :native="native" :busy="scan.processing" @refresh="refresh" @changed="reloadInspection" /></TabsContent>
-        <TabsContent value="secrets" class="pt-4"><ProjectSecrets :key="project.id" :project="project" :native="native" /></TabsContent>
+        <TabsContent value="secrets" class="pt-4"><ProjectSecrets :key="project.id" :project="project" :native="native" :target-secret-id="targetSecretId" /></TabsContent>
     </Tabs>
 </template>

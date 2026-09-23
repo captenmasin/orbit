@@ -47,6 +47,7 @@ class SaveProject
             'links.*.label' => ['required', 'string', 'max:255', 'regex:/\S/u'],
             'links.*.url' => ['required', 'string', 'max:2048', new ProjectUrl],
             'links.*.category' => ['nullable', 'string', 'max:50'],
+            'links.*.description' => ['nullable', 'string', 'max:10000'],
         ])->validate();
 
         $revision = $data['revision'] ?? null;
@@ -105,7 +106,7 @@ class SaveProject
             $project = DB::transaction(function () use ($data, $id, $revision, $current, $type, $newIcon, $oldIcon) {
                 $attributes = [
                     'name' => trim($data['name']), 'description' => $data['description'] ?? null, 'status' => $data['status'],
-                    'notes' => array_key_exists('notes', $data) ? $data['notes'] : $current?->notes,
+                    'notes' => null,
                     'icon_type' => $type, 'icon_emoji' => $type === 'emoji' ? $data['icon_emoji'] : null,
                     'icon_path' => $type === 'image' ? ($newIcon ?: $oldIcon) : null,
                     'archived_at' => $data['status'] === 'Archived' ? ($current?->archived_at ?? now()) : null,
@@ -118,6 +119,13 @@ class SaveProject
                     $project = Project::findOrFail($id);
                 } else {
                     $project = Project::create($attributes)->refresh();
+                }
+                $notes = $data['notes'] ?? $current?->notes;
+                if ($notes !== null && $notes !== '') {
+                    if ($project->documents()->exists()) {
+                        throw ValidationException::withMessages(['notes' => 'Notes have moved to documents. Edit the document directly.']);
+                    }
+                    $project->documents()->create(['title' => 'Notes', 'body' => $notes, 'position' => 0]);
                 }
                 if (isset($data['tags'])) {
                     $tags = collect($data['tags'])->map(fn ($tag) => mb_strtolower(trim($tag)))->unique();

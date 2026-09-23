@@ -4,6 +4,7 @@ import { router, useForm, useHttp } from '@inertiajs/vue3';
 import { VueDraggable, type DraggableEvent } from 'vue-draggable-plus';
 import { ArrowLeftIcon, ArrowRightIcon, GripVerticalIcon, PaperclipIcon, PencilIcon, PlusIcon, XIcon } from '@lucide/vue';
 import MarkdownContent from '@/components/MarkdownContent.vue';
+import BulkIdeas from '@/components/BulkIdeas.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,7 +16,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea';
 import type { BoardColumn, BoardTask, Project } from '@/types';
 
-const props = defineProps<{ project: Project }>();
+const props = defineProps<{ project: Project; targetTaskId?: string | null }>();
 const columns = ref<BoardColumn[]>([]);
 const editor = ref<'task' | 'column' | 'move-task' | 'delete-task' | 'delete-column' | null>(null);
 const announcement = ref('');
@@ -146,6 +147,13 @@ function finishDrag(event: DraggableEvent) {
     form.revision = item.revision;
     submit();
 }
+watch(() => [props.targetTaskId, props.project.id], () => {
+    if (!props.targetTaskId) return;
+    const column = props.project.board_columns?.find(column => column.tasks.some(task => task.id === props.targetTaskId));
+    const task = column?.tasks.find(task => task.id === props.targetTaskId);
+    if (column && task) editTask(column, task);
+    else announcement.value = 'This task is no longer available.';
+}, { immediate: true });
 function reload() {
     router.reload({ only: ['selectedProject'], onSuccess: () => { editor.value = null; form.clearErrors(); announcement.value = 'Board reloaded'; } });
 }
@@ -155,7 +163,7 @@ function reload() {
     <div class="grid min-w-0 gap-4" :aria-busy="form.processing">
         <div class="flex items-center justify-between gap-2">
             <h2 class="text-lg font-semibold">Board</h2>
-            <Button type="button" variant="outline" :disabled="form.processing" @click="editColumn()"><PlusIcon aria-hidden="true" />Add column</Button>
+            <div class="flex flex-wrap gap-2"><BulkIdeas :project="project" /><Button type="button" variant="outline" :disabled="form.processing" @click="editColumn()"><PlusIcon aria-hidden="true" />Add column</Button></div>
         </div>
         <Alert v-if="form.hasErrors && !editor" variant="destructive" role="alert">
             <AlertDescription><p v-for="(error, key) in form.errors" :key="key">{{ error }}</p><Button v-if="form.errors.revision" type="button" variant="outline" @click="reload">Reload board</Button></AlertDescription>

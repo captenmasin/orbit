@@ -14,11 +14,11 @@ class Project extends Model
 {
     use HasFactory, HasUuids;
 
-    public const STATUSES = ['Idea', 'Active', 'Paused', 'Maintenance', 'Archived'];
+    public const STATUSES = ['Idea', 'In Progress', 'Live', 'Paused', 'Maintenance', 'Archived'];
 
     public const PREVIEWABLE_ASSET_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/svg+xml'];
 
-    protected $fillable = ['name', 'description', 'notes', 'status', 'icon_type', 'icon_emoji', 'icon_path', 'archived_at', 'previous_status'];
+    protected $fillable = ['name', 'description', 'notes', 'status', 'icon_type', 'icon_emoji', 'icon_path', 'archived_at', 'previous_status', 'reviewed_at'];
 
     protected $hidden = ['icon_path', 'asset_files'];
 
@@ -39,10 +39,10 @@ class Project extends Model
 
     protected function casts(): array
     {
-        return ['revision' => 'integer', 'position' => 'integer', 'asset_files' => 'array', 'archived_at' => 'datetime', 'last_commit_at' => 'datetime'];
+        return ['revision' => 'integer', 'position' => 'integer', 'asset_files' => 'array', 'asset_folders' => 'array', 'archived_at' => 'datetime', 'last_commit_at' => 'datetime', 'reviewed_at' => 'date:Y-m-d'];
     }
 
-    /** @return list<array{id: string, name: string, size: int, mime_type: ?string, url: string, preview_url: ?string}> */
+    /** @return list<array{id: string, name: string, size: int, folder_id: ?string, mime_type: ?string, url: string, preview_url: ?string}> */
     public function getAssetsAttribute(): array
     {
         return array_map(function (array $file): array {
@@ -50,6 +50,7 @@ class Project extends Model
 
             return [
                 'id' => $file['id'], 'name' => $file['name'], 'size' => $file['size'], 'mime_type' => $mime,
+                'folder_id' => $file['folder_id'] ?? null,
                 'url' => route('projects.assets.download', [$this, $file['id']], absolute: false),
                 'preview_url' => in_array($mime, self::PREVIEWABLE_ASSET_MIME_TYPES, true) ? route('projects.assets.preview', [$this, $file['id']], absolute: false) : null,
             ];
@@ -96,6 +97,11 @@ class Project extends Model
     public function boardColumns(): HasMany
     {
         return $this->hasMany(BoardColumn::class)->orderBy('position')->orderBy('id');
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(ProjectDocument::class)->orderBy('position')->orderBy('id');
     }
 
     public function secrets(): HasMany

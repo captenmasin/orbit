@@ -86,6 +86,8 @@ export interface ProjectLink {
     label: string;
     url: string;
     category?: string | null;
+    description?: string | null;
+    description_html?: string;
     icon?: string | null;
 }
 
@@ -107,7 +109,10 @@ export interface Project {
     name: string;
     description: string | null;
     notes?: string | null;
-    assets?: { id: string; name: string; size: number; mime_type: string | null; url: string; preview_url: string | null }[];
+    documents?: ProjectDocument[];
+    reviewed_at?: string | null;
+    assets?: { id: string; name: string; size: number; folder_id: string | null; mime_type: string | null; url: string; preview_url: string | null }[];
+    asset_folders?: { id: string; name: string; parent_id?: string | null }[] | null;
     status: string;
     revision: number;
     icon_type: 'initials' | 'emoji' | 'image';
@@ -126,7 +131,18 @@ export interface Project {
     board_columns?: BoardColumn[];
 }
 
-export type SidebarProject = Pick<Project, 'id' | 'name' | 'icon_type' | 'icon_emoji' | 'icon_url'>;
+export interface ProjectDocument {
+    id: string;
+    project_id: string;
+    title: string;
+    body: string;
+    body_html: string;
+    position: number;
+    revision: number;
+    updated_at: string;
+}
+
+export type SidebarProject = Pick<Project, 'id' | 'name' | 'status' | 'icon_type' | 'icon_emoji' | 'icon_url'> & { has_local_copy: boolean };
 
 export interface DependencyUpdates {
     checked_at: string;
@@ -142,6 +158,9 @@ export interface ProjectSecret {
     project_id: string;
     environment: string;
     name: string;
+    service: string | null;
+    description: string | null;
+    management_url: string | null;
     revision: number;
     updated_at: string;
 }

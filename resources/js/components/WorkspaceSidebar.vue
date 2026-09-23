@@ -6,6 +6,7 @@ import { GripVerticalIcon, LayoutGridIcon, SettingsIcon, OrbitIcon, PlusIcon, Ar
 import ProjectIcon from '@/components/ProjectIcon.vue';
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, useSidebar } from '@/components/ui/sidebar';
 import type { Project, SidebarProject } from '@/types';
+import { ContextMenuContent, ContextMenuItem, ContextMenuPortal, ContextMenuRoot, ContextMenuTrigger } from 'reka-ui';
 
 const props = defineProps<{ projects: SidebarProject[]; selectedProject: Project | null; page: string }>();
 const { setOpenMobile } = useSidebar();
@@ -75,14 +76,17 @@ function move(index: number, direction: number) {
                 <SidebarGroupLabel>Projects</SidebarGroupLabel>
                 <p id="project-order-help" class="sr-only">Drag to reorder, or focus a project handle and use the up and down arrow keys.</p>
                 <VueDraggable v-model="ordered" tag="ul" handle=".project-handle" :animation="150" :disabled="order.processing" class="flex w-full min-w-0 flex-col gap-1" @end="saveOrder">
-                    <SidebarMenuItem v-for="(project, index) in ordered" :key="project.id" class="flex items-center gap-1">
+                    <ContextMenuRoot v-for="(project, index) in ordered" :key="project.id">
+                    <ContextMenuTrigger as-child><SidebarMenuItem class="flex items-center gap-1">
                         <button type="button" class="project-handle cursor-grab rounded p-1 text-muted-foreground hover:text-foreground focus-visible:outline-2 disabled:opacity-50" :aria-label="`Reorder ${project.name}`" aria-describedby="project-order-help" :disabled="order.processing" @keydown.up.prevent="move(index, -1)" @keydown.down.prevent="move(index, 1)"><GripVerticalIcon class="size-3.5" aria-hidden="true" /></button>
                         <SidebarMenuButton as-child :is-active="selectedProject?.id === project.id">
                             <Link :href="`/projects/${project.id}`" :aria-current="selectedProject?.id === project.id ? 'page' : undefined" :title="project.name" @click="setOpenMobile(false)">
-                                <ProjectIcon :name="project.name" :type="project.icon_type" :emoji="project.icon_emoji" :image="project.icon_url" size="sm" /><span>{{ project.name }}</span>
+                                <ProjectIcon :name="project.name" :type="project.icon_type" :emoji="project.icon_emoji" :image="project.icon_url" size="sm" /><span class="min-w-0 flex-1 truncate">{{ project.name }}</span><span class="size-2 shrink-0 rounded-full" :class="project.has_local_copy ? 'bg-emerald-500' : 'bg-muted-foreground/30'" :title="project.has_local_copy ? 'Local folder available' : 'No local folder available'" :aria-label="project.has_local_copy ? 'Local folder available' : 'No local folder available'" /><span class="truncate text-[10px] text-muted-foreground">{{ project.status }}</span>
                             </Link>
                         </SidebarMenuButton>
-                    </SidebarMenuItem>
+                    </SidebarMenuItem></ContextMenuTrigger>
+                    <ContextMenuPortal><ContextMenuContent class="z-50 min-w-40 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"><ContextMenuItem as-child><Link :href="`/projects/${project.id}`" class="block cursor-default rounded px-2 py-1.5 outline-none focus:bg-accent">Open project</Link></ContextMenuItem><ContextMenuItem as-child><Link :href="`/projects/${project.id}/edit`" class="block cursor-default rounded px-2 py-1.5 outline-none focus:bg-accent">Edit project</Link></ContextMenuItem></ContextMenuContent></ContextMenuPortal>
+                    </ContextMenuRoot>
                 </VueDraggable>
                 <p class="sr-only" role="status">{{ announcement }}</p>
                 <p v-if="order.hasErrors" class="mt-2 text-xs text-destructive" role="alert">{{ Object.values(order.errors)[0] }} <button type="button" class="underline" @click="router.reload()">Reload</button></p>

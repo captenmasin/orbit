@@ -7,7 +7,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { dependencyRows } from '@/lib/dependencies';
 import type { FolderPreview, PackageRoot, Project, ProjectFolder } from '@/types';
@@ -32,13 +31,6 @@ async function checkUpdates() {
     } catch { updateError.value = String(Object.values(updateCheck.errors)[0] ?? 'Could not check for updates. Try again.'); }
 }
 const frameworks = computed(() => dependencyRows(snapshot.value ?? null).filter(row => ['laravel/framework', 'vue', 'react', 'next', 'nuxt', 'svelte', '@angular/core'].includes(row.name) && row.identity === 'Direct'));
-const query = ref('');
-const page = ref(0);
-const rows = computed(() => dependencyRows(snapshot.value ?? null).filter(row => `${row.name} ${row.scope} ${row.ecosystem} ${row.location ?? ''}`.toLowerCase().includes(query.value.toLowerCase())));
-const pages = computed(() => Math.max(1, Math.ceil(rows.value.length / 50)));
-const shown = computed(() => rows.value.slice(page.value * 50, (page.value + 1) * 50));
-watch([selectedId, query], () => { page.value = 0; });
-watch(pages, value => { page.value = Math.min(page.value, value - 1); });
 const date = (value?: string | null) => value ? new Date(value).toLocaleString() : 'Not scanned';
 const tools = ['php', 'node', 'composer', 'npm', 'pnpm', 'yarn'];
 const editorOpen = ref(false);
@@ -97,14 +89,14 @@ async function saveRoot(action = 'save') {
             <template v-if="snapshot">
                 <section class="space-y-3 rounded-lg border p-4" aria-label="Dependency updates">
                     <div class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-medium">Dependency updates</h3><Button variant="outline" size="sm" :disabled="updateCheck.processing || !['Current', 'Partial'].includes(selected.scan_state)" @click="checkUpdates">{{ updateCheck.processing ? 'Checking…' : 'Check for updates' }}</Button></div>
-                    <FieldDescription>Compare locked direct dependencies with the latest stable releases on public npm and Packagist. New major versions may require changes to your project.</FieldDescription>
+                    <FieldDescription>Checks direct dependencies against their latest stable releases.</FieldDescription>
                     <p v-if="updateError" class="text-sm text-destructive" role="alert">{{ updateError }}</p>
                     <template v-if="updates">
                         <p class="text-xs text-muted-foreground">Checked {{ date(updates.checked_at) }} · {{ updates.checked }} packages checked</p>
                         <Alert v-if="updatesStale"><AlertDescription>These results are from a previous inspection. Refresh this root and check again.</AlertDescription></Alert>
                         <Alert v-if="updates.unavailable || updates.skipped"><AlertDescription>{{ updates.unavailable }} packages could not be checked. {{ updates.skipped }} skipped (missing lock data, local dependencies, or the 100-package limit).</AlertDescription></Alert>
                         <p v-if="!updates.packages.length && !updatesStale" class="text-sm">{{ updates.unavailable || updates.skipped ? 'No updates found among the packages checked.' : updates.checked ? 'All checked dependencies are up to date.' : 'No locked direct dependencies to check.' }}</p>
-                        <Table v-if="updates.packages.length"><TableHeader><TableRow><TableHead>Package</TableHead><TableHead>Locked</TableHead><TableHead>Latest</TableHead></TableRow></TableHeader><TableBody><TableRow v-for="item in updates.packages" :key="`${item.ecosystem}:${item.name}`"><TableCell>{{ item.name }} <span class="text-xs text-muted-foreground">{{ item.ecosystem }}</span></TableCell><TableCell>{{ item.current }}</TableCell><TableCell><Badge variant="secondary">{{ item.latest }}</Badge></TableCell></TableRow></TableBody></Table>
+                        <Badge v-if="updates.packages.length && !updatesStale" variant="secondary" role="status">{{ updates.packages.length }} {{ updates.packages.length === 1 ? 'dependency is' : 'dependencies are' }} out of date</Badge>
                     </template>
                     <p v-else class="text-sm text-muted-foreground">Updates have not been checked yet.</p>
                 </section>
@@ -112,54 +104,6 @@ async function saveRoot(action = 'save') {
                     <template v-for="tool in ['php', 'node']" :key="tool"><Badge v-if="snapshot.runtimes[tool]?.version" variant="secondary">{{ tool === 'php' ? 'PHP' : 'Node' }} {{ snapshot.runtimes[tool]?.version }} · detected</Badge></template>
                     <Badge v-for="framework in frameworks" :key="framework.name" variant="secondary">{{ framework.name }} {{ framework.version ?? framework.required }} · {{ framework.version ? 'locked' : 'required' }}{{ framework.stale ? ' · previous data' : '' }}</Badge>
                 </div>
-                <section class="space-y-3" aria-label="Dependency sources">
-                    <h3 class="font-medium">Sources</h3>
-                    <p class="break-all text-sm text-muted-foreground">{{ snapshot.path }}</p>
-                    <Table>
-                        <TableHeader><TableRow><TableHead>File</TableHead><TableHead>State</TableHead><TableHead>Last read</TableHead></TableRow></TableHeader>
-                        <TableBody>
-                            <TableRow v-for="source in snapshot.files" :key="source.file">
-                                <TableCell>{{ source.file }}<template v-if="source.lockfile_version"> · v{{ source.lockfile_version }}</template></TableCell>
-                                <TableCell>{{ source.state }}<template v-if="source.state !== 'Current' && source.scanned_at"> · previous data</template></TableCell>
-                                <TableCell>{{ date(source.scanned_at) }}</TableCell>
-                            </TableRow>
-                            <TableRow v-for="file in snapshot.unsupported_lockfiles" :key="file"><TableCell>{{ file }}</TableCell><TableCell>Locked versions unsupported</TableCell><TableCell>—</TableCell></TableRow>
-                        </TableBody>
-                    </Table>
-                    <FieldDescription v-for="(constraint, engine) in snapshot.files['package.json']?.requirements" :key="engine">{{ engine }}: {{ constraint }} (package.json)</FieldDescription>
-                </section>
-                <section class="space-y-3" aria-label="Dependencies">
-                    <div class="flex flex-wrap items-center justify-between gap-2"><h3 class="font-medium">Dependencies <span class="text-muted-foreground">({{ rows.length }})</span></h3><Input v-model="query" class="w-64" type="search" aria-label="Filter dependencies" placeholder="Filter dependencies…" /></div>
-                    <FieldDescription>Required values come from manifests; locked values come from lockfiles. Installation and version compatibility are not checked.</FieldDescription>
-                    <Table>
-                        <TableHeader><TableRow><TableHead>Package</TableHead><TableHead>Required</TableHead><TableHead>Locked</TableHead><TableHead>Scope</TableHead><TableHead>Source / location</TableHead></TableRow></TableHeader>
-                        <TableBody>
-                            <TableRow v-for="(row, index) in shown" :key="index">
-                                <TableCell class="font-medium">{{ row.name }}<span v-if="row.stale" class="ml-2 text-muted-foreground">Previous data</span></TableCell>
-                                <TableCell>{{ row.required ?? '—' }}</TableCell>
-                                <TableCell>{{ row.link ? `Link → ${row.link}` : row.version ?? 'Unknown' }}</TableCell>
-                                <TableCell>{{ row.scope }}<br><span class="text-muted-foreground">{{ row.identity }}</span></TableCell>
-                                <TableCell class="max-w-80 whitespace-normal break-all">{{ row.ecosystem }}<template v-if="row.location"><br>{{ row.location }}</template></TableCell>
-                            </TableRow>
-                            <TableRow v-if="!shown.length"><TableCell :colspan="5" class="text-muted-foreground">No matching dependencies.</TableCell></TableRow>
-                        </TableBody>
-                    </Table>
-                    <div v-if="pages > 1" class="flex items-center gap-3"><Button size="sm" variant="outline" :disabled="page === 0" @click="page--">Previous</Button><span class="text-sm">{{ page + 1 }} / {{ pages }}</span><Button size="sm" variant="outline" :disabled="page + 1 >= pages" @click="page++">Next</Button></div>
-                </section>
-                <section class="space-y-3" aria-label="Detected runtimes">
-                    <h3 class="font-medium">Runtimes</h3>
-                    <FieldDescription>Host executables are probed from / to avoid loading project configuration. Set executable paths in Root settings.</FieldDescription>
-                    <Table>
-                        <TableHeader><TableRow><TableHead>Tool</TableHead><TableHead>Version</TableHead><TableHead>Executable / state</TableHead><TableHead>Last detected</TableHead></TableRow></TableHeader>
-                        <TableBody>
-                            <TableRow v-for="runtime in snapshot.runtimes" :key="runtime.tool">
-                                <TableCell>{{ runtime.tool }}</TableCell><TableCell>{{ runtime.version ?? 'Unknown' }}</TableCell>
-                                <TableCell class="max-w-96 whitespace-normal break-all">{{ runtime.path ?? 'No executable resolved' }}<br><span class="text-muted-foreground">{{ runtime.state }}</span><template v-if="runtime.last_success"><br>Previous: {{ runtime.last_success.version }} · {{ runtime.last_success.path }} · {{ date(runtime.last_success.scanned_at) }}</template></TableCell>
-                                <TableCell>{{ date(runtime.scanned_at) }}</TableCell>
-                            </TableRow>
-                        </TableBody>
-                    </Table>
-                </section>
             </template>
         </template>
     </div>

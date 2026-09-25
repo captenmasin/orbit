@@ -67,6 +67,9 @@ class WorkspaceRestore
             if (isset($project['notes']) && (! is_string($project['notes']) || mb_strlen($project['notes']) > 50000)) {
                 $this->invalid();
             }
+            if (isset($project['scratchpad']) && (! is_string($project['scratchpad']) || mb_strlen($project['scratchpad']) > 50000)) {
+                $this->invalid();
+            }
             if (isset($project['position']) && (! is_int($project['position']) || $project['position'] < 0)) {
                 $this->invalid();
             }

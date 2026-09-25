@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue';
 import { router, useHttp } from '@inertiajs/vue3';
+import { toast } from 'vue-sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import ChoiceSelect from '@/components/ChoiceSelect.vue';
 import type { ProviderConnection } from '@/types';
 
 defineProps<{ connections: ProviderConnection[]; native: boolean }>();
@@ -42,8 +43,11 @@ async function save() {
 async function remove() {
     if (!removing.value) return;
     removal.revision = removing.value.revision;
-    try { await removal.delete(`/connections/${removing.value.id}`); removing.value = null; router.reload({ only: ['connections'] }); }
-    catch (exception) { error.value = message(exception); }
+    try {
+        const result = await removal.delete(`/connections/${removing.value.id}`);
+        if (!result) { toast.error(String(Object.values(removal.errors)[0] ?? 'Connection could not be removed. Try again.')); return; }
+        removing.value = null; router.reload({ only: ['connections'] });
+    } catch { toast.error('Connection could not be removed. Try again.'); }
 }
 </script>
 
@@ -63,7 +67,7 @@ async function remove() {
     <Dialog v-model:open="open" @update:open="clear">
         <DialogContent><DialogHeader><DialogTitle>{{ editing ? 'Replace token' : 'Add connection' }}</DialogTitle><DialogDescription>Tokens are encrypted using macOS credential storage. Orbit reads repository activity.</DialogDescription></DialogHeader>
             <form class="grid gap-4" @submit.prevent="save">
-                <Field><FieldLabel for="provider">Provider</FieldLabel><NativeSelect id="provider" v-model="form.provider" :disabled="!!editing"><NativeSelectOption value="github">GitHub.com</NativeSelectOption><NativeSelectOption value="gitlab">GitLab.com</NativeSelectOption></NativeSelect></Field>
+                <Field><FieldLabel for="provider">Provider</FieldLabel><ChoiceSelect id="provider" v-model="form.provider" :options="[{ value: 'github', label: 'GitHub.com' }, { value: 'gitlab', label: 'GitLab.com' }]" :disabled="!!editing" /></Field>
                 <Field><FieldLabel for="connection-label">Label</FieldLabel><Input id="connection-label" v-model="form.label" maxlength="100" required /></Field>
                 <p class="text-sm text-muted-foreground">{{ form.provider === 'github' ? 'Use a fine-grained token for selected repositories with read access to Metadata, Contents, Issues, Pull requests, Actions, and Commit statuses.' : 'Use a personal access token with read_api access.' }}</p>
                 <Field><FieldLabel for="connection-token">Token</FieldLabel><Input id="connection-token" v-model="credential" type="password" autocomplete="off" :spellcheck="false" maxlength="4096" required /></Field>

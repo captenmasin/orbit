@@ -2,13 +2,14 @@
 import { computed, ref, watch } from 'vue';
 import { Link, router, useHttp } from '@inertiajs/vue3';
 import { useDocumentVisibility, useIntervalFn, useOnline, useWindowFocus } from '@vueuse/core';
+import { toast } from 'vue-sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import ChoiceSelect from '@/components/ChoiceSelect.vue';
 import type { ProviderConnection, Repository } from '@/types';
 
 const props = defineProps<{ projectId: string; repositories: Repository[]; connections: ProviderConnection[]; active: boolean }>();
@@ -49,8 +50,12 @@ async function save() {
 async function refresh(repository: Repository, resource = 'overview', more = false, onlyStale = false) {
     if (refreshing.processing || !online.value) return;
     Object.assign(refreshing, { resource, more, only_stale: onlyStale });
-    try { await refreshing.post(`/projects/${props.projectId}/repositories/${repository.id}/refresh`); reload(); }
-    catch { error.value = 'Refresh could not be queued. Try again.'; }
+    try {
+        const result = await refreshing.post(`/projects/${props.projectId}/repositories/${repository.id}/refresh`);
+        if (!result) { toast.error(String(Object.values(refreshing.errors)[0] ?? 'Refresh could not be queued. Try again.'), { id: 'provider-refresh' }); return; }
+        reload();
+    }
+    catch { toast.error('Refresh could not be queued. Try again.', { id: 'provider-refresh' }); }
 }
 function disabled(repository: Repository) {
     return refreshing.processing || !online.value || repository.provider_connection?.state === 'Token required' || (repository.provider_connection?.retry_at ? new Date(repository.provider_connection.retry_at).getTime() > Date.now() : false);
@@ -70,7 +75,6 @@ useIntervalFn(check, 2000);
     <section v-if="repositories.length" class="grid gap-4" aria-label="Provider activity">
         <h2 class="text-lg font-medium">Provider activity</h2>
         <Alert v-if="!online"><AlertDescription>Offline. Showing cached activity.</AlertDescription></Alert>
-        <Alert v-if="error && !selected" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
         <div v-for="repository in repositories" :key="repository.id" class="grid gap-4 rounded-lg border p-4">
             <div class="flex flex-wrap items-center justify-between gap-2"><div><h3 class="font-medium">{{ repository.provider_name ?? repository.name }}</h3><p v-if="repository.provider_connection" class="text-sm text-muted-foreground">{{ repository.provider_connection.label }} · {{ repository.provider_connection.login }} · {{ repository.provider_connection.state }}<template v-if="repository.provider_connection.retry_at"> · Retry after {{ date(repository.provider_connection.retry_at) }}</template></p></div><div class="flex gap-2"><Button type="button" variant="outline" @click="edit(repository)">{{ repository.provider_connection_id ? 'Connection settings' : 'Connect provider' }}</Button><Button v-if="repository.provider_connection_id" type="button" variant="outline" :disabled="disabled(repository)" @click="refresh(repository)">Refresh activity</Button></div></div>
             <div v-for="snapshot in repository.provider_snapshots ?? []" :key="snapshot.id" class="grid gap-2">
@@ -89,7 +93,7 @@ useIntervalFn(check, 2000);
             </div>
         </div>
         <Dialog :open="!!selected" @update:open="selected = null"><DialogContent><DialogHeader><DialogTitle>Repository connection</DialogTitle><DialogDescription>Choose an account and confirm the hosted repository. Changing or disconnecting it clears the previous cached activity.</DialogDescription></DialogHeader>
-            <Field><FieldLabel for="repo-connection">Connection</FieldLabel><NativeSelect id="repo-connection" v-model="connectionId"><NativeSelectOption value="">Disconnected</NativeSelectOption><NativeSelectOption v-for="connection in connections" :key="connection.id" :value="connection.id">{{ connection.label }} · {{ connection.login }}</NativeSelectOption></NativeSelect></Field>
+            <Field><FieldLabel for="repo-connection">Connection</FieldLabel><ChoiceSelect id="repo-connection" v-model="connectionId" :options="[{ value: '', label: 'Disconnected' }, ...connections.map(connection => ({ value: connection.id, label: `${connection.label} · ${connection.login}` }))]" /></Field>
             <Field v-if="connectionId"><FieldLabel for="provider-repo-name">Repository</FieldLabel><Input id="provider-repo-name" v-model="name" placeholder="owner/name or group/project" maxlength="255" /></Field>
             <Button v-if="!connections.length" as-child variant="outline"><Link href="/settings/connections">Add a connection</Link></Button>
             <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>

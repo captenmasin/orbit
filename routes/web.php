@@ -21,7 +21,11 @@ Route::put('/projects/order', [WorkspaceController::class, 'reorder'])->name('pr
 Route::get('/projects/{project}', [WorkspaceController::class, 'show'])->name('projects.show');
 Route::get('/projects/{project}/edit', [WorkspaceController::class, 'edit'])->name('projects.edit');
 Route::post('/projects', [WorkspaceController::class, 'store'])->name('projects.store');
+Route::post('/projects/{project}/duplicate', [WorkspaceController::class, 'duplicate'])->name('projects.duplicate');
 Route::put('/projects/{project}', [WorkspaceController::class, 'update'])->name('projects.update');
+Route::put('/projects/{project}/scratchpad', [WorkspaceController::class, 'updateScratchpad'])->name('projects.scratchpad.update');
+Route::post('/projects/{project}/scratchpad/actions/preview', [WorkspaceController::class, 'previewScratchpadActions'])->middleware('throttle:6,1')->name('projects.scratchpad.actions.preview');
+Route::post('/projects/{project}/scratchpad/actions', [WorkspaceController::class, 'applyScratchpadActions'])->name('projects.scratchpad.actions.apply');
 Route::delete('/projects/{project}', [WorkspaceController::class, 'destroy'])->name('projects.destroy');
 Route::put('/projects/{project}/documents', [ProjectDocumentController::class, 'update'])->name('projects.documents.update');
 Route::post('/projects/{project}/documents/preview', [ProjectDocumentController::class, 'preview'])->name('projects.documents.preview');
@@ -69,6 +73,7 @@ Route::post('/backups/export', [BackupController::class, 'export'])->name('backu
 Route::post('/backups/restore/preview', [BackupController::class, 'previewRestore'])->name('backups.restore.preview');
 Route::post('/backups/restore', [BackupController::class, 'applyRestore'])->name('backups.restore');
 Route::post('/connections', [ProviderController::class, 'save'])->name('connections.store');
+Route::get('/connections/{connection}/repositories', [ProviderController::class, 'repositories'])->name('connections.repositories');
 Route::put('/connections/{connection}', [ProviderController::class, 'save'])->name('connections.update');
 Route::delete('/connections/{connection}', [ProviderController::class, 'destroy'])->name('connections.destroy');
 Route::post('/projects/{project}/repositories/{repository}/connection', [ProviderController::class, 'associate'])->name('repositories.connection');

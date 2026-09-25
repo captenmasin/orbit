@@ -8,7 +8,7 @@ Each project's Board tab starts with Backlog, To Do, In Progress, and Done. Add,
 
 ## Run
 
-Requires macOS, PHP 8.5 with SQLite and ZIP, Composer, and Node 22+.
+Requires macOS, PHP 8.5 with SQLite and ZIP, Composer, Node 22+, and pnpm 10.12.1.
 
 ```sh
 composer setup
@@ -23,11 +23,11 @@ Native development uses `database/nativephp.sqlite`. Packaged builds use `~/Libr
 
 ```sh
 composer test
-npm test
-npm run build
+pnpm test
+pnpm run build
 ```
 
-Tests cover atomic catalog and board saves, task/column ordering, rollback after a failed write, stale revisions, search/filter/sort and pagination, folder metadata and relinking, repository ownership, link ordering and URL validation, image handling, archive/removal safety, Inertia error bags, and native cache isolation. `npm test` checks NativePHP's quit handler. `npm run build` checks the Vue/TypeScript code before producing the frontend assets. `npm run typecheck` runs just the type check. Migrations preserve existing project data and add default board columns to existing projects.
+Tests cover atomic catalog and board saves, task/column ordering, rollback after a failed write, stale revisions, search/filter/sort and pagination, folder metadata and relinking, repository ownership, link ordering and URL validation, image handling, archive/removal safety, Inertia error bags, and native cache isolation. `pnpm test` checks NativePHP's quit handler. `pnpm run build` checks the Vue/TypeScript code before producing the frontend assets. `pnpm run typecheck` runs just the type check. Migrations preserve existing project data and add default board columns to existing projects.
 
 Folder selection reads `composer.json`, `package.json`, and local Git metadata; it does not execute project scripts. Commit dates are snapshots taken when linking or relinking a folder. Ongoing Git inspection and provider activity belong to later milestones. Images are stored privately in Orbit's persistent storage and served through project routes.
 

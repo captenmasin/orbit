@@ -96,6 +96,42 @@ class ProviderController extends Controller
         });
     }
 
+    public function repositories(Request $request, ProviderConnection $connection, ProviderHttp $http): JsonResponse
+    {
+        if ($connection->provider !== 'github') {
+            return response()->json(['message' => 'Choose a GitHub connection.'], 422);
+        }
+        $page = $request->validate(['page' => ['sometimes', 'integer', 'min:1', 'max:10000']])['page'] ?? 1;
+
+        try {
+            $result = $http->using($connection, fn (string $token): array => $http->get('github', '/user/repos', $token, ['per_page' => 100, 'page' => $page, 'sort' => 'updated']));
+            if (! array_is_list($result['data'])) {
+                throw new RuntimeException('Invalid provider response');
+            }
+            $repositories = [];
+            foreach ($result['data'] as $row) {
+                if (! is_array($row) || ! is_int($row['id'] ?? null) || $row['id'] < 1 || ! is_string($row['full_name'] ?? null) || ! is_bool($row['private'] ?? null)
+                    || ! preg_match('~^([A-Za-z0-9-]+)/([A-Za-z0-9_.-]+)$~D', $row['full_name'], $name) || in_array($name[2], ['.', '..'], true)) {
+                    continue;
+                }
+                $repositories[] = [
+                    'id' => (string) $row['id'],
+                    'full_name' => $row['full_name'],
+                    'name' => $name[2],
+                    'remote_url' => 'https://github.com/'.$row['full_name'].'.git',
+                    'private' => $row['private'],
+                    'description' => is_string($row['description'] ?? null) ? $row['description'] : null,
+                ];
+            }
+
+            return response()->json(['repositories' => $repositories, 'next_page' => $result['next_page']])->header('Cache-Control', 'no-store, private');
+        } catch (Throwable $exception) {
+            $message = get_class($exception) === RuntimeException::class ? $exception->getMessage() : 'Repositories could not be loaded.';
+
+            return response()->json(['message' => $message, 'errors' => ['connection' => [$message]]], 422);
+        }
+    }
+
     public function associate(Request $request, Project $project, string $repository, ReadProvider $reader, ProviderHttp $http): JsonResponse
     {
         $repository = $project->repositories()->findOrFail($repository);

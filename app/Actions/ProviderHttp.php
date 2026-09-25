@@ -20,7 +20,7 @@ class ProviderHttp
             'gitlab' => 'https://gitlab.com/api/v4',
             default => throw new RuntimeException('Unsupported provider'),
         };
-        if (! preg_match('~^/(user|repositories/[0-9]+(?:/[^?#]*)?|repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|projects/[A-Za-z0-9%_.-]+(?:/[^?#]*)?)$~D', $path) || str_contains($path, '..') || str_contains($path, '\\')) {
+        if (! preg_match('~^/(user(?:/repos)?|repositories/[0-9]+(?:/[^?#]*)?|repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|projects/[A-Za-z0-9%_.-]+(?:/[^?#]*)?)$~D', $path) || str_contains($path, '..') || str_contains($path, '\\')) {
             throw new RuntimeException('Invalid provider request');
         }
         try {

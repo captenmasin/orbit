@@ -4,21 +4,48 @@ import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import * as inertia from '@inertiajs/vue3';
-import { http } from '@inertiajs/core';
 import * as vueuse from '@vueuse/core';
 import ts from 'typescript';
 import * as vue from 'vue';
 
+const { http } = inertia;
+
 function mount(t, props = {}) {
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ProjectSecrets.vue', import.meta.url), 'utf8'));
     const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'secrets-test' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
-    const modules = { vue: { ...vue, onBeforeUnmount: vue.onScopeDispose }, '@inertiajs/vue3': inertia, '@vueuse/core': vueuse };
-    const context = { exports: {}, require: name => modules[name] ?? {}, setTimeout, clearTimeout };
+    const focused = vue.ref(true);
+    const visible = vue.ref('visible');
+    const toasts = [];
+    const modules = { vue: { ...vue, onBeforeUnmount: vue.onScopeDispose }, '@inertiajs/vue3': inertia, '@vueuse/core': { ...vueuse, useWindowFocus: () => focused, useDocumentVisibility: () => visible }, 'vue-sonner': { toast: { error: message => toasts.push(message) } } };
+    const context = { exports: {}, require: name => modules[name] ?? {}, setTimeout, clearTimeout, fetch: async () => ({}), document: { cookie: '' } };
     runInNewContext(outputText, context);
     const scope = vue.effectScope();
     t.after(() => scope.stop());
-    return scope.run(() => context.exports.default.setup({ project: { id: 'project', revision: 3, secrets: [] }, native: true, ...props }, { expose() {} }));
+    const state = scope.run(() => context.exports.default.setup({ project: { id: 'project', revision: 3, secrets: [] }, native: true, ...props }, { expose() {} }));
+    return { ...state, toasts };
 }
+
+test('native file picker can briefly take focus without locking the vault', async t => {
+    let resolvePreview;
+    t.mock.method(http.getClient(), 'request', () => new Promise(resolve => { resolvePreview = resolve; }));
+    const state = mount(t);
+    state.unlocked.value = true;
+    state.openImport();
+
+    const preview = state.previewImport();
+    await vue.nextTick();
+    assert.equal(state.importPreviewForm.processing, true);
+    state.focused.value = false;
+    await vue.nextTick();
+    assert.equal(state.unlocked.value, true);
+
+    resolvePreview({ status: 200, data: JSON.stringify({ preview: { source: '.env', entries: [{ name: 'APP_NAME', collision: false }] } }), headers: {} });
+    await preview;
+    state.focused.value = true;
+    await vue.nextTick();
+    assert.equal(state.unlocked.value, true);
+    assert.equal(state.importPreview.value.entries[0].name, 'APP_NAME');
+});
 
 test('env import keeps the chosen environment and shows saved entries after success', async t => {
     const state = mount(t);
@@ -64,6 +91,20 @@ test('rejected env imports keep the dialog open and display the server error', a
     assert.equal(reloads, 0);
 });
 
+test('expired PIN closes the import preview and prompts for unlock', async t => {
+    const state = mount(t);
+    t.mock.method(http.getClient(), 'request', async () => ({ status: 423, data: JSON.stringify({ message: 'Unlock secrets with your PIN.' }), headers: {} }));
+    state.unlocked.value = true;
+    state.importOpen.value = true;
+    state.importPreview.value = { source: '.env', entries: [{ name: 'APP_NAME', collision: false }] };
+
+    await state.importEntries();
+
+    assert.equal(state.unlocked.value, false);
+    assert.equal(state.importOpen.value, false);
+    assert.match(state.error.value, /Unlock with your PIN/);
+});
+
 test('other secret actions also retain rejected submissions without reporting success', async t => {
     const state = mount(t);
     t.mock.method(http.getClient(), 'request', async () => ({ status: 422,
@@ -85,7 +126,7 @@ test('other secret actions also retain rejected submissions without reporting su
     assert.equal(state.removing.value.id, 'secret');
     await state.copy({ id: 'secret', revision: 1 });
     assert.equal(state.notice.value, '');
-    assert.equal(state.error.value, 'Unable to save secrets.');
+    assert.deepEqual(state.toasts, ['Unable to save secrets.', 'Unable to save secrets.']);
     assert.equal(reloads, 0);
 });
 
@@ -114,7 +155,7 @@ test('secret search opens metadata without revealing a value and handles removed
     assert.equal(state.form.service, 'Stripe');
     const removed = mount(t, { targetSecretId: 'removed' });
     assert.equal(removed.editorOpen.value, false);
-    assert.match(removed.error.value, /no longer exists/);
+    assert.deepEqual(removed.toasts, ['This secret no longer exists in this project.']);
 });
 
 test('context edits use the metadata endpoint independently of value replacement', async t => {

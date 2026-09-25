@@ -1,62 +1,74 @@
 <script setup lang="ts">
-import { watch } from 'vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
-import { PlusIcon, SearchIcon } from '@lucide/vue';
-import ProjectIcon from '@/components/ProjectIcon.vue';
-import { Badge } from '@/components/ui/badge';
+import { onBeforeUnmount, reactive, watch } from 'vue';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
+import { FolderOpenIcon, PlusIcon, SearchIcon } from '@lucide/vue';
+import FilterSelect from '@/components/FilterSelect.vue';
+import MultiFilterSelect from '@/components/MultiFilterSelect.vue';
+import ProjectCard from '@/components/ProjectCard.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
-import { Field, FieldLabel } from '@/components/ui/field';
-import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { CatalogFilters, ProjectPage } from '@/types';
+import type { CatalogFilters, ProjectPage, SidebarProject } from '@/types';
 
 const props = defineProps<{ projects: ProjectPage; statuses: string[]; filters: CatalogFilters; tags: string[] }>();
-const search = useForm({ ...props.filters });
-watch(() => props.filters, filters => { search.defaults(filters); search.reset(); });
-function filter() {
-    search.get('/', { preserveState: true, preserveScroll: true });
+const page = usePage<{ sidebarProjects: SidebarProject[] }>();
+const search = reactive({ q: props.filters.q, status: props.filters.status, tag: [...props.filters.tag] });
+watch(() => props.filters, filters => Object.assign(search, { q: filters.q, status: filters.status, tag: [...filters.tag] }));
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+function applyFilters() {
+    clearTimeout(searchTimer);
+    router.get('/', Object.fromEntries(Object.entries(search).filter(([, value]) => Array.isArray(value) ? value.length : value)), { preserveState: true, preserveScroll: true, replace: true });
 }
-const date = (value: string | null) => value ? new Date(value).toLocaleDateString() : '—';
+function queueSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(applyFilters, 250);
+}
+function clearFilters() {
+    Object.assign(search, { q: '', status: '', tag: [] });
+    applyFilters();
+}
+function filterByTag(tag: string) {
+    search.tag = search.tag.includes(tag) ? search.tag.filter(value => value !== tag) : [...search.tag, tag];
+    applyFilters();
+}
+onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>
 
 <template>
-    <Head title="Dashboard" />
-    <div class="flex items-center justify-between gap-4">
-        <h1 class="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <Button as-child><Link href="/projects/create"><PlusIcon aria-hidden="true" />New project</Link></Button>
+    <div class="flex w-full max-w-[1900px] flex-col gap-8 pb-8">
+        <Head title="Dashboard" />
+        <div class="flex flex-wrap items-center justify-between gap-4">
+            <h1 class="flex items-baseline gap-3 text-[2rem] leading-tight font-semibold tracking-[-0.035em]">Projects <span class="text-lg font-medium tracking-normal text-muted-foreground">{{ page.props.sidebarProjects.length }}</span></h1>
+            <Button as-child><Link href="/projects/create"><PlusIcon aria-hidden="true" />New project</Link></Button>
+        </div>
+
+        <div role="search" class="flex flex-wrap items-center gap-2.5" aria-label="Filter projects">
+            <div class="relative min-w-[240px] max-w-[28rem] flex-[1_1_20rem]">
+                <label for="catalog-search" class="sr-only">Search projects</label>
+                <SearchIcon class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <Input id="catalog-search" v-model="search.q" name="q" placeholder="Search projects" maxlength="255" class="h-9 rounded-full border-0 bg-muted pl-9 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]" @input="queueSearch" @keydown.enter.prevent="applyFilters" />
+            </div>
+            <div class="min-w-[155px] flex-1 sm:flex-none"><label for="catalog-status" class="sr-only">Status</label><FilterSelect id="catalog-status" label="Status" :model-value="search.status" :options="statuses" all-label="All statuses" @update:model-value="value => { search.status = value; applyFilters(); }" /></div>
+            <div class="min-w-[135px] flex-1 sm:flex-none"><label for="catalog-tag" class="sr-only">Tag</label><MultiFilterSelect id="catalog-tag" label="Tag" :model-value="search.tag" :options="tags" @update:model-value="value => { search.tag = value; applyFilters(); }" /></div>
+            <button v-if="search.q || search.status || search.tag.length" type="button" class="h-9 px-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" @click="clearFilters">Clear</button>
+        </div>
+
+        <section aria-label="Projects" class="flex flex-col gap-4">
+            <p v-if="filters.q || filters.status || filters.tag.length" class="text-sm text-muted-foreground">{{ projects.data.length }} {{ projects.data.length === 1 ? 'match' : 'matches' }}</p>
+            <div v-if="projects.data.length" class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,21rem),1fr))] gap-4">
+                <ProjectCard v-for="project in projects.data" :key="project.id" :project="project" :selected-tags="search.tag" @toggle-tag="filterByTag" />
+            </div>
+            <div v-else class="flex flex-col items-center px-6 py-16 text-center">
+                <span class="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground"><FolderOpenIcon class="size-5" aria-hidden="true" /></span>
+                <h2 class="mt-4 text-base font-semibold">{{ filters.q || filters.status || filters.tag.length ? 'No matching projects' : 'No projects yet' }}</h2>
+                <p class="mt-1 max-w-sm text-sm text-muted-foreground">{{ filters.q || filters.status || filters.tag.length ? 'Try another search or clear the filters.' : 'Create a project to start organizing your work.' }}</p>
+                <Button v-if="filters.q || filters.status || filters.tag.length" variant="outline" class="mt-5" @click="clearFilters">Clear filters</Button>
+                <Button v-else as-child class="mt-5"><Link href="/projects/create"><PlusIcon aria-hidden="true" />New project</Link></Button>
+            </div>
+        </section>
+
+        <nav v-if="projects.prev_page_url || projects.next_page_url" class="flex justify-end gap-2" aria-label="Project pages">
+            <Button v-if="projects.prev_page_url" as-child variant="outline"><Link :href="projects.prev_page_url">Previous</Link></Button>
+            <Button v-if="projects.next_page_url" as-child variant="outline"><Link :href="projects.next_page_url">Next</Link></Button>
+        </nav>
     </div>
-    <form class="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(200px,1fr)_160px_160px_160px_auto]" @submit.prevent="filter">
-        <Field><FieldLabel for="catalog-search">Search</FieldLabel><Input id="catalog-search" v-model="search.q" name="q" placeholder="Name, description or tag" maxlength="255" /></Field>
-        <Field><FieldLabel for="catalog-status">Status</FieldLabel><NativeSelect id="catalog-status" v-model="search.status"><NativeSelectOption value="">All statuses</NativeSelectOption><NativeSelectOption v-for="status in statuses" :key="status" :value="status">{{ status }}</NativeSelectOption></NativeSelect></Field>
-        <Field><FieldLabel for="catalog-tag">Tag</FieldLabel><NativeSelect id="catalog-tag" v-model="search.tag"><NativeSelectOption value="">All tags</NativeSelectOption><NativeSelectOption v-for="tag in tags" :key="tag" :value="tag">{{ tag }}</NativeSelectOption></NativeSelect></Field>
-        <Field><FieldLabel for="catalog-sort">Sort</FieldLabel><NativeSelect id="catalog-sort" v-model="search.sort"><NativeSelectOption value="name">Name A–Z</NativeSelectOption><NativeSelectOption value="name-desc">Name Z–A</NativeSelectOption><NativeSelectOption value="last-commit">Last known commit</NativeSelectOption></NativeSelect></Field>
-        <div class="flex items-end gap-2"><Button type="submit" variant="outline" :disabled="search.processing"><SearchIcon aria-hidden="true" />Search</Button><Button v-if="filters.q || filters.status || filters.tag || filters.sort !== 'name'" as-child variant="ghost"><Link href="/">Clear</Link></Button></div>
-    </form>
-    <Table v-if="projects.data.length">
-        <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Status</TableHead><TableHead>Tags</TableHead><TableHead>Repositories / folders</TableHead><TableHead>Last known commit</TableHead></TableRow></TableHeader>
-        <TableBody>
-            <TableRow v-for="project in projects.data" :key="project.id">
-                <TableCell>
-                    <Link :href="`/projects/${project.id}`" class="flex items-center gap-3 whitespace-normal">
-                        <ProjectIcon :name="project.name" :type="project.icon_type" :emoji="project.icon_emoji" :image="project.icon_url" />
-                        <div class="grid min-w-32 gap-1"><span class="font-medium break-all">{{ project.name }}</span><span v-if="project.description" class="line-clamp-1 text-muted-foreground">{{ project.description }}</span></div>
-                    </Link>
-                </TableCell>
-                <TableCell><Badge variant="secondary">{{ project.status }}</Badge></TableCell>
-                <TableCell><div class="flex flex-wrap gap-1"><Badge v-for="tag in project.tags" :key="tag.id" variant="outline">{{ tag.name }}</Badge></div></TableCell>
-                <TableCell>{{ project.repositories_count }} / {{ project.folders_count }}</TableCell>
-                <TableCell>{{ date(project.last_commit_at) }}</TableCell>
-            </TableRow>
-        </TableBody>
-    </Table>
-    <Empty v-else>
-        <EmptyHeader><EmptyTitle><h2>{{ filters.q || filters.status || filters.tag ? 'No matching projects' : 'No projects yet' }}</h2></EmptyTitle></EmptyHeader>
-        <EmptyContent v-if="filters.q || filters.status || filters.tag"><Button as-child variant="outline"><Link href="/">Clear filters</Link></Button></EmptyContent>
-    </Empty>
-    <nav v-if="projects.prev_page_url || projects.next_page_url" class="flex gap-2" aria-label="Project pages">
-        <Button v-if="projects.prev_page_url" as-child variant="outline"><Link :href="projects.prev_page_url">Previous</Link></Button>
-        <Button v-if="projects.next_page_url" as-child variant="outline"><Link :href="projects.next_page_url">Next</Link></Button>
-    </nav>
 </template>

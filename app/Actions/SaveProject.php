@@ -5,6 +5,7 @@ namespace App\Actions;
 use App\Models\Project;
 use App\Models\ProjectFolder;
 use App\Models\ProjectLink;
+use App\Models\ProviderConnection;
 use App\Models\Repository;
 use App\Models\Tag;
 use App\Rules\ProjectUrl;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Throwable;
 
@@ -38,6 +40,8 @@ class SaveProject
             'repositories.*.id' => ['required', 'uuid', 'distinct'],
             'repositories.*.name' => ['nullable', 'string', 'max:255', 'regex:/\S/u'],
             'repositories.*.remote_url' => ['required', 'string', 'max:2048', 'distinct', new ProjectUrl(repository: true)],
+            'repositories.*.github_connection_id' => [$id ? 'prohibited' : 'nullable', 'uuid'],
+            'repositories.*.github_full_name' => [$id ? 'prohibited' : 'nullable', 'string', 'max:255'],
             'folders' => ['sometimes', 'array', 'max:100'],
             'folders.*.id' => ['required', 'uuid', 'distinct'],
             'folders.*.path' => ['required', 'string', 'max:4096', 'distinct'],
@@ -67,6 +71,34 @@ class SaveProject
                 ->when($id, fn ($query) => $query->where('project_id', '!=', $id))->exists()) {
                 throw ValidationException::withMessages([$key => 'These records belong to another project. Reload before saving.']);
             }
+        }
+        $verifiedRepositories = [];
+        foreach ($data['repositories'] ?? [] as $index => $repository) {
+            $connectionId = $repository['github_connection_id'] ?? null;
+            $fullName = $repository['github_full_name'] ?? null;
+            if ($connectionId === null && $fullName === null) {
+                continue;
+            }
+            if ($connectionId === null || $fullName === null) {
+                throw ValidationException::withMessages(["repositories.$index.".($connectionId === null ? 'github_connection_id' : 'github_full_name') => 'Choose a GitHub connection and repository.']);
+            }
+            $connection = ProviderConnection::whereKey($connectionId)->where('provider', 'github')->first();
+            if (! $connection) {
+                throw ValidationException::withMessages(["repositories.$index.github_connection_id" => 'Choose a saved GitHub connection.']);
+            }
+            try {
+                $metadata = app(ProviderHttp::class)->using($connection, fn (string $credential): array => app(ReadProvider::class)->repository('github', $fullName, $credential));
+            } catch (RuntimeException $exception) {
+                throw ValidationException::withMessages(["repositories.$index.github_full_name" => get_class($exception) === RuntimeException::class ? $exception->getMessage() : 'GitHub repository could not be verified.']);
+            }
+            $webUrl = 'https://github.com/'.$metadata['provider_name'];
+            if (strcasecmp($metadata['provider_name'], $fullName) !== 0 || strcasecmp($metadata['provider_url'], $webUrl) !== 0) {
+                throw ValidationException::withMessages(["repositories.$index.github_full_name" => 'GitHub returned a different repository. Choose it again.']);
+            }
+            if (strcasecmp($repository['remote_url'], $webUrl.'.git') !== 0 && strcasecmp($repository['remote_url'], $webUrl) !== 0) {
+                throw ValidationException::withMessages(["repositories.$index.remote_url" => 'The remote URL does not match the selected GitHub repository.']);
+            }
+            $verifiedRepositories[$repository['id']] = ['connection' => $connection, 'metadata' => $metadata, 'index' => $index];
         }
         $repositoryIds = isset($data['repositories']) ? array_column($data['repositories'], 'id') : ($current?->repositories->modelKeys() ?? []);
         $paths = [];
@@ -103,7 +135,7 @@ class SaveProject
                     throw ValidationException::withMessages(['icon_file' => 'The image could not be stored. Try again.']);
                 }
             }
-            $project = DB::transaction(function () use ($data, $id, $revision, $current, $type, $newIcon, $oldIcon) {
+            $project = DB::transaction(function () use ($data, $id, $revision, $current, $type, $newIcon, $oldIcon, $verifiedRepositories) {
                 $attributes = [
                     'name' => trim($data['name']), 'description' => $data['description'] ?? null, 'status' => $data['status'],
                     'notes' => null,
@@ -134,7 +166,15 @@ class SaveProject
                 // Save repositories before checkouts, and detach checkouts before removing a repository.
                 foreach ($data['repositories'] ?? [] as $repository) {
                     $repository['name'] = $repository['name'] ?? Repository::nameFromUrl($repository['remote_url']);
-                    $project->repositories()->updateOrCreate(['id' => $repository['id']], Arr::only($repository, ['name', 'remote_url']));
+                    $savedRepository = $project->repositories()->updateOrCreate(['id' => $repository['id']], Arr::only($repository, ['name', 'remote_url']));
+                    if (isset($verifiedRepositories[$repository['id']])) {
+                        $verified = $verifiedRepositories[$repository['id']];
+                        if ($verified['connection']->fresh()?->revision !== $verified['connection']->revision) {
+                            throw ValidationException::withMessages(["repositories.{$verified['index']}.github_connection_id" => 'GitHub connection changed. Choose it again.']);
+                        }
+                        $savedRepository->forceFill([...$verified['metadata'], 'provider_connection_id' => $verified['connection']->id])->save();
+                        app(QueueProviderRefresh::class)->handle($savedRepository);
+                    }
                 }
                 if (isset($data['folders'])) {
                     $project->folders()->whereNotIn('id', array_column($data['folders'], 'id'))->delete();

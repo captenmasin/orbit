@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { router, useForm } from '@inertiajs/vue3';
+import { toast } from 'vue-sonner';
 import { ChevronRightIcon, DownloadIcon, FileIcon, FolderIcon, FolderPlusIcon, PencilIcon, Trash2Icon, UploadIcon } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import ChoiceSelect from '@/components/ChoiceSelect.vue';
 import { Field, FieldLabel, FieldDescription, FieldError } from '@/components/ui/field';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ContextMenuContent, ContextMenuItem, ContextMenuPortal, ContextMenuRoot, ContextMenuTrigger } from 'reka-ui';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
 import type { Project } from '@/types';
 const props = defineProps<{ project: Project }>();
 type AssetFolder = NonNullable<Project['asset_folders']>[number];
@@ -27,7 +28,6 @@ const pickerKey = ref(0);
 const selectedType = ref('');
 const selectedFolder = ref('');
 const dropTarget = ref<string | null>(null);
-const dropError = ref('');
 const readingDrop = ref(false);
 const folders = computed(() => [...(props.project.asset_folders ?? [])].sort((a, b) => a.name.localeCompare(b.name)));
 const currentFolder = computed(() => folders.value.find(folder => folder.id === selectedFolder.value));
@@ -120,7 +120,7 @@ async function dropOn(event: DragEvent, folderId: string) {
                 }
             }
         } catch {
-            dropError.value = 'This asset could not be moved.';
+            toast.error('This asset could not be moved.');
         }
         return;
     }
@@ -129,7 +129,6 @@ async function dropOn(event: DragEvent, folderId: string) {
     const fallbackFiles = Array.from(transfer.files);
     if (!entries.length && !fallbackFiles.length) return;
     readingDrop.value = true;
-    dropError.value = '';
     try {
         const files: File[] = [];
         const paths: string[] = [];
@@ -140,7 +139,7 @@ async function dropOn(event: DragEvent, folderId: string) {
             files.push(...fallbackFiles);
         }
         if (files.length > 100 || directories.length > 100) {
-            dropError.value = 'A project can store up to 100 files and 100 folders.';
+            toast.error('A project can store up to 100 files and 100 folders.');
             return;
         }
         upload.files = files;
@@ -148,7 +147,7 @@ async function dropOn(event: DragEvent, folderId: string) {
         upload.directories = directories;
         submit(folderId);
     } catch {
-        dropError.value = 'The dropped folder could not be read. Try again.';
+        toast.error('The dropped folder could not be read. Try again.');
     } finally {
         readingDrop.value = false;
     }
@@ -187,37 +186,40 @@ function renameFile() {
 </script>
 
 <template>
-    <section class="space-y-4 rounded-lg border p-5" :class="dropTarget === (selectedFolder || '__root__') ? 'border-primary bg-primary/5' : ''" aria-labelledby="assets-title" @dragover="allowDrop($event, selectedFolder)" @dragleave="leaveDrop" @drop.prevent="dropOn($event, selectedFolder)">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="assets-title" class="text-lg font-semibold">Assets</h2>
-            <div class="flex flex-wrap items-center gap-2">
-                <NativeSelect v-if="folderAssets.length || selectedType" v-model="selectedType" aria-label="Filter assets by type">
-                    <NativeSelectOption value="">All types ({{ folderAssets.length }})</NativeSelectOption>
-                    <NativeSelectOption v-for="filter in typeFilters" :key="filter.type" :value="filter.type">{{ filter.type }} ({{ filter.count }})</NativeSelectOption>
-                </NativeSelect>
-                <Button variant="outline" :disabled="busy" @click="editFolder()"><FolderPlusIcon aria-hidden="true" />New folder</Button>
+    <div>
+    <section class="space-y-6" :class="dropTarget === (selectedFolder || '__root__') ? 'rounded-xl bg-primary/5' : ''" aria-labelledby="assets-title" @dragover="allowDrop($event, selectedFolder)" @dragleave="leaveDrop" @drop.prevent="dropOn($event, selectedFolder)">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+                <h2 id="assets-title" class="text-xl font-semibold tracking-[-0.025em]">Assets</h2>
+                <p class="mt-1 text-sm leading-6 text-muted-foreground">Keep files and folders for this project in one place.</p>
             </div>
+            <Button variant="outline" :disabled="busy" @click="editFolder()"><FolderPlusIcon aria-hidden="true" />New folder</Button>
         </div>
         <Alert v-if="Object.keys(errors).length" variant="destructive"><AlertDescription><p v-for="(error, key) in errors" :key="key">{{ error }}</p><Button v-if="errors.revision" variant="outline" @click="router.reload()">Reload project</Button></AlertDescription></Alert>
-        <Alert v-if="dropError" variant="destructive"><AlertDescription>{{ dropError }}</AlertDescription></Alert>
+        <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-start">
+        <div class="min-w-0 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
         <nav v-if="folders.length" aria-label="Asset folders" class="flex flex-wrap items-center gap-2 text-sm">
             <Button variant="link" size="sm" class="px-0" :class="dropTarget === '__root__' ? 'rounded bg-primary/10' : ''" :disabled="busy" :aria-current="!currentFolder ? 'page' : undefined" @click="selectedFolder = ''" @dragover.stop="allowDrop($event, '')" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, '')">Assets</Button>
             <template v-for="(folder, index) in breadcrumbs" :key="folder.id"><ChevronRightIcon class="size-4 text-muted-foreground" aria-hidden="true" /><Button v-if="index < breadcrumbs.length - 1" variant="link" size="sm" class="px-0" :class="dropTarget === folder.id ? 'rounded bg-primary/10' : ''" @click="selectedFolder = folder.id" @dragover.stop="allowDrop($event, folder.id)" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, folder.id)">{{ folder.name }}</Button><span v-else class="min-w-0 truncate font-medium" aria-current="page">{{ folder.name }}</span></template>
         </nav>
-        <ul v-if="childFolders.length" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Folders">
-            <ContextMenuRoot v-for="folder in childFolders" :key="folder.id">
-            <ContextMenuTrigger as-child><li draggable="true" class="flex items-center gap-1 rounded-lg border p-2" :class="dropTarget === folder.id ? 'border-primary bg-primary/10' : ''" @dragstart="startDrag($event, 'folder', folder.id)" @dragend="dropTarget = null" @dragover.stop="allowDrop($event, folder.id)" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, folder.id)">
+        <span v-else class="text-sm font-medium">All files</span>
+        <ChoiceSelect v-if="folderAssets.length || selectedType" v-model="selectedType" aria-label="Filter assets by type" :options="[{ value: '', label: `All types (${folderAssets.length})` }, ...typeFilters.map(filter => ({ value: filter.type, label: `${filter.type} (${filter.count})` }))]" />
+        </div>
+        <ul v-if="childFolders.length" class="grid gap-3 sm:grid-cols-2" aria-label="Folders">
+            <ContextMenu v-for="folder in childFolders" :key="folder.id">
+            <ContextMenuTrigger as-child><li draggable="true" class="flex items-center gap-1 rounded-xl border border-black/8 bg-neutral-50 p-2 dark:border-white/10 dark:bg-neutral-800" :class="dropTarget === folder.id ? 'border-primary bg-primary/10' : ''" @dragstart="startDrag($event, 'folder', folder.id)" @dragend="dropTarget = null" @dragover.stop="allowDrop($event, folder.id)" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, folder.id)">
                 <Button variant="ghost" class="h-auto min-w-0 flex-1 justify-start py-3" :disabled="busy" @click="selectedFolder = folder.id"><FolderIcon class="shrink-0 text-muted-foreground" aria-hidden="true" /><span class="truncate">{{ folder.name }}</span><span class="ml-auto text-xs text-muted-foreground">{{ assets.filter(file => file.folder_id === folder.id).length }}</span></Button>
                 <Button variant="ghost" size="icon-sm" :aria-label="`Rename ${folder.name}`" :disabled="busy" @click="editFolder(folder)"><PencilIcon aria-hidden="true" /></Button>
                 <Button variant="ghost" size="icon-sm" :aria-label="`Remove folder ${folder.name}`" :disabled="busy" @click="removing = { ...folder, kind: 'folder' }"><Trash2Icon aria-hidden="true" /></Button>
             </li></ContextMenuTrigger>
-            <ContextMenuPortal><ContextMenuContent class="z-50 min-w-40 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"><ContextMenuItem class="cursor-default rounded px-2 py-1.5 outline-none focus:bg-accent" @select="selectedFolder = folder.id">Open</ContextMenuItem><ContextMenuItem class="cursor-default rounded px-2 py-1.5 outline-none focus:bg-accent" @select="editFolder(folder)">Rename</ContextMenuItem><ContextMenuItem class="cursor-default rounded px-2 py-1.5 text-destructive outline-none focus:bg-accent" @select="removing = { ...folder, kind: 'folder' }">Remove</ContextMenuItem></ContextMenuContent></ContextMenuPortal>
-            </ContextMenuRoot>
+            <ContextMenuContent><ContextMenuItem @select="selectedFolder = folder.id">Open</ContextMenuItem><ContextMenuItem @select="editFolder(folder)">Rename</ContextMenuItem><ContextMenuItem variant="destructive" @select="removing = { ...folder, kind: 'folder' }">Remove</ContextMenuItem></ContextMenuContent>
+            </ContextMenu>
         </ul>
         <p class="sr-only" role="status">Showing {{ filteredAssets.length }} of {{ folderAssets.length }} assets in {{ currentFolder?.name ?? 'Assets' }}.</p>
-        <ul v-if="filteredAssets.length" class="divide-y rounded-lg border">
-            <ContextMenuRoot v-for="file in filteredAssets" :key="file.id">
-            <ContextMenuTrigger as-child><li draggable="true" class="flex flex-wrap items-center gap-3 p-3" @dragstart="startDrag($event, 'file', file.id)" @dragend="dropTarget = null">
+        <ul v-if="filteredAssets.length" class="divide-y divide-black/8 overflow-hidden rounded-xl border border-black/8 bg-background dark:divide-white/10 dark:border-white/10">
+            <ContextMenu v-for="file in filteredAssets" :key="file.id">
+            <ContextMenuTrigger as-child><li draggable="true" class="flex flex-wrap items-center gap-3 p-3.5 transition-colors hover:bg-muted/40" @dragstart="startDrag($event, 'file', file.id)" @dragend="dropTarget = null">
                 <button v-if="file.preview_url && !failedPreviews.includes(file.id)" type="button" class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" :aria-label="`Preview ${file.name}`" @click="preview = file">
                     <img :src="file.preview_url" alt="" loading="lazy" class="size-full object-contain" @error="failedPreviews.push(file.id)" />
                 </button>
@@ -227,23 +229,34 @@ function renameFile() {
                 <span class="shrink-0 text-xs text-muted-foreground">{{ size(file.size) }}</span>
                 <Button as-child variant="ghost" size="icon-sm"><a :href="file.url" download :aria-label="`Download ${file.name}`"><DownloadIcon aria-hidden="true" /></a></Button>
                 <Button variant="ghost" size="icon-sm" :aria-label="`Rename ${file.name}`" :disabled="busy" @click="renamingFile = file; fileName = file.name"><PencilIcon aria-hidden="true" /></Button>
-                <NativeSelect v-if="folders.length" :model-value="file.folder_id ?? ''" class="max-w-40" :aria-label="`Move ${file.name} to folder`" :disabled="busy" @update:model-value="move(file, String($event))"><NativeSelectOption value="">Assets</NativeSelectOption><NativeSelectOption v-for="folder in folders" :key="folder.id" :value="folder.id">{{ folder.name }}</NativeSelectOption></NativeSelect>
+                <ChoiceSelect v-if="folders.length" :model-value="file.folder_id ?? ''" class="max-w-40" :aria-label="`Move ${file.name} to folder`" :disabled="busy" :options="[{ value: '', label: 'Assets' }, ...folders.map(folder => ({ value: folder.id, label: folder.name }))]" @update:model-value="move(file, $event)" />
                 <Button variant="ghost" size="icon-sm" :aria-label="`Remove ${file.name}`" :disabled="busy" @click="removing = { ...file, kind: 'file' }"><Trash2Icon aria-hidden="true" /></Button>
             </li></ContextMenuTrigger>
-            <ContextMenuPortal><ContextMenuContent class="z-50 min-w-40 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"><ContextMenuItem v-if="file.preview_url" class="cursor-default rounded px-2 py-1.5 outline-none focus:bg-accent" @select="preview = file">Preview</ContextMenuItem><ContextMenuItem as-child><a :href="file.url" download class="block cursor-default rounded px-2 py-1.5 outline-none focus:bg-accent">Download</a></ContextMenuItem><ContextMenuItem class="cursor-default rounded px-2 py-1.5 outline-none focus:bg-accent" @select="renamingFile = file; fileName = file.name">Rename</ContextMenuItem><ContextMenuItem class="cursor-default rounded px-2 py-1.5 text-destructive outline-none focus:bg-accent" @select="removing = { ...file, kind: 'file' }">Remove</ContextMenuItem></ContextMenuContent></ContextMenuPortal>
-            </ContextMenuRoot>
+            <ContextMenuContent><ContextMenuItem v-if="file.preview_url" @select="preview = file">Preview</ContextMenuItem><ContextMenuItem as-child><a :href="file.url" download>Download</a></ContextMenuItem><ContextMenuItem @select="renamingFile = file; fileName = file.name">Rename</ContextMenuItem><ContextMenuItem variant="destructive" @select="removing = { ...file, kind: 'file' }">Remove</ContextMenuItem></ContextMenuContent>
+            </ContextMenu>
         </ul>
         <div v-else-if="selectedType" class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <p>No assets match this type.</p><Button variant="link" size="sm" @click="selectedType = ''">Show all types</Button>
         </div>
-        <p v-else-if="!childFolders.length" class="text-sm text-muted-foreground">{{ currentFolder ? 'This folder is empty. Upload files here or move existing assets into it.' : 'Keep designs, screenshots, documents, and other project files here.' }}</p>
-        <form class="flex flex-wrap items-end gap-3" @submit.prevent="submit()">
-            <Field class="min-w-52 flex-1"><FieldLabel for="asset-files">{{ currentFolder ? `Add files to ${currentFolder.name}` : 'Add files' }}</FieldLabel><Input id="asset-files" :key="pickerKey" type="file" multiple :disabled="busy" @change="upload.files = Array.from(($event.target as HTMLInputElement).files ?? []); upload.paths = []; upload.directories = []" /><FieldDescription>Drop files or folders here, or choose files. Up to 100 files per project, 10 MB each. Files are copied into Orbit.</FieldDescription></Field>
-            <Button type="submit" variant="outline" :disabled="!upload.files.length || busy"><UploadIcon aria-hidden="true" />{{ upload.processing ? `Uploading ${upload.progress?.percentage ?? 0}%` : 'Upload' }}</Button>
+        <div v-else-if="!childFolders.length" class="flex flex-col items-center rounded-xl border border-dashed border-black/10 px-6 py-12 text-center dark:border-white/10">
+            <span class="flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground"><FolderIcon class="size-5" aria-hidden="true" /></span>
+            <p class="mt-3 text-sm font-medium">{{ currentFolder ? 'This folder is empty' : 'No assets yet' }}</p>
+            <p class="mt-1 text-sm text-muted-foreground">{{ currentFolder ? 'Upload files here or move existing assets into this folder.' : 'Add designs, screenshots, documents, or other project files.' }}</p>
+        </div>
+        </div>
+        <aside class="rounded-[1.25rem] border border-black/8 bg-neutral-50 p-5 dark:border-white/10 dark:bg-neutral-800" aria-labelledby="asset-upload-title">
+        <span class="flex size-10 items-center justify-center rounded-xl bg-background text-muted-foreground dark:bg-[#303030]"><UploadIcon class="size-5" aria-hidden="true" /></span>
+        <h3 id="asset-upload-title" class="mt-5 text-base font-semibold tracking-[-0.02em]">Upload files</h3>
+        <p class="mt-1 text-sm leading-6 text-muted-foreground">Drop files or folders anywhere in this area, or choose files below.</p>
+        <form class="mt-5 space-y-3" @submit.prevent="submit()">
+            <Field><FieldLabel for="asset-files">{{ currentFolder ? `Add to ${currentFolder.name}` : 'Choose files' }}</FieldLabel><Input id="asset-files" :key="pickerKey" type="file" multiple :disabled="busy" @change="upload.files = Array.from(($event.target as HTMLInputElement).files ?? []); upload.paths = []; upload.directories = []" /><FieldDescription>Up to 100 files per project, 10 MB each. Files are copied into Orbit.</FieldDescription></Field>
+            <Button type="submit" :disabled="!upload.files.length || busy"><UploadIcon aria-hidden="true" />{{ upload.processing ? `Uploading ${upload.progress?.percentage ?? 0}%` : 'Upload' }}</Button>
         </form>
+        </aside>
+        </div>
     </section>
     <Dialog :open="folderEditorOpen" @update:open="value => { if (!folderForm.processing) folderEditorOpen = value; }"><DialogContent><DialogHeader><DialogTitle>{{ editingFolder ? 'Rename folder' : 'New asset folder' }}</DialogTitle><DialogDescription>Organize project assets into folders such as logos or screenshots.</DialogDescription></DialogHeader>
-        <form class="space-y-4" @submit.prevent="saveFolder"><Field><FieldLabel for="asset-folder-name">Folder name</FieldLabel><Input id="asset-folder-name" v-model="folderForm.name" placeholder="logo" maxlength="100" required :aria-invalid="!!folderForm.errors.name" /><FieldError v-if="folderForm.errors.name">{{ folderForm.errors.name }}</FieldError></Field><Field><FieldLabel for="asset-folder-parent">Inside</FieldLabel><NativeSelect id="asset-folder-parent" v-model="folderForm.parent_id"><NativeSelectOption value="">Assets</NativeSelectOption><NativeSelectOption v-for="folder in folders.filter(item => item.id !== editingFolder?.id)" :key="folder.id" :value="folder.id">{{ folder.name }}</NativeSelectOption></NativeSelect><FieldError v-if="folderForm.errors.parent_id">{{ folderForm.errors.parent_id }}</FieldError></Field><FieldError v-if="folderForm.errors.revision">{{ folderForm.errors.revision }}</FieldError><DialogFooter><Button type="button" variant="outline" :disabled="folderForm.processing" @click="folderEditorOpen = false">Cancel</Button><Button type="submit" :disabled="folderForm.processing">{{ folderForm.processing ? 'Saving…' : 'Save folder' }}</Button></DialogFooter></form>
+        <form class="space-y-4" @submit.prevent="saveFolder"><Field><FieldLabel for="asset-folder-name">Folder name</FieldLabel><Input id="asset-folder-name" v-model="folderForm.name" placeholder="logo" maxlength="100" required :aria-invalid="!!folderForm.errors.name" /><FieldError v-if="folderForm.errors.name">{{ folderForm.errors.name }}</FieldError></Field><Field><FieldLabel for="asset-folder-parent">Inside</FieldLabel><ChoiceSelect id="asset-folder-parent" :model-value="folderForm.parent_id ?? ''" :options="[{ value: '', label: 'Assets' }, ...folders.filter(item => item.id !== editingFolder?.id).map(folder => ({ value: folder.id, label: folder.name }))]" @update:model-value="folderForm.parent_id = $event || null" /><FieldError v-if="folderForm.errors.parent_id">{{ folderForm.errors.parent_id }}</FieldError></Field><FieldError v-if="folderForm.errors.revision">{{ folderForm.errors.revision }}</FieldError><DialogFooter><Button type="button" variant="outline" :disabled="folderForm.processing" @click="folderEditorOpen = false">Cancel</Button><Button type="submit" :disabled="folderForm.processing">{{ folderForm.processing ? 'Saving…' : 'Save folder' }}</Button></DialogFooter></form>
     </DialogContent></Dialog>
     <Dialog :open="!!renamingFile" @update:open="value => { if (!value && !movement.processing) renamingFile = null; }"><DialogContent><DialogHeader><DialogTitle>Rename file</DialogTitle><DialogDescription>Change the name shown in Orbit and used for downloads.</DialogDescription></DialogHeader><form class="space-y-4" @submit.prevent="renameFile"><Field><FieldLabel for="asset-file-name">File name</FieldLabel><Input id="asset-file-name" v-model="fileName" maxlength="255" required /><FieldError v-if="movement.errors.name">{{ movement.errors.name }}</FieldError></Field><DialogFooter><Button type="button" variant="outline" @click="renamingFile = null">Cancel</Button><Button type="submit" :disabled="movement.processing">Rename</Button></DialogFooter></form></DialogContent></Dialog>
     <Dialog :open="!!preview" @update:open="value => { if (!value) preview = null; }">
@@ -257,4 +270,5 @@ function renameFile() {
     <Dialog :open="!!removing" @update:open="value => { if (!value && !removal.processing) removing = null; }">
         <DialogContent><DialogHeader><DialogTitle>Remove {{ removing?.name }}?</DialogTitle><DialogDescription>{{ removing?.kind === 'folder' ? 'Files and subfolders will move into the parent folder. No files will be deleted.' : 'This deletes the stored copy from Orbit. Your original file stays on disk.' }}</DialogDescription></DialogHeader><FieldError v-for="(error, key) in removal.errors" :key="key">{{ error }}</FieldError><DialogFooter><Button variant="outline" :disabled="removal.processing" @click="removing = null">Cancel</Button><Button variant="destructive" :disabled="removal.processing" @click="remove">Remove {{ removing?.kind }}</Button></DialogFooter></DialogContent>
     </Dialog>
+    </div>
 </template>

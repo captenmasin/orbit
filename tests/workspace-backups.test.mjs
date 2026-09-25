@@ -4,9 +4,10 @@ import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import * as inertia from '@inertiajs/vue3';
-import { http } from '@inertiajs/core';
 import ts from 'typescript';
 import * as vue from 'vue';
+
+const { http } = inertia;
 
 function mount(t) {
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/WorkspaceBackups.vue', import.meta.url), 'utf8'));

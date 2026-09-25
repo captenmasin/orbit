@@ -24,7 +24,8 @@ class WorkspaceTest extends TestCase
         $this->assertSame('Orbit', $project->name);
         $this->get($url)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
             ->assertInertia(fn (Assert $page): Assert => $page->component('ShowProject')
-                ->where('selectedProject.id', $project->id)->where('selectedProject.revision', 1));
+                ->where('selectedProject.id', $project->id)->where('selectedProject.revision', 1)
+                ->has('statuses', 6)->where('statuses.0', 'Idea')->where('statuses.5', 'Archived'));
 
         $this->withHeader('X-Inertia', 'true')->put($url, [
             'name' => 'Updated project', 'description' => 'A description', 'status' => 'Live', 'revision' => 1,

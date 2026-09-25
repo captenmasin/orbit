@@ -91,6 +91,12 @@ export interface ProjectLink {
     icon?: string | null;
 }
 
+export type ScratchpadAction =
+    | { type: 'link'; label: string; url: string; description?: string }
+    | { type: 'document'; title: string; body: string }
+    | { type: 'task'; title: string; column_id?: string }
+    | { type: 'project_detail'; field: 'name' | 'description' | 'status' | 'tag'; value: string };
+
 export interface FolderPreview {
     path: string;
     name: string;
@@ -109,6 +115,7 @@ export interface Project {
     name: string;
     description: string | null;
     notes?: string | null;
+    scratchpad: string | null;
     documents?: ProjectDocument[];
     reviewed_at?: string | null;
     assets?: { id: string; name: string; size: number; folder_id: string | null; mime_type: string | null; url: string; preview_url: string | null }[];
@@ -142,7 +149,7 @@ export interface ProjectDocument {
     updated_at: string;
 }
 
-export type SidebarProject = Pick<Project, 'id' | 'name' | 'status' | 'icon_type' | 'icon_emoji' | 'icon_url'> & { has_local_copy: boolean };
+export type SidebarProject = Pick<Project, 'id' | 'name' | 'status' | 'icon_type' | 'icon_emoji' | 'icon_url'>;
 
 export interface DependencyUpdates {
     checked_at: string;
@@ -192,7 +199,7 @@ export interface ProjectPage {
 export interface CatalogFilters {
     q: string;
     status: string;
-    tag: string;
+    tag: string[];
     sort: string;
 }
 

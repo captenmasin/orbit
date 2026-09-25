@@ -18,9 +18,9 @@ class Project extends Model
 
     public const PREVIEWABLE_ASSET_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/svg+xml'];
 
-    protected $fillable = ['name', 'description', 'notes', 'status', 'icon_type', 'icon_emoji', 'icon_path', 'archived_at', 'previous_status', 'reviewed_at'];
+    protected $fillable = ['name', 'description', 'notes', 'scratchpad', 'status', 'icon_type', 'icon_emoji', 'icon_path', 'archived_at', 'previous_status', 'reviewed_at'];
 
-    protected $hidden = ['icon_path', 'asset_files'];
+    protected $hidden = ['icon_path', 'asset_files', 'scratchpad'];
 
     protected $appends = ['icon_url', 'assets'];
 

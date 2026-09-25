@@ -64,6 +64,7 @@ class ProviderCredentialTest extends TestCase
         $this->assertSame('native-ciphertext', $connection->encrypted_token);
         $this->assertArrayNotHasKey('encrypted_token', $connection->toArray());
         $this->get('/settings/connections')->assertInertia(fn (Assert $page) => $page->where('connections.0.login', 'octocat')->missing('connections.0.encrypted_token'));
+        $this->get('/projects/create')->assertInertia(fn (Assert $page) => $page->component('CreateProject')->where('connections.0.id', $connection->id)->missing('connections.0.encrypted_token'));
         $this->assertStringNotContainsString('DISTINCT-DUMMY-TOKEN', json_encode(session()->all()));
         $this->assertDatabaseHas('credential_access_events', ['connection_id' => $connection->id, 'operation' => 'create', 'result' => 'Succeeded']);
         Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'Bearer DISTINCT-DUMMY-TOKEN') && $request->hasHeader('X-GitHub-Api-Version', '2026-03-10'));
@@ -139,5 +140,59 @@ class ProviderCredentialTest extends TestCase
         $this->assertDatabaseCount('provider_connections', 2);
         $this->assertDatabaseHas('provider_connections', ['provider' => 'gitlab', 'login' => 'gitlab-user', 'encrypted_token' => 'gitlab-ciphertext']);
         Http::assertSent(fn ($request) => $request->hasHeader('PRIVATE-TOKEN', 'gitlab-dummy') && ! $request->hasHeader('Authorization'));
+    }
+
+    public function test_repository_picker_returns_only_safe_fields_and_next_page(): void
+    {
+        $connection = ProviderConnection::factory()->create();
+        $this->mock(ProtectCredential::class, function ($mock): void {
+            $mock->shouldReceive('decrypt')->once()->with('fixture-ciphertext')->andReturn('PRIVATE-DUMMY-TOKEN');
+        });
+        Http::preventStrayRequests();
+        Http::fake(['https://api.github.com/user/repos*' => Http::response([
+            ['id' => 123, 'full_name' => 'octocat/.github', 'name' => '.github', 'private' => true, 'description' => 'Team configuration', 'clone_url' => 'https://evil.test/PRIVATE-DUMMY-TOKEN', 'token' => 'PRIVATE-DUMMY-TOKEN'],
+            ['id' => 124, 'full_name' => 'evil.test/path/escape', 'name' => 'escape', 'private' => false],
+        ], 200, ['Link' => '<https://api.github.com/user/repos?per_page=100&page=3&sort=updated>; rel="next"'])]);
+
+        $response = $this->getJson('/connections/'.$connection->id.'/repositories?page=2')
+            ->assertOk()
+            ->assertExactJson(['repositories' => [[
+                'id' => '123', 'full_name' => 'octocat/.github', 'name' => '.github',
+                'remote_url' => 'https://github.com/octocat/.github.git', 'private' => true, 'description' => 'Team configuration',
+            ]], 'next_page' => 3])
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->assertStringNotContainsString('PRIVATE-DUMMY-TOKEN', $response->getContent());
+        Http::assertSent(function ($request): bool {
+            parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return parse_url($request->url(), PHP_URL_PATH) === '/user/repos'
+                && $query === ['per_page' => '100', 'page' => '2', 'sort' => 'updated']
+                && $request->hasHeader('Authorization', 'Bearer PRIVATE-DUMMY-TOKEN');
+        });
+    }
+
+    public function test_repository_picker_rejects_invalid_page_and_non_github_connection(): void
+    {
+        $github = ProviderConnection::factory()->create();
+        $gitlab = ProviderConnection::factory()->create(['provider' => 'gitlab']);
+
+        $this->getJson('/connections/'.$github->id.'/repositories?page=0')->assertUnprocessable()->assertJsonValidationErrors('page');
+        $this->getJson('/connections/'.$gitlab->id.'/repositories')->assertUnprocessable()->assertExactJson(['message' => 'Choose a GitHub connection.']);
+    }
+
+    public function test_repository_picker_sanitizes_provider_errors(): void
+    {
+        $connection = ProviderConnection::factory()->create();
+        $this->mock(ProtectCredential::class, function ($mock): void {
+            $mock->shouldReceive('decrypt')->once()->with('fixture-ciphertext')->andReturn('PRIVATE-DUMMY-TOKEN');
+        });
+        Http::preventStrayRequests();
+        Http::fake(['https://api.github.com/user/repos*' => Http::response(['message' => 'PRIVATE-DUMMY-TOKEN'], 401)]);
+
+        $this->getJson('/connections/'.$connection->id.'/repositories')
+            ->assertUnprocessable()
+            ->assertExactJson(['message' => 'Token required', 'errors' => ['connection' => ['Token required']]]);
+        $this->assertSame('Token required', $connection->fresh()->state);
+        Http::assertSentCount(1);
     }
 }

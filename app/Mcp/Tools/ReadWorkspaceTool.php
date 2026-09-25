@@ -13,12 +13,13 @@ class ReadWorkspaceTool extends Tool
 {
     public function handle(Request $request): Response
     {
-        return Response::json(Project::with('folders:id,project_id,path')->orderBy('position')->get(['id', 'name', 'status', 'description'])
+        return Response::json(Project::with('folders:id,project_id,path')->orderBy('position')->get(['id', 'name', 'status', 'description', 'revision'])
             ->map(fn (Project $project): array => [
                 'id' => $project->id,
                 'name' => $project->name,
                 'status' => $project->status,
                 'description' => $project->description,
+                'revision' => $project->revision,
                 'has_local_copy' => $project->folders->contains(fn ($folder): bool => is_dir($folder->path)),
             ])->all());
     }

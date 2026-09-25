@@ -2,14 +2,19 @@
 
 namespace Tests\Feature;
 
+use App\Actions\ProtectCredential;
+use App\Jobs\RefreshProviderResource;
 use App\Models\Project;
 use App\Models\ProjectFolder;
 use App\Models\ProjectLink;
+use App\Models\ProviderConnection;
 use App\Models\Repository;
 use App\Models\Tag;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -22,6 +27,83 @@ use Tests\TestCase;
 class ProjectCatalogTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_creating_project_with_selected_github_repository_verifies_and_queues_it(): void
+    {
+        $connection = ProviderConnection::factory()->create();
+        $repositoryId = (string) Str::uuid();
+        $this->mock(ProtectCredential::class, fn ($mock) => $mock->shouldReceive('decrypt')->once()->with('fixture-ciphertext')->andReturn('dummy-provider-token'));
+        Queue::fake([RefreshProviderResource::class]);
+        Http::preventStrayRequests();
+        Http::fake(['https://api.github.com/repos/team/repo' => Http::response([
+            'id' => 42, 'full_name' => 'team/repo', 'default_branch' => 'main', 'html_url' => 'https://github.com/team/repo',
+        ])]);
+
+        $this->post('/projects', ['name' => 'GitHub project', 'status' => 'Idea', 'repositories' => [[
+            'id' => $repositoryId, 'name' => 'Repository', 'remote_url' => 'https://github.com/team/repo.git',
+            'github_connection_id' => $connection->id, 'github_full_name' => 'team/repo',
+        ]]])->assertRedirect();
+
+        $this->assertDatabaseHas('repositories', ['id' => $repositoryId, 'remote_url' => 'https://github.com/team/repo.git',
+            'provider_connection_id' => $connection->id, 'provider_repository_id' => '42', 'provider_name' => 'team/repo',
+            'default_branch' => 'main', 'provider_url' => 'https://github.com/team/repo']);
+        $this->assertDatabaseHas('provider_snapshots', ['repository_id' => $repositoryId, 'resource' => 'overview', 'state' => 'Queued']);
+        Queue::assertPushed(RefreshProviderResource::class, 1);
+        Http::assertSentCount(1);
+
+        $project = Project::sole();
+        $this->put('/projects/'.$project->id, ['name' => 'Renamed project', 'status' => 'Idea', 'revision' => 1, 'repositories' => [[
+            'id' => $repositoryId, 'name' => 'Repository', 'remote_url' => 'https://github.com/team/repo.git',
+        ]]])->assertRedirect();
+        $this->assertSame($connection->id, Repository::findOrFail($repositoryId)->provider_connection_id);
+    }
+
+    public function test_creating_project_rejects_non_github_connection_and_mismatched_remote(): void
+    {
+        $connection = ProviderConnection::factory()->create(['provider' => 'gitlab']);
+        Queue::fake([RefreshProviderResource::class]);
+        Http::preventStrayRequests();
+
+        $this->postJson('/projects', ['name' => 'Invalid project', 'status' => 'Idea', 'repositories' => [[
+            'id' => (string) Str::uuid(), 'remote_url' => 'https://github.com/team/repo.git',
+            'github_connection_id' => $connection->id, 'github_full_name' => 'team/repo',
+        ]]])->assertUnprocessable()->assertJsonValidationErrors(['repositories.0.github_connection_id' => 'Choose a saved GitHub connection.']);
+        $this->assertDatabaseCount('projects', 0);
+        Queue::assertNotPushed(RefreshProviderResource::class);
+        Http::assertNothingSent();
+
+        $connection->update(['provider' => 'github']);
+        $this->mock(ProtectCredential::class, fn ($mock) => $mock->shouldReceive('decrypt')->once()->andReturn('dummy-provider-token'));
+        Http::fake(['https://api.github.com/repos/team/repo' => Http::response([
+            'id' => 42, 'full_name' => 'team/repo', 'default_branch' => 'main', 'html_url' => 'https://github.com/team/repo',
+        ])]);
+
+        $this->postJson('/projects', ['name' => 'Wrong remote', 'status' => 'Idea', 'repositories' => [[
+            'id' => (string) Str::uuid(), 'remote_url' => 'https://github.com/other/repo.git',
+            'github_connection_id' => $connection->id, 'github_full_name' => 'team/repo',
+        ]]])->assertUnprocessable()->assertJsonValidationErrors(['repositories.0.remote_url' => 'The remote URL does not match the selected GitHub repository.']);
+        $this->assertDatabaseCount('projects', 0);
+        Queue::assertNotPushed(RefreshProviderResource::class);
+    }
+
+    public function test_creating_project_rejects_github_token_failure_without_partial_project(): void
+    {
+        $connection = ProviderConnection::factory()->create();
+        $this->mock(ProtectCredential::class, fn ($mock) => $mock->shouldReceive('decrypt')->once()->andReturn('dummy-provider-token'));
+        Queue::fake([RefreshProviderResource::class]);
+        Http::preventStrayRequests();
+        Http::fake(['https://api.github.com/repos/team/repo' => Http::response(['message' => 'Bad credentials'], 401)]);
+
+        $this->postJson('/projects', ['name' => 'Unavailable project', 'status' => 'Idea', 'repositories' => [[
+            'id' => (string) Str::uuid(), 'remote_url' => 'https://github.com/team/repo.git',
+            'github_connection_id' => $connection->id, 'github_full_name' => 'team/repo',
+        ]]])->assertUnprocessable()->assertJsonValidationErrors(['repositories.0.github_full_name' => 'Token required']);
+
+        $this->assertDatabaseCount('projects', 0);
+        $this->assertDatabaseCount('repositories', 0);
+        $this->assertSame('Token required', $connection->fresh()->state);
+        Queue::assertNotPushed(RefreshProviderResource::class);
+    }
 
     public function test_catalog_persists_multiple_repositories_checkouts_tags_and_ordered_links(): void
     {
@@ -98,6 +180,23 @@ class ProjectCatalogTest extends TestCase
         Project::factory()->count(26)->create(['status' => 'Maintenance']);
         $this->get('/?status=Maintenance&sort=name')->assertInertia(fn (Assert $page) => $page
             ->where('projects.next_page_url', '/?status=Maintenance&sort=name&page=2'));
+    }
+
+    public function test_tag_filter_matches_every_selected_tag_and_accepts_single_tag_links(): void
+    {
+        $php = Tag::factory()->create(['name' => 'php']);
+        $vue = Tag::factory()->create(['name' => 'vue']);
+        $both = Project::factory()->create(['name' => 'Both tags']);
+        $phpOnly = Project::factory()->create(['name' => 'PHP only']);
+        $both->tags()->attach([$php->id, $vue->id]);
+        $phpOnly->tags()->attach($php);
+
+        $this->get('/?tag[]=php&tag[]=vue')->assertInertia(fn (Assert $page) => $page
+            ->has('projects.data', 1)->where('projects.data.0.id', $both->id)
+            ->where('filters.tag', ['php', 'vue']));
+        $this->get('/?tag=php')->assertInertia(fn (Assert $page) => $page
+            ->has('projects.data', 2)->where('filters.tag', ['php']));
+        $this->getJson('/?tag[]=php&tag[]=PHP')->assertUnprocessable();
     }
 
     public function test_archiving_and_unlinking_preserve_source_folders_and_repository_files(): void

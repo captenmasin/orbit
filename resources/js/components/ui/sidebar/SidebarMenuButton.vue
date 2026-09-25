@@ -14,7 +14,6 @@ const props = withDefaults(defineProps<SidebarMenuButtonProps & {
   tooltip?: string | Component
 }>(), {
   as: 'button',
-  variant: 'default',
   size: 'default',
 })
 

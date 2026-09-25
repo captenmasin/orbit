@@ -14,10 +14,8 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'message' => fn () => $request->session()->get('message'),
-            'sidebarProjects' => fn () => Project::with('folders:id,project_id,path')->orderBy('position')->orderBy('id')
-                ->get(['id', 'name', 'status', 'icon_type', 'icon_emoji', 'icon_path'])
-                ->each(fn (Project $project) => $project->setAttribute('has_local_copy', $project->folders->contains(fn ($folder): bool => is_dir($folder->path))))
-                ->makeHidden('folders'),
+            'sidebarProjects' => fn () => Project::orderBy('position')->orderBy('id')
+                ->get(['id', 'name', 'status', 'icon_type', 'icon_emoji', 'icon_path']),
             'native' => (bool) config('nativephp-internal.running'),
         ];
     }

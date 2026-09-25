@@ -15,7 +15,7 @@ class ReadProjectTool extends Tool
 {
     public function handle(Request $request): Response
     {
-        $project = Project::with(['tags', 'repositories', 'folders', 'links', 'documents', 'boardColumns.tasks', 'secrets:id,project_id,environment,name,service,description,management_url'])
+        $project = Project::with(['tags', 'repositories', 'folders', 'links', 'documents', 'boardColumns.tasks', 'secrets:id,project_id,environment,name,service,description,management_url,revision'])
             ->findOrFail($request->get('project_id'));
 
         return Response::json([
@@ -23,18 +23,23 @@ class ReadProjectTool extends Tool
             'name' => $project->name,
             'status' => $project->status,
             'description' => $project->description,
+            'revision' => $project->revision,
+            'icon_type' => $project->icon_type,
+            'icon_emoji' => $project->icon_emoji,
             'tags' => $project->tags->pluck('name'),
-            'repositories' => $project->repositories->map->only(['name', 'remote_url']),
-            'folders' => $project->folders->map->only(['path', 'repository_id']),
-            'links' => $project->links->map->only(['label', 'url', 'category', 'description']),
-            'documents' => $project->documents->map->only(['title', 'body']),
+            'repositories' => $project->repositories->map->only(['id', 'name', 'remote_url']),
+            'folders' => $project->folders->map->only(['id', 'path', 'repository_id']),
+            'links' => $project->links->map->only(['id', 'label', 'url', 'category', 'description']),
+            'documents' => $project->documents->map->only(['id', 'revision', 'position', 'title', 'body']),
             'board' => $project->boardColumns->map(fn ($column): array => [
+                'id' => $column->id,
                 'name' => $column->name,
-                'tasks' => $column->tasks->map->only(['title', 'description']),
+                'position' => $column->position,
+                'tasks' => $column->tasks->map->only(['id', 'title', 'description', 'position', 'attachments']),
             ]),
-            'assets' => array_map(fn (array $file): array => ['name' => $file['name'], 'size' => $file['size'], 'folder_id' => $file['folder_id'] ?? null], $project->asset_files ?? []),
+            'assets' => array_map(fn (array $file): array => ['id' => $file['id'], 'name' => $file['name'], 'size' => $file['size'], 'folder_id' => $file['folder_id'] ?? null], $project->asset_files ?? []),
             'asset_folders' => $project->asset_folders ?? [],
-            'secrets' => $project->secrets->map->only(['name', 'environment', 'service', 'description', 'management_url']),
+            'secrets' => $project->secrets->map->only(['id', 'revision', 'name', 'environment', 'service', 'description', 'management_url']),
         ]);
     }
 

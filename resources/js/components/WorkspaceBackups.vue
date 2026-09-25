@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue';
 import { router, useHttp } from '@inertiajs/vue3';
+import { toast } from 'vue-sonner';
 import SecretPinInput from '@/components/SecretPinInput.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 
@@ -33,11 +35,11 @@ async function chooseDestination() {
     error.value = '';
     try {
         const result = await preview.post('/backups/export/preview');
-        if (!result) { error.value = Object.values(preview.errors).flat().join(' '); return; }
+        if (!result) { toast.error(String(Object.values(preview.errors)[0] ?? 'The backup destination could not be selected. Try again.')); return; }
         destination.value = result.preview;
         form.overwrite = false;
     } catch {
-        if (!preview.hasErrors) error.value = 'The backup destination could not be selected. Try again.';
+        if (!preview.hasErrors) toast.error('The backup destination could not be selected. Try again.');
     }
 }
 async function exportBackup() {
@@ -103,12 +105,12 @@ onBeforeUnmount(() => { preview.cancel(); form.cancel(); pinForm.cancel(); resto
         <Alert v-if="!native"><AlertDescription>Create backups in the desktop app.</AlertDescription></Alert>
         <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
         <form class="grid gap-4" @submit.prevent="exportBackup">
-            <label class="flex items-start gap-3 text-sm"><input v-model="form.include_secrets" type="checkbox" :disabled="!native || form.processing" /><span><span class="font-medium">Include project secrets</span><span class="block text-muted-foreground">Secrets are encrypted in the backup with this password. Provider tokens are never included.</span></span></label>
+            <label class="flex items-start gap-3 text-sm"><Checkbox v-model="form.include_secrets" :disabled="!native || form.processing" /><span><span class="font-medium">Include project secrets</span><span class="block text-muted-foreground">Secrets are encrypted in the backup with this password. Provider tokens are never included.</span></span></label>
             <Field v-if="form.include_secrets" :data-invalid="!!pinForm.errors.pin"><FieldLabel for="backup-pin">Secrets PIN</FieldLabel><SecretPinInput id="backup-pin" v-model="pinForm.pin" :disabled="!native || pinForm.processing || form.processing" :invalid="!!pinForm.errors.pin" /><FieldError v-if="pinForm.errors.pin">{{ pinForm.errors.pin }}</FieldError></Field>
             <Field :data-invalid="!!form.errors.password"><FieldLabel for="backup-password">Backup password</FieldLabel><Input id="backup-password" v-model="password" type="password" autocomplete="new-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="!native || form.processing" /><FieldError v-if="form.errors.password">{{ form.errors.password }}</FieldError></Field>
             <Field :data-invalid="!!form.errors.password_confirmation"><FieldLabel for="backup-password-confirmation">Confirm password</FieldLabel><Input id="backup-password-confirmation" v-model="confirmation" type="password" autocomplete="new-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="!native || form.processing" /><FieldError v-if="form.errors.password_confirmation">{{ form.errors.password_confirmation }}</FieldError></Field>
             <div class="flex flex-wrap items-center gap-3"><Button type="button" variant="outline" :disabled="!native || preview.processing || form.processing" @click="chooseDestination">{{ destination ? 'Choose another destination' : 'Choose destination' }}</Button><span v-if="destination" class="text-sm text-muted-foreground">{{ destination.destination }}</span></div>
-            <label v-if="destination?.exists" class="flex items-center gap-2 text-sm"><input v-model="form.overwrite" type="checkbox" :disabled="form.processing" />Replace the existing backup</label><FieldError v-if="form.errors.overwrite">{{ form.errors.overwrite }}</FieldError>
+            <label v-if="destination?.exists" class="flex items-center gap-2 text-sm"><Checkbox v-model="form.overwrite" :disabled="form.processing" />Replace the existing backup</label><FieldError v-if="form.errors.overwrite">{{ form.errors.overwrite }}</FieldError>
             <FieldError v-if="form.errors.backup">{{ form.errors.backup }}</FieldError>
             <div><Button type="submit" :disabled="!native || !destination || pinForm.processing || form.processing">{{ pinForm.processing ? 'Unlocking…' : form.processing ? 'Encrypting…' : 'Export backup' }}</Button></div>
         </form>
@@ -121,7 +123,7 @@ onBeforeUnmount(() => { preview.cancel(); form.cancel(); pinForm.cancel(); resto
             <p v-if="restorePreview" class="mt-4 text-sm text-muted-foreground">Created {{ new Date(restorePreview.created_at).toLocaleString() }} · {{ restorePreview.projects }} projects · {{ restorePreview.tasks }} tasks · {{ restorePreview.secrets }} secrets {{ restorePreview.includes_secrets ? 'included' : 'not included' }}.</p>
             <form v-if="restorePreview" class="mt-4 grid gap-3" @submit.prevent="applyRestore">
                 <Field :data-invalid="!!restoreApply.errors.password"><FieldLabel for="restore-apply-password">Re-enter password to replace this workspace</FieldLabel><Input id="restore-apply-password" v-model="restoreApplyPassword" type="password" autocomplete="current-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="restoreApply.processing" /><FieldError v-if="restoreApply.errors.password">{{ restoreApply.errors.password }}</FieldError></Field>
-                <label class="flex items-center gap-2 text-sm"><input v-model="restoreApply.confirm" type="checkbox" :disabled="restoreApply.processing" />I understand this replaces the current workspace, including secrets and provider connections.</label>
+                <label class="flex items-center gap-2 text-sm"><Checkbox v-model="restoreApply.confirm" :disabled="restoreApply.processing" />I understand this replaces the current workspace, including secrets and provider connections.</label>
                 <FieldError v-if="restoreApply.errors.backup">{{ restoreApply.errors.backup }}</FieldError><FieldError v-if="restoreApply.errors.confirm">{{ restoreApply.errors.confirm }}</FieldError>
                 <div><Button type="submit" variant="destructive" :disabled="restoreApply.processing || !restoreApply.confirm">{{ restoreApply.processing ? 'Restoring…' : 'Replace workspace' }}</Button></div>
             </form>

@@ -172,7 +172,7 @@ return [
      */
     'prebuild' => [
         'php bootstrap/patch-nativephp.php',
-        'npm run build',
+        'pnpm run build',
     ],
 
     'postbuild' => [

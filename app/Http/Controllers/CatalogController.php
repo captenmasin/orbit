@@ -36,7 +36,7 @@ class CatalogController extends Controller
                 throw ValidationException::withMessages(['path' => 'Enter the absolute folder path.']);
             }
             try {
-                $path = $dialog->folders()->title('Select a project folder')->button('Review folder')->asSheet()->open();
+                $path = $dialog->folders()->title('Select a project folder')->button('Choose folder')->asSheet()->open();
             } catch (Throwable) {
                 throw ValidationException::withMessages(['path' => 'The folder picker could not open. Try again.']);
             }

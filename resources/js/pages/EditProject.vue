@@ -3,7 +3,7 @@ import { Head, Link } from '@inertiajs/vue3';
 import ProjectForm from '@/components/ProjectForm.vue';
 import { Button } from '@/components/ui/button';
 import type { Project } from '@/types';
-defineProps<{ selectedProject: Project; statuses: string[]; native: boolean; message: string | null }>();
+defineProps<{ selectedProject: Project; statuses: string[]; native: boolean }>();
 </script>
 
 <template>
@@ -12,5 +12,5 @@ defineProps<{ selectedProject: Project; statuses: string[]; native: boolean; mes
         <h1 class="text-2xl font-semibold tracking-tight">Edit {{ selectedProject.name }}</h1>
         <Button as-child variant="outline"><Link :href="`/projects/${selectedProject.id}`">View project</Link></Button>
     </div>
-    <ProjectForm :key="selectedProject.id" :project="selectedProject" :statuses="statuses" :native="native" :message="message" />
+    <ProjectForm :key="selectedProject.id" :project="selectedProject" :statuses="statuses" :native="native" />
 </template>

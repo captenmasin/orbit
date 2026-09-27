@@ -8,11 +8,13 @@ use App\EnvFile;
 use App\Models\Project;
 use App\Models\ProjectSecret;
 use App\Rules\ProjectUrl;
+use App\WorkspacePreferences;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Native\Desktop\Client\Client;
 use Native\Desktop\Dialog;
 use Native\Desktop\Facades\Clipboard;
 use RuntimeException;
@@ -220,25 +222,31 @@ class SecretController extends Controller
         }
     }
 
-    public function replace(Request $request, Project $project, string $secret, ProtectCredential $crypto, RecordAccessEvent $events): JsonResponse
+    public function update(Request $request, Project $project, string $secret, ProtectCredential $crypto, RecordAccessEvent $events): JsonResponse
     {
         $value = $this->takeValue($request);
         $data = $this->revision($request);
         $current = $project->secrets()->findOrFail($secret);
         if ($project->revision !== $data['project_revision'] || $current->revision !== $data['revision']) {
-            throw new ConflictHttpException('This secret changed. Reload before replacing it.');
+            throw new ConflictHttpException('This secret changed. Reload before editing it.');
         }
+        $data = [...$data, ...$this->metadata($request, $project, $current)];
         try {
             $ciphertext = $crypto->encrypt($value);
 
             return DB::transaction(function () use ($project, $current, $data, $ciphertext, $events): JsonResponse {
                 $this->advanceProjectRevision($project, $data['project_revision']);
                 if (! ProjectSecret::whereKey($current->id)->where('project_id', $project->id)->where('revision', $data['revision'])->update([
+                    'environment' => $data['environment'],
+                    'name' => $data['name'],
                     'ciphertext' => $ciphertext,
+                    'service' => $data['service'],
+                    'description' => $data['description'],
+                    'management_url' => $data['management_url'],
                     'revision' => $current->revision + 1,
                     'updated_at' => now(),
                 ])) {
-                    throw new ConflictHttpException('This secret changed. Reload before replacing it.');
+                    throw new ConflictHttpException('This secret changed. Reload before editing it.');
                 }
                 $events->handle('replace', 'Succeeded', secretId: $current->id);
 
@@ -270,6 +278,32 @@ class SecretController extends Controller
             }
 
             return response()->json(['saved' => true]);
+        });
+    }
+
+    public function updateDescription(Request $request, Project $project, string $secret): JsonResponse
+    {
+        $data = $this->revision($request);
+        $description = $request->validate(['description' => ['present', 'nullable', 'string', 'max:2000']])['description'];
+        $current = $project->secrets()->select(['id', 'project_id', 'revision'])->findOrFail($secret);
+
+        return DB::transaction(function () use ($project, $current, $data, $description): JsonResponse {
+            $this->advanceProjectRevision($project, $data['project_revision']);
+            if (! ProjectSecret::whereKey($current->id)->where('project_id', $project->id)->where('revision', $data['revision'])->update([
+                'description' => $description,
+                'revision' => $current->revision + 1,
+                'updated_at' => now(),
+            ])) {
+                throw new ConflictHttpException('This secret changed. Reload before editing its description.');
+            }
+            $current->refresh();
+
+            return response()->json([
+                'description' => $current->description,
+                'revision' => $current->revision,
+                'project_revision' => $data['project_revision'] + 1,
+                'updated_at' => $current->updated_at->toISOString(),
+            ]);
         });
     }
 
@@ -316,6 +350,33 @@ class SecretController extends Controller
         });
     }
 
+    public function destroyMany(Request $request, Project $project, RecordAccessEvent $events): JsonResponse
+    {
+        $data = $request->validate([
+            'project_revision' => ['required', 'integer', 'min:1'],
+            'secrets' => ['required', 'array', 'min:1', 'max:1000'],
+            'secrets.*.id' => ['required', 'uuid', 'distinct'],
+            'secrets.*.revision' => ['required', 'integer', 'min:1'],
+        ]);
+
+        return DB::transaction(function () use ($project, $data, $events): JsonResponse {
+            $selected = collect($data['secrets'])->keyBy('id');
+            $secrets = $project->secrets()->select('id')->whereIn('id', $selected->keys())->get();
+            if ($secrets->count() !== $selected->count()) {
+                throw new ConflictHttpException('Some secrets changed. Reload before removing them.');
+            }
+            $this->advanceProjectRevision($project, (int) $data['project_revision']);
+            foreach ($secrets as $secret) {
+                if (! ProjectSecret::whereKey($secret->id)->where('project_id', $project->id)->where('revision', $selected[$secret->id]['revision'])->delete()) {
+                    throw new ConflictHttpException('Some secrets changed. Reload before removing them.');
+                }
+                $events->handle('remove', 'Succeeded', secretId: $secret->id);
+            }
+
+            return response()->json(['removed' => true, 'deleted' => $secrets->count()]);
+        });
+    }
+
     public function destroy(Request $request, Project $project, string $secret, RecordAccessEvent $events): JsonResponse
     {
         $data = $this->revision($request);
@@ -353,12 +414,12 @@ class SecretController extends Controller
         }
     }
 
-    public function copy(Request $request, Project $project, string $secret, ProtectCredential $crypto, RecordAccessEvent $events): JsonResponse
+    public function copy(Request $request, Project $project, string $secret, ProtectCredential $crypto, RecordAccessEvent $events, WorkspacePreferences $preferences, Client $native): JsonResponse
     {
         $current = $this->current($request, $project, $secret);
         try {
             $value = $crypto->decrypt($current->ciphertext);
-            Clipboard::text($value);
+            $native->post('clipboard/secret', ['text' => $value, 'clearAfterSeconds' => $preferences->get('security.clipboard_seconds')])->throw();
             if (! hash_equals($value, Clipboard::text())) {
                 throw new RuntimeException;
             }
@@ -374,27 +435,10 @@ class SecretController extends Controller
         }
     }
 
-    public function clearClipboard(Request $request, Project $project, string $secret, ProtectCredential $crypto): JsonResponse
-    {
-        $current = $this->current($request, $project, $secret);
-        try {
-            $value = $crypto->decrypt($current->ciphertext);
-            if (hash_equals($value, Clipboard::text())) {
-                Clipboard::clear();
-            }
-
-            return response()->json(['cleared' => true]);
-        } catch (Throwable) {
-            return response()->json(['message' => 'The clipboard could not be cleared.'], 422);
-        } finally {
-            unset($value);
-        }
-    }
-
     /**
      * @return array{environment: string, name: string, project_revision: int, service: ?string, description: ?string, management_url: ?string}
      */
-    private function metadata(Request $request, Project $project): array
+    private function metadata(Request $request, Project $project, ?ProjectSecret $secret = null): array
     {
         $data = $request->validate([
             'environment' => ['required', 'string', 'max:100', 'regex:/\S/u'],
@@ -402,7 +446,11 @@ class SecretController extends Controller
             'project_revision' => ['required', 'integer', 'min:1'],
         ]);
         $data['environment'] = trim($data['environment']);
-        if ($project->secrets()->where('environment', $data['environment'])->where('name', $data['name'])->exists()) {
+        $matchingSecrets = $project->secrets()->where('environment', $data['environment'])->where('name', $data['name']);
+        if ($secret) {
+            $matchingSecrets->whereKeyNot($secret->id);
+        }
+        if ($matchingSecrets->exists()) {
             throw ValidationException::withMessages(['name' => 'A secret with this name already exists in this environment.']);
         }
 

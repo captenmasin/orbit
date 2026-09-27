@@ -1,19 +1,28 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { router, useHttp } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
 import SecretPinInput from '@/components/SecretPinInput.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Field, FieldError, FieldLabel } from '@/components/ui/field';
+import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 
 type Preview = { destination: string; exists: boolean } | null;
-type RestorePreview = { created_at: string; projects: number; tasks: number; secrets: number; includes_secrets: boolean } | null;
+type RestorePreview = { created_at: string; projects: number; tasks: number; secrets: number; includes_secrets: boolean; project_defaults: { columns: { name: string; color: string | null }[] } | null } | null;
+type BackupPreferences = { folder: string | null; last_export_at: string | null; last_export_path: string | null };
+type BackupMetadata = { revision: number; backups: BackupPreferences };
 const props = defineProps<{ native: boolean }>();
-const preview = useHttp<Record<string, never>, { preview: Preview }>({});
-const form = useHttp({ include_secrets: false, password: '', password_confirmation: '', overwrite: false, backup: '' });
+const emit = defineEmits<{ saved: [revision: number] }>();
+const metadata = useHttp<Record<string, never>, BackupMetadata>({});
+const folderPicker = useHttp<Record<string, never>, { folder: string | null }>({});
+const folderForm = useHttp<{ revision: number; folder: string | null }, { preferences: { revision: number } }>({ revision: 1, folder: null });
+const preferencesReady = ref(false);
+const backupPreferences = ref<BackupPreferences>({ folder: null, last_export_at: null, last_export_path: null });
+const preview = useHttp<Record<string, never>, { preview: Preview; folder_unavailable?: boolean }>({});
+const form = useHttp<{ include_secrets: boolean; password: string; password_confirmation: string; overwrite: boolean; backup: string }, Partial<BackupMetadata>>({ include_secrets: false, password: '', password_confirmation: '', overwrite: false, backup: '' });
 const pinForm = useHttp({ pin: '' });
 const restore = useHttp<{ password: string; backup: string }, { preview: RestorePreview }>({ password: '', backup: '' });
 const restoreApply = useHttp({ password: '', confirm: false, backup: '' });
@@ -25,6 +34,42 @@ const restoreApplyPassword = ref('');
 const restorePreview = ref<RestorePreview>(null);
 const error = ref('');
 
+async function loadPreferences() {
+    try {
+        const result = await metadata.get('/backups/preferences');
+        if (!result) return;
+        backupPreferences.value = result.backups;
+        folderForm.folder = result.backups.folder;
+        folderForm.revision = result.revision;
+        folderForm.defaults();
+        preferencesReady.value = true;
+        emit('saved', result.revision);
+    } catch {
+        toast.error('Backup preferences could not be loaded. Reload and try again.');
+    }
+}
+async function chooseFolder() {
+    try {
+        const result = await folderPicker.post('/backups/folder');
+        if (result?.folder) folderForm.folder = result.folder;
+    } catch {
+        if (!folderPicker.hasErrors) toast.error('The folder picker could not open. Try again.');
+    }
+}
+async function saveFolder() {
+    error.value = '';
+    try {
+        const result = await folderForm.put('/settings/backups', { onHttpException: response => { error.value = JSON.parse(response.data).message ?? 'Backup preferences could not be saved.'; } });
+        if (!result) return;
+        folderForm.revision = result.preferences.revision;
+        backupPreferences.value.folder = folderForm.folder;
+        folderForm.defaults();
+        emit('saved', result.preferences.revision);
+        toast.success('Backup preferences saved.');
+    } catch {
+        if (!folderForm.hasErrors) toast.error('Backup preferences could not be saved. Try again.');
+    }
+}
 function clearPassword() {
     password.value = '';
     confirmation.value = '';
@@ -38,6 +83,7 @@ async function chooseDestination() {
         if (!result) { toast.error(String(Object.values(preview.errors)[0] ?? 'The backup destination could not be selected. Try again.')); return; }
         destination.value = result.preview;
         form.overwrite = false;
+        if (result.folder_unavailable) toast('The preferred folder is unavailable. This export uses your selected destination.');
     } catch {
         if (!preview.hasErrors) toast.error('The backup destination could not be selected. Try again.');
     }
@@ -58,6 +104,12 @@ async function exportBackup() {
         if (!result) return;
         destination.value = null;
         form.overwrite = false;
+        if (result.backups && result.revision) {
+            backupPreferences.value = result.backups;
+            folderForm.revision = result.revision;
+            emit('saved', result.revision);
+        }
+        toast.success('Backup exported.');
     } catch {
         if (!form.hasErrors && !pinForm.hasErrors && !error.value) error.value = 'The backup could not be exported. Choose the destination again and retry.';
     } finally {
@@ -96,37 +148,49 @@ async function applyRestore() {
         restoreApply.password = '';
     }
 }
-onBeforeUnmount(() => { preview.cancel(); form.cancel(); pinForm.cancel(); restore.cancel(); restoreApply.cancel(); pinForm.pin = ''; clearPassword(); restore.password = ''; restorePassword.value = ''; restoreApply.password = ''; restoreApplyPassword.value = ''; });
+onMounted(loadPreferences);
+onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.cancel(); preview.cancel(); form.cancel(); pinForm.cancel(); restore.cancel(); restoreApply.cancel(); pinForm.pin = ''; clearPassword(); restore.password = ''; restorePassword.value = ''; restoreApply.password = ''; restoreApplyPassword.value = ''; });
 </script>
 
 <template>
-    <div class="grid max-w-2xl gap-6">
-        <div><h1 class="text-2xl font-semibold tracking-tight">Backups</h1><p class="mt-1 text-sm text-muted-foreground">Create a password-protected Orbit backup of your workspace.</p></div>
-        <Alert v-if="!native"><AlertDescription>Create backups in the desktop app.</AlertDescription></Alert>
-        <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
-        <form class="grid gap-4" @submit.prevent="exportBackup">
-            <label class="flex items-start gap-3 text-sm"><Checkbox v-model="form.include_secrets" :disabled="!native || form.processing" /><span><span class="font-medium">Include project secrets</span><span class="block text-muted-foreground">Secrets are encrypted in the backup with this password. Provider tokens are never included.</span></span></label>
-            <Field v-if="form.include_secrets" :data-invalid="!!pinForm.errors.pin"><FieldLabel for="backup-pin">Secrets PIN</FieldLabel><SecretPinInput id="backup-pin" v-model="pinForm.pin" :disabled="!native || pinForm.processing || form.processing" :invalid="!!pinForm.errors.pin" /><FieldError v-if="pinForm.errors.pin">{{ pinForm.errors.pin }}</FieldError></Field>
-            <Field :data-invalid="!!form.errors.password"><FieldLabel for="backup-password">Backup password</FieldLabel><Input id="backup-password" v-model="password" type="password" autocomplete="new-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="!native || form.processing" /><FieldError v-if="form.errors.password">{{ form.errors.password }}</FieldError></Field>
-            <Field :data-invalid="!!form.errors.password_confirmation"><FieldLabel for="backup-password-confirmation">Confirm password</FieldLabel><Input id="backup-password-confirmation" v-model="confirmation" type="password" autocomplete="new-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="!native || form.processing" /><FieldError v-if="form.errors.password_confirmation">{{ form.errors.password_confirmation }}</FieldError></Field>
-            <div class="flex flex-wrap items-center gap-3"><Button type="button" variant="outline" :disabled="!native || preview.processing || form.processing" @click="chooseDestination">{{ destination ? 'Choose another destination' : 'Choose destination' }}</Button><span v-if="destination" class="text-sm text-muted-foreground">{{ destination.destination }}</span></div>
-            <label v-if="destination?.exists" class="flex items-center gap-2 text-sm"><Checkbox v-model="form.overwrite" :disabled="form.processing" />Replace the existing backup</label><FieldError v-if="form.errors.overwrite">{{ form.errors.overwrite }}</FieldError>
-            <FieldError v-if="form.errors.backup">{{ form.errors.backup }}</FieldError>
-            <div><Button type="submit" :disabled="!native || !destination || pinForm.processing || form.processing">{{ pinForm.processing ? 'Unlocking…' : form.processing ? 'Encrypting…' : 'Export backup' }}</Button></div>
-        </form>
-        <div class="border-t pt-6"><h2 class="text-lg font-semibold">Restore preview</h2><p class="mt-1 text-sm text-muted-foreground">Validate an Orbit backup before restoring. This does not change your workspace.</p>
-            <form class="mt-4 grid gap-4" @submit.prevent="previewRestore">
-                <Field :data-invalid="!!restore.errors.password"><FieldLabel for="restore-password">Backup password</FieldLabel><Input id="restore-password" v-model="restorePassword" type="password" autocomplete="current-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="!native || restore.processing" /><FieldError v-if="restore.errors.password">{{ restore.errors.password }}</FieldError></Field>
-                <FieldError v-if="restore.errors.backup">{{ restore.errors.backup }}</FieldError>
-                <div><Button type="submit" variant="outline" :disabled="!native || restore.processing">{{ restore.processing ? 'Validating…' : 'Choose backup and preview' }}</Button></div>
+    <Card as="section" aria-labelledby="workspace-backups-title">
+        <CardHeader><h2 id="workspace-backups-title" class="text-sm font-semibold">Backups &amp; restore</h2></CardHeader>
+        <CardContent class="gap-6">
+            <FieldDescription>Create a password-protected Orbit backup of your workspace and board defaults.</FieldDescription>
+            <Alert v-if="!native"><AlertDescription>Create backups in the desktop app.</AlertDescription></Alert>
+            <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
+            <form class="grid gap-6" @submit.prevent="saveFolder">
+                <Field :data-invalid="!!folderForm.errors.folder || !!folderPicker.errors.folder"><FieldLabel for="backup-folder">Preferred backup folder</FieldLabel><Input id="backup-folder" variant="filled" :model-value="folderForm.folder ?? ''" readonly placeholder="Choose a destination for each export" /><FieldError v-if="folderForm.errors.folder || folderPicker.errors.folder">{{ folderForm.errors.folder || folderPicker.errors.folder }}</FieldError></Field>
+                <div class="flex flex-wrap gap-2"><Button type="button" variant="outline" :disabled="!native || !preferencesReady || folderPicker.processing || folderForm.processing" @click="chooseFolder">Choose folder</Button><Button v-if="folderForm.folder" type="button" variant="ghost" :disabled="folderForm.processing" @click="folderForm.folder = null">Clear</Button><Button type="submit" :disabled="!preferencesReady || folderForm.processing || !folderForm.isDirty">{{ folderForm.processing ? 'Saving…' : 'Save' }}</Button></div>
+                <FieldDescription v-if="backupPreferences.last_export_at">Last export: {{ new Date(backupPreferences.last_export_at).toLocaleString() }}<span class="block break-all">{{ backupPreferences.last_export_path }}</span></FieldDescription>
+                <FieldDescription v-else>No successful export recorded.</FieldDescription>
             </form>
-            <p v-if="restorePreview" class="mt-4 text-sm text-muted-foreground">Created {{ new Date(restorePreview.created_at).toLocaleString() }} · {{ restorePreview.projects }} projects · {{ restorePreview.tasks }} tasks · {{ restorePreview.secrets }} secrets {{ restorePreview.includes_secrets ? 'included' : 'not included' }}.</p>
-            <form v-if="restorePreview" class="mt-4 grid gap-3" @submit.prevent="applyRestore">
-                <Field :data-invalid="!!restoreApply.errors.password"><FieldLabel for="restore-apply-password">Re-enter password to replace this workspace</FieldLabel><Input id="restore-apply-password" v-model="restoreApplyPassword" type="password" autocomplete="current-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="restoreApply.processing" /><FieldError v-if="restoreApply.errors.password">{{ restoreApply.errors.password }}</FieldError></Field>
-                <label class="flex items-center gap-2 text-sm"><Checkbox v-model="restoreApply.confirm" :disabled="restoreApply.processing" />I understand this replaces the current workspace, including secrets and provider connections.</label>
-                <FieldError v-if="restoreApply.errors.backup">{{ restoreApply.errors.backup }}</FieldError><FieldError v-if="restoreApply.errors.confirm">{{ restoreApply.errors.confirm }}</FieldError>
-                <div><Button type="submit" variant="destructive" :disabled="restoreApply.processing || !restoreApply.confirm">{{ restoreApply.processing ? 'Restoring…' : 'Replace workspace' }}</Button></div>
+            <form class="grid gap-6" @submit.prevent="exportBackup">
+                <label class="flex items-start gap-3 text-sm"><Checkbox v-model="form.include_secrets" :disabled="!native || form.processing" /><span><span class="font-medium">Include project secrets</span><span class="block text-muted-foreground">Secrets are encrypted in the backup with this password. Provider tokens are never included.</span></span></label>
+                <Field v-if="form.include_secrets" :data-invalid="!!pinForm.errors.pin"><FieldLabel for="backup-pin">Secrets PIN</FieldLabel><SecretPinInput id="backup-pin" v-model="pinForm.pin" :disabled="!native || pinForm.processing || form.processing" :invalid="!!pinForm.errors.pin" /><FieldError v-if="pinForm.errors.pin">{{ pinForm.errors.pin }}</FieldError></Field>
+                <Field :data-invalid="!!form.errors.password"><FieldLabel for="backup-password">Backup password</FieldLabel><Input id="backup-password" v-model="password" variant="filled" type="password" autocomplete="new-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="!native || form.processing" /><FieldError v-if="form.errors.password">{{ form.errors.password }}</FieldError></Field>
+                <Field :data-invalid="!!form.errors.password_confirmation"><FieldLabel for="backup-password-confirmation">Confirm password</FieldLabel><Input id="backup-password-confirmation" v-model="confirmation" variant="filled" type="password" autocomplete="new-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="!native || form.processing" /><FieldError v-if="form.errors.password_confirmation">{{ form.errors.password_confirmation }}</FieldError></Field>
+                <div class="flex flex-wrap items-center gap-3"><Button type="button" variant="outline" :disabled="!native || preview.processing || form.processing" @click="chooseDestination">{{ destination ? 'Choose another destination' : 'Choose destination' }}</Button><span v-if="destination" class="text-sm text-muted-foreground">{{ destination.destination }}</span></div>
+                <label v-if="destination?.exists" class="flex items-center gap-2 text-sm"><Checkbox v-model="form.overwrite" :disabled="form.processing" />Replace the existing backup</label><FieldError v-if="form.errors.overwrite">{{ form.errors.overwrite }}</FieldError>
+                <FieldError v-if="form.errors.backup">{{ form.errors.backup }}</FieldError>
+                <div><Button type="submit" :disabled="!native || !destination || pinForm.processing || form.processing">{{ pinForm.processing ? 'Unlocking…' : form.processing ? 'Encrypting…' : 'Export backup' }}</Button></div>
             </form>
-        </div>
-    </div>
+            <div class="border-t pt-6"><h3 class="text-sm font-semibold">Restore preview</h3><FieldDescription class="mt-1">Validate an Orbit backup before restoring. This does not change your workspace.</FieldDescription>
+                <form class="mt-6 grid gap-6" @submit.prevent="previewRestore">
+                    <Field :data-invalid="!!restore.errors.password"><FieldLabel for="restore-password">Backup password</FieldLabel><Input id="restore-password" v-model="restorePassword" variant="filled" type="password" autocomplete="current-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="!native || restore.processing" /><FieldError v-if="restore.errors.password">{{ restore.errors.password }}</FieldError></Field>
+                    <FieldError v-if="restore.errors.backup">{{ restore.errors.backup }}</FieldError>
+                    <div><Button type="submit" variant="outline" :disabled="!native || restore.processing">{{ restore.processing ? 'Validating…' : 'Choose backup and preview' }}</Button></div>
+                </form>
+                <FieldDescription v-if="restorePreview" class="mt-6">Created {{ new Date(restorePreview.created_at).toLocaleString() }} · {{ restorePreview.projects }} projects · {{ restorePreview.tasks }} tasks · {{ restorePreview.secrets }} secrets {{ restorePreview.includes_secrets ? 'included' : 'not included' }}.</FieldDescription>
+                <div v-if="restorePreview?.project_defaults" class="mt-3 text-sm"><p class="font-medium">Incoming default board columns</p><ol class="mt-1 list-inside list-decimal text-muted-foreground"><li v-for="(column, index) in restorePreview.project_defaults.columns" :key="index">{{ column.name }}<span v-if="column.color"> · {{ column.color }}</span></li></ol></div>
+                <FieldDescription v-else-if="restorePreview" class="mt-3">This older backup keeps your current board defaults.</FieldDescription>
+                <form v-if="restorePreview" class="mt-6 grid gap-6" @submit.prevent="applyRestore">
+                    <Field :data-invalid="!!restoreApply.errors.password"><FieldLabel for="restore-apply-password">Re-enter password to replace this workspace</FieldLabel><Input id="restore-apply-password" v-model="restoreApplyPassword" variant="filled" type="password" autocomplete="current-password" :spellcheck="false" minlength="12" maxlength="4096" required :disabled="restoreApply.processing" /><FieldError v-if="restoreApply.errors.password">{{ restoreApply.errors.password }}</FieldError></Field>
+                    <label class="flex items-center gap-2 text-sm"><Checkbox v-model="restoreApply.confirm" :disabled="restoreApply.processing" />I understand this replaces the current workspace, including secrets and provider connections.</label>
+                    <FieldError v-if="restoreApply.errors.backup">{{ restoreApply.errors.backup }}</FieldError><FieldError v-if="restoreApply.errors.confirm">{{ restoreApply.errors.confirm }}</FieldError>
+                    <div><Button type="submit" variant="destructive" :disabled="restoreApply.processing || !restoreApply.confirm">{{ restoreApply.processing ? 'Restoring…' : 'Replace workspace' }}</Button></div>
+                </form>
+            </div>
+        </CardContent>
+    </Card>
 </template>

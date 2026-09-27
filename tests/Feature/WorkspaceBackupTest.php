@@ -9,6 +9,7 @@ use App\Models\ProjectSecret;
 use App\Models\Tag;
 use App\Models\Task;
 use App\WorkspaceBackup;
+use App\WorkspacePreferences;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -47,12 +48,31 @@ class WorkspaceBackupTest extends TestCase
         $this->assertNull(collect($records)->firstWhere('type', 'project_secrets'));
     }
 
+    public function test_it_exports_only_portable_board_defaults_from_preferences(): void
+    {
+        app(WorkspacePreferences::class)->merge([
+            'project_defaults' => ['columns' => [['name' => 'Ready', 'color' => 'blue']]],
+            'tools' => ['paths' => ['php' => '/local/php']],
+            'backups' => ['folder' => '/local/backups', 'last_export_path' => '/local/export.orbitbackup'],
+            'startup' => ['last_project_id' => 'local-project'],
+            'security' => ['lock_minutes' => 60, 'clipboard_seconds' => 0],
+            'ai' => ['provider' => 'openai', 'model' => 'local-model', 'credential' => 'private-encrypted-key'],
+        ]);
+
+        $records = app(WorkspaceBackup::class)->records(false, app(ProtectCredential::class));
+
+        $this->assertSame(4, $records[0]['data']['schema']);
+        $this->assertSame(['project_defaults' => ['columns' => [['name' => 'Ready', 'color' => 'blue']]]], collect($records)->firstWhere('type', 'preferences')['data']);
+        $this->assertStringNotContainsString('/local/', json_encode($records));
+        $this->assertStringNotContainsString('private-encrypted-key', json_encode($records));
+    }
+
     public function test_it_packages_icons_and_attachments_without_scan_or_provider_cache_data(): void
     {
         Storage::fake('local');
         Storage::disk('local')->put('project-icons/orbit.png', 'icon');
         $project = Project::factory()->create(['icon_type' => 'image', 'icon_path' => 'project-icons/orbit.png']);
-        $column = BoardColumn::factory()->for($project)->create();
+        $column = BoardColumn::factory()->for($project)->create(['color' => 'blue']);
         Storage::disk('local')->put('task-attachments/'.$project->id.'/notes.txt', 'notes');
         $task = Task::factory()->for($column, 'column')->create(['attachment_files' => [[
             'id' => '09ad2de3-bffb-4a53-a4f2-2c6b2749cfc5', 'name' => 'notes.txt', 'path' => 'task-attachments/'.$project->id.'/notes.txt', 'size' => 5,
@@ -61,9 +81,11 @@ class WorkspaceBackupTest extends TestCase
         $records = app(WorkspaceBackup::class)->records(false, app(ProtectCredential::class));
         $projectRecord = collect($records)->firstWhere('type', 'projects')['data'];
         $taskRecord = collect($records)->first(fn (array $record): bool => $record['type'] === 'tasks' && $record['data']['id'] === $task->id)['data'];
+        $columnRecord = collect($records)->first(fn (array $record): bool => $record['type'] === 'board_columns' && $record['data']['id'] === $column->id)['data'];
         $assets = collect($records)->where('type', 'asset')->pluck('data')->keyBy('id');
 
         $this->assertNull($projectRecord['icon_path']);
+        $this->assertSame('blue', $columnRecord['color']);
         $this->assertSame('aWNvbg==', $assets['icon:'.$project->id]['content']);
         $this->assertSame('bm90ZXM=', $assets['attachment:'.$task->id.':09ad2de3-bffb-4a53-a4f2-2c6b2749cfc5']['content']);
         $this->assertArrayNotHasKey('path', $taskRecord['attachment_files'][0]);

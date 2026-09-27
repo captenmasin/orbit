@@ -27,11 +27,13 @@ class ProjectBoardTest extends TestCase
         $migration = require database_path('migrations/2026_09_15_141056_create_project_boards.php');
         $migration->down();
         $migration->up();
+        (require database_path('migrations/2026_09_26_123228_add_color_to_board_columns_table.php'))->up();
 
         $this->assertSame($original, $project->fresh()->getAttributes());
         $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page): Assert => $page
             ->has('selectedProject.board_columns', 4)
             ->where('selectedProject.board_columns.0.name', 'Backlog')
+            ->where('selectedProject.board_columns.0.color', null)
             ->has('selectedProject.board_columns.0.tasks', 0));
         $other = Project::factory()->create();
         $this->assertCount(4, $other->boardColumns);
@@ -95,6 +97,39 @@ class ProjectBoardTest extends TestCase
             $this->putJson($url, ['action' => 'column.delete', 'revision' => $project->fresh()->revision, 'id' => $column->id])->assertRedirect();
         }
         $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page): Assert => $page->has('selectedProject.board_columns', 0));
+    }
+
+    public function test_column_colors_persist_and_renaming_preserves_them_until_explicitly_reset(): void
+    {
+        $project = Project::factory()->create();
+        $url = '/projects/'.$project->id.'/board';
+
+        $this->putJson($url, ['action' => 'column.save', 'revision' => 1, 'name' => 'Review', 'color' => 'purple'])->assertRedirect();
+        $column = $project->boardColumns()->where('name', 'Review')->sole();
+        $this->assertSame('purple', $column->color);
+        $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page): Assert => $page
+            ->where('selectedProject.board_columns.4.color', 'purple'));
+
+        $this->putJson($url, ['action' => 'column.save', 'revision' => 2, 'id' => $column->id, 'name' => 'Review', 'color' => 'green'])->assertRedirect();
+        $this->assertSame('green', $column->fresh()->color);
+        $this->putJson($url, ['action' => 'column.save', 'revision' => 3, 'id' => $column->id, 'name' => 'Ready'])->assertRedirect();
+        $this->assertDatabaseHas('board_columns', ['id' => $column->id, 'name' => 'Ready', 'color' => 'green']);
+        $this->putJson($url, ['action' => 'column.save', 'revision' => 4, 'id' => $column->id, 'name' => 'Ready', 'color' => null])->assertRedirect();
+        $this->assertNull($column->fresh()->color);
+        $this->assertSame(5, $project->fresh()->revision);
+    }
+
+    public function test_invalid_column_colors_return_422_without_changing_the_column_or_revision(): void
+    {
+        $project = Project::factory()->create();
+        $column = $project->boardColumns()->first();
+        $column->update(['color' => 'blue']);
+
+        $this->putJson('/projects/'.$project->id.'/board', ['action' => 'column.save', 'revision' => 1, 'id' => $column->id, 'name' => 'Changed', 'color' => 'rainbow'])
+            ->assertUnprocessable()->assertJsonValidationErrors(['color' => 'The selected color is invalid.']);
+
+        $this->assertDatabaseHas('board_columns', ['id' => $column->id, 'name' => 'Backlog', 'color' => 'blue']);
+        $this->assertSame(1, $project->fresh()->revision);
     }
 
     public function test_deleting_a_populated_column_requires_a_destination_and_preserves_task_order(): void

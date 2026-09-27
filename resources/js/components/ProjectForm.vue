@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
-import { Link, router, useForm, useHttp } from '@inertiajs/vue3';
+import { Link, router, useForm, useHttp, usePage } from '@inertiajs/vue3';
 import { useObjectUrl, useSessionStorage } from '@vueuse/core';
 import { ArrowDownIcon, ArrowUpIcon, CheckIcon, ChevronDownIcon, ChevronsUpDownIcon, FolderOpenIcon, FolderPlusIcon, GitBranchIcon, PlusIcon, SlidersHorizontalIcon, Trash2Icon } from '@lucide/vue';
 import { toast } from 'vue-sonner';
@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import ChoiceSelect from '@/components/ChoiceSelect.vue';
-import GitHubRepositoryPicker from '@/components/GitHubRepositoryPicker.vue';
+import ConnectedRepositoryPicker from '@/components/ConnectedRepositoryPicker.vue';
 import OpenTargetButton from '@/components/OpenTargetButton.vue';
 import ProjectIcon from '@/components/ProjectIcon.vue';
 import ProjectTagsInput from '@/components/ProjectTagsInput.vue';
@@ -25,11 +25,14 @@ import LinkIcon from '@/components/LinkIcon.vue';
 import { repositoryName } from '@/lib/project';
 import type { FolderPreview, Project, ProjectFolder, ProjectLink, ProviderConnection, Repository } from '@/types';
 
-type FormRepository = Repository & { github_connection_id?: string; github_full_name?: string };
+type FormRepository = Repository & { provider_full_name?: string };
+type SelectedRepository = { connection_id: string; full_name: string; name: string; remote_url: string; description: string | null };
 const props = defineProps<{ project?: Project; statuses: string[]; native: boolean; connections?: ProviderConnection[] }>();
 const formId = props.project?.id ?? 'create';
 const noRepositoryOption = { id: '', name: 'No repository' };
 const tab = props.project ? useSessionStorage(`project:${formId}:edit-tab`, 'overview', { flush: 'sync' }) : ref('overview');
+const requestedTab = new URLSearchParams(usePage().url.split('?')[1]).get('tab');
+if (props.project && requestedTab && ['overview', 'repositories', 'links'].includes(requestedTab)) tab.value = requestedTab;
 function values() {
     return {
         name: props.project?.name ?? '', description: props.project?.description ?? '',
@@ -54,6 +57,16 @@ const imagePreview = useObjectUrl(computed(() => form.icon_file));
 const removeOpen = ref(false);
 const folderWarnings = reactive<Record<string, string[]>>({});
 const inspection = useHttp<{ path: string }, { folder: FolderPreview | null }>({ path: '' });
+const cloning = useHttp<{ connection_id: string; full_name: string }, { folder: FolderPreview | null }>({ connection_id: '', full_name: '' });
+const canStartFromRepo = computed(() => props.native && !!props.connections?.length);
+const cloneError = computed(() => Object.values(cloning.errors)[0] ?? '');
+const clonedSource = ref<{ repositoryId: string; path: string } | null>(null);
+const startedSource = computed(() => {
+    const repository = form.repositories.find(repo => repo.id === clonedSource.value?.repositoryId);
+    const folder = form.folders.find(item => item.path === clonedSource.value?.path && item.repository_id === repository?.id);
+
+    return folder && repository ? { folder, repository } : null;
+});
 const date = (value?: string | null) => value ? new Date(value).toLocaleString() : 'No known commit';
 
 function submit() {
@@ -93,14 +106,14 @@ async function inspectFolder(id: string | null = null, picker = false) {
         if (!inspection.hasErrors) toast.error('The folder could not be inspected. Try again.');
     }
 }
-function useFolder(folder: FolderPreview, relinkingId: string | null = null) {
+function useFolder(folder: FolderPreview, relinkingId: string | null = null, selectedRepositoryId: string | null = null) {
     if (form.folders.some(item => item.path === folder.path && item.id !== relinkingId)) {
         inspection.setError('path', 'This folder is already linked.');
         return;
     }
     const current = form.folders.find(item => item.id === relinkingId);
-    let repositoryId = current?.repository_id ?? null;
-    if (!current && folder.remote_url) {
+    let repositoryId = selectedRepositoryId ?? current?.repository_id ?? null;
+    if (!current && folder.remote_url && !selectedRepositoryId) {
         const key = (url: string) => url.replace(/^\w+@([^:]+):/, 'https://$1/').replace(/^ssh:\/\/(?:[^@/]+@)?/, 'https://').replace(/\.git\/?$/, '').replace(/\/$/, '');
         const existing = form.repositories.find(repo => key(repo.remote_url) === key(folder.remote_url!));
         repositoryId = existing?.id ?? crypto.randomUUID();
@@ -139,12 +152,32 @@ function updateRemote(repo: Repository, value: string) {
 function addRepository() {
     form.repositories.push({ id: crypto.randomUUID(), name: '', remote_url: '' });
 }
-function addGitHubRepository(repository: { connection_id: string; full_name: string; name: string; remote_url: string; description: string | null }) {
+function addConnectedRepository(repository: SelectedRepository) {
     const normalize = (url: string) => url.trim().replace(/\.git\/?$/i, '').replace(/\/$/, '').toLowerCase();
-    if (form.repositories.some(existing => normalize(existing.remote_url) === normalize(repository.remote_url))) return;
-    form.repositories.push({ id: crypto.randomUUID(), name: repository.name, remote_url: repository.remote_url, github_connection_id: repository.connection_id, github_full_name: repository.full_name });
+    const existing = form.repositories.find(item => normalize(item.remote_url) === normalize(repository.remote_url));
+    if (existing) return existing.id;
+    const id = crypto.randomUUID();
+    form.repositories.push({ id, name: repository.name, remote_url: repository.remote_url, provider_connection_id: repository.connection_id, provider_full_name: repository.full_name });
     if (!form.name) form.name = repository.name;
     if (!form.description && repository.description) form.description = repository.description;
+
+    return id;
+}
+async function cloneRepository(repository: SelectedRepository) {
+    if (cloning.processing) return;
+    cloning.connection_id = repository.connection_id;
+    cloning.full_name = repository.full_name;
+    cloning.clearErrors();
+    try {
+        const result = await cloning.post('/repositories/clone');
+        if (result?.folder) {
+            const repositoryId = addConnectedRepository(repository);
+            useFolder(result.folder, null, repositoryId);
+            clonedSource.value = { repositoryId, path: result.folder.path };
+        }
+    } catch {
+        if (!cloning.hasErrors) toast.error('The repository could not be cloned. Try again.');
+    }
 }
 function addLink() {
     form.links.push({ id: crypto.randomUUID(), label: '', url: '', category: '', description: '' });
@@ -152,11 +185,11 @@ function addLink() {
 </script>
 
 <template>
-    <Tabs v-model="tab" class="w-full">
-        <TabsList aria-label="Project sections" :class="!project ? 'group-data-horizontal/tabs:h-auto max-w-full flex-wrap justify-start rounded-full border border-black/8 bg-muted p-1 dark:border-white/10' : undefined">
-            <TabsTrigger value="overview" :class="!project ? 'h-9 flex-none rounded-full px-4 text-[13px] dark:data-active:bg-background' : undefined">{{ project ? 'Overview' : 'Details' }}</TabsTrigger>
-            <TabsTrigger value="repositories" :class="!project ? 'h-9 flex-none rounded-full px-4 text-[13px] dark:data-active:bg-background' : undefined">{{ project ? 'Repositories' : 'Sources' }}</TabsTrigger>
-            <TabsTrigger value="links" :class="!project ? 'h-9 flex-none rounded-full px-4 text-[13px] dark:data-active:bg-background' : undefined">Links</TabsTrigger>
+    <Tabs v-model="tab" class="w-full gap-5">
+        <TabsList variant="line" aria-label="Project sections" class="group-data-horizontal/tabs:h-auto max-w-full flex-wrap justify-start p-0">
+            <TabsTrigger value="overview" class="h-8 flex-none rounded-none px-3 text-[13px]">{{ project ? 'Overview' : 'Details' }}</TabsTrigger>
+            <TabsTrigger value="repositories" class="h-8 flex-none rounded-none px-3 text-[13px]">{{ project ? 'Repositories' : 'Sources' }}</TabsTrigger>
+            <TabsTrigger value="links" class="h-8 flex-none rounded-none px-3 text-[13px]">Links</TabsTrigger>
         </TabsList>
     <form :class="project ? 'w-full max-w-3xl' : 'w-full'" novalidate @submit.prevent="submit">
         <FieldGroup :class="!project ? 'gap-6' : undefined">
@@ -168,12 +201,12 @@ function addLink() {
                     <div v-if="form.errors.revision"><Button type="button" variant="outline" @click="router.get(`/projects/${project!.id}/edit`)">Reload project</Button></div>
                 </AlertDescription>
             </Alert>
-                <TabsContent value="overview" :class="!project ? 'pt-1' : undefined">
+                <TabsContent value="overview">
                     <div :class="!project ? 'grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-start' : undefined">
                         <component :is="project ? 'div' : Card">
-                            <CardHeader v-if="!project" class="px-5 pb-5 pt-4 sm:px-7">
-                                <h2 class="text-lg font-semibold tracking-[-0.025em]">Project details</h2>
-                                <p class="mt-1 text-sm text-muted-foreground">The basics that make this project easy to find.</p>
+                            <CardHeader v-if="!project" class="px-5 pb-3 pt-3 sm:px-7">
+                                <h2 class="text-sm font-semibold tracking-[-0.025em]">Project details</h2>
+                                <p class="text-sm text-muted-foreground">The basics that make this project easy to find.</p>
                             </CardHeader>
                             <component :is="project ? 'div' : CardContent" :class="!project ? 'p-5 sm:p-7' : undefined">
                                 <FieldGroup :class="!project ? 'gap-6' : undefined">
@@ -214,24 +247,43 @@ function addLink() {
                                 </FieldGroup>
                             </component>
                         </component>
-                        <aside v-if="!project" class="rounded-[1.25rem] border border-black/8 bg-neutral-50 p-5 dark:border-white/10 dark:bg-neutral-800">
-                            <div class="flex size-10 items-center justify-center rounded-xl bg-background text-muted-foreground dark:bg-[#303030]"><FolderPlusIcon class="size-5" aria-hidden="true" /></div>
-                            <h2 class="mt-5 text-base font-semibold tracking-[-0.02em]">Start from a folder</h2>
-                            <p class="mt-1 text-sm leading-6 text-muted-foreground">Choose a local folder to fill in its name and connect its repository.</p>
-                            <Field class="mt-6">
-                                <FieldLabel v-if="!native" :for="`${formId}-folder-path`">Folder path</FieldLabel>
-                                <Input v-if="!native" :id="`${formId}-folder-path`" v-model="inspection.path" placeholder="/absolute/path/to/project" class="h-10 rounded-xl bg-background px-3" :aria-invalid="!!inspection.errors.path" :aria-describedby="inspection.errors.path ? `${formId}-folder-path-error` : undefined" />
-                                <Button type="button" variant="outline" :disabled="inspection.processing" @click="inspectFolder(null, native)"><FolderPlusIcon aria-hidden="true" />{{ inspection.processing ? 'Reading folder…' : (native ? 'Choose folder' : 'Add folder') }}</Button>
-                                <FieldError v-if="inspection.errors.path" :id="`${formId}-folder-path-error`" role="alert">{{ inspection.errors.path }}</FieldError>
-                            </Field>
-                        </aside>
+                        <div v-if="!project" class="grid gap-4">
+                            <aside class="rounded-[1.25rem] border border-black/8 bg-neutral-50 p-5 dark:border-white/10 dark:bg-neutral-800">
+                                <div class="flex size-10 items-center justify-center rounded-xl bg-background text-muted-foreground dark:bg-[#303030]"><FolderPlusIcon class="size-5" aria-hidden="true" /></div>
+                                <h2 class="mt-5 text-sm font-semibold tracking-[-0.02em]">Start from a folder</h2>
+                                <p class="mt-1 text-sm leading-6 text-muted-foreground">Choose a local folder to fill in its name and connect its repository.</p>
+                                <Field class="mt-6">
+                                    <FieldLabel v-if="!native" :for="`${formId}-folder-path`">Folder path</FieldLabel>
+                                    <Input v-if="!native" :id="`${formId}-folder-path`" v-model="inspection.path" placeholder="/absolute/path/to/project" class="h-10 rounded-xl bg-background px-3" :aria-invalid="!!inspection.errors.path" :aria-describedby="inspection.errors.path ? `${formId}-folder-path-error` : undefined" />
+                                    <Button type="button" variant="outline" :disabled="inspection.processing" @click="inspectFolder(null, native)"><FolderPlusIcon aria-hidden="true" />{{ inspection.processing ? 'Reading folder…' : (native ? 'Choose folder' : 'Add folder') }}</Button>
+                                    <FieldError v-if="inspection.errors.path" :id="`${formId}-folder-path-error`" role="alert">{{ inspection.errors.path }}</FieldError>
+                                </Field>
+                            </aside>
+                            <aside v-if="canStartFromRepo" class="rounded-[1.25rem] border border-black/8 bg-neutral-50 p-5 dark:border-white/10 dark:bg-neutral-800">
+                                <div class="flex size-10 items-center justify-center rounded-xl bg-background text-muted-foreground dark:bg-[#303030]"><GitBranchIcon class="size-5" aria-hidden="true" /></div>
+                                <h2 class="mt-5 text-sm font-semibold tracking-[-0.02em]">Start from a repo</h2>
+                                <p class="mt-1 text-sm leading-6 text-muted-foreground">{{ startedSource ? 'Review the details, then create the project.' : 'Choose a connected repository and a folder to clone it into.' }}</p>
+                                <div v-if="startedSource" class="mt-6 grid gap-3">
+                                    <div class="rounded-xl border bg-background p-3" role="status">
+                                        <p class="flex items-center gap-2 break-all text-sm font-medium"><CheckIcon class="size-4 shrink-0 text-green-600 dark:text-green-400" aria-hidden="true" />{{ startedSource.repository.provider_full_name }}</p>
+                                        <p class="mt-1 break-all text-xs text-muted-foreground">Cloned to {{ startedSource.folder.path }}</p>
+                                    </div>
+                                    <Button type="button" variant="outline" @click="tab = 'repositories'">View in Sources</Button>
+                                </div>
+                                <div v-else class="mt-6 grid gap-2">
+                                    <ConnectedRepositoryPicker :connections="connections ?? []" :existing-urls="form.repositories.map(existing => existing.remote_url)" :native="native" clone :busy="cloning.processing" @select="cloneRepository" />
+                                    <p v-if="cloning.processing" class="text-sm text-muted-foreground" role="status">Cloning {{ cloning.full_name }}…</p>
+                                    <FieldError v-if="cloneError" role="alert">{{ cloneError }}</FieldError>
+                                </div>
+                            </aside>
+                        </div>
                     </div>
                 </TabsContent>
                 <TabsContent value="repositories">
                     <component :is="project ? 'div' : Card">
-                    <CardHeader v-if="!project" class="px-5 pb-5 pt-4 sm:px-7">
-                        <h2 class="text-lg font-semibold tracking-[-0.025em]">Connect your work</h2>
-                        <p class="mt-1 text-sm text-muted-foreground">Add a repository or a local folder now. You can add more later.</p>
+                    <CardHeader v-if="!project" class="px-5 pb-3 pt-3 sm:px-7">
+                        <h2 class="text-sm font-semibold tracking-[-0.025em]">Connect your work</h2>
+                        <p class="text-sm text-muted-foreground">Add a repository or a local folder now. You can add more later.</p>
                     </CardHeader>
                     <div>
                         <FieldGroup :class="!project ? 'grid gap-4 lg:grid-cols-2' : undefined">
@@ -242,20 +294,20 @@ function addLink() {
                                     <FieldDescription v-else-if="!form.repositories.length">No repositories linked.</FieldDescription>
                                     <FieldGroup v-for="(repo, index) in form.repositories" :key="repo.id" :class="!project ? 'gap-4 border-t border-black/8 pt-5 dark:border-white/10' : undefined">
                                         <div v-if="!project" class="flex min-w-0 items-center justify-between gap-3">
-                                            <span class="flex min-w-0 items-center gap-2"><span class="truncate text-sm font-semibold">{{ repo.name || `Repository ${index + 1}` }}</span><Badge v-if="repo.github_connection_id" variant="secondary" class="shrink-0">GitHub · {{ connections?.find(connection => connection.id === repo.github_connection_id)?.label }}</Badge></span>
+                                            <span class="flex min-w-0 items-center gap-2"><span class="truncate text-sm font-semibold">{{ repo.name || `Repository ${index + 1}` }}</span><Badge v-if="repo.provider_connection_id" variant="secondary" class="shrink-0">{{ connections?.find(connection => connection.id === repo.provider_connection_id)?.provider === 'gitlab' ? 'GitLab' : 'GitHub' }} · {{ connections?.find(connection => connection.id === repo.provider_connection_id)?.label }}</Badge></span>
                                             <Button type="button" variant="ghost" size="icon-sm" :aria-label="`Remove ${repo.name || `repository ${index + 1}`}`" @click="removeRepository(repo.id)"><Trash2Icon aria-hidden="true" /></Button>
                                         </div>
                                         <Field>
                                             <FieldLabel :for="`${repo.id}-url`">Remote URL</FieldLabel>
-                                            <Input :id="`${repo.id}-url`" :model-value="repo.remote_url" @update:model-value="updateRemote(repo, String($event))" placeholder="https://github.com/owner/repository.git" maxlength="2048" :readonly="!project && !!repo.github_connection_id" :aria-invalid="!!form.errors[`repositories.${index}.remote_url`]" :class="!project ? 'h-10 rounded-xl bg-white px-3 dark:bg-background' : undefined" />
+                                            <Input :id="`${repo.id}-url`" :model-value="repo.remote_url" @update:model-value="updateRemote(repo, String($event))" placeholder="https://github.com/owner/repository.git" maxlength="2048" :readonly="!project && !!repo.provider_connection_id" :aria-invalid="!!form.errors[`repositories.${index}.remote_url`]" :class="!project ? 'h-10 rounded-xl bg-white px-3 dark:bg-background' : undefined" />
                                         </Field>
-                                        <FieldError v-if="form.errors[`repositories.${index}.github_connection_id`] || form.errors[`repositories.${index}.github_full_name`]" role="alert">{{ form.errors[`repositories.${index}.github_connection_id`] || form.errors[`repositories.${index}.github_full_name`] }}</FieldError>
+                                        <FieldError v-if="form.errors[`repositories.${index}.provider_connection_id`] || form.errors[`repositories.${index}.provider_full_name`]" role="alert">{{ form.errors[`repositories.${index}.provider_connection_id`] || form.errors[`repositories.${index}.provider_full_name`] }}</FieldError>
                                         <div v-if="project" class="flex flex-wrap gap-2">
                                             <OpenTargetButton v-if="project.repositories.some(saved => saved.id === repo.id)" :project-id="project.id" kind="repositories" :id="repo.id" :native="native" :href="repo.web_url" label="Open repository" />
                                             <Button type="button" variant="ghost" size="sm" @click="removeRepository(repo.id)"><Trash2Icon aria-hidden="true" />Remove repository</Button>
                                         </div>
                                     </FieldGroup>
-                                    <div :class="!project ? 'mt-auto flex flex-wrap gap-2 pt-1' : undefined"><Button type="button" variant="outline" @click="addRepository"><PlusIcon aria-hidden="true" />Add repository</Button><GitHubRepositoryPicker v-if="!project" :connections="connections ?? []" :existing-urls="form.repositories.map(existing => existing.remote_url)" :native="native" @select="addGitHubRepository" /></div>
+                                    <div :class="!project ? 'mt-auto flex flex-wrap gap-2 pt-1' : undefined"><Button type="button" variant="outline" @click="addRepository"><PlusIcon aria-hidden="true" />Add repository</Button><ConnectedRepositoryPicker v-if="!project" :connections="connections ?? []" :existing-urls="form.repositories.map(existing => existing.remote_url)" :native="native" @select="addConnectedRepository" /></div>
                                 </FieldSet>
                             </component>
                             <component :is="project ? 'div' : CardContent" :class="!project ? 'p-5 sm:p-6' : undefined">
@@ -267,7 +319,7 @@ function addLink() {
                                         <FieldLabel v-if="!native" :for="`${formId}-sources-folder-path`">Folder path</FieldLabel>
                                         <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
                                             <Input v-if="!native" :id="`${formId}-sources-folder-path`" v-model="inspection.path" placeholder="/absolute/path/to/project" :aria-invalid="!!inspection.errors.path" :aria-describedby="inspection.errors.path ? `${formId}-sources-folder-path-error` : undefined" :class="!project ? 'h-10 rounded-xl bg-white px-3 dark:bg-background' : undefined" />
-                                            <Button type="button" variant="outline" :disabled="inspection.processing" @click="inspectFolder(null, native)"><FolderPlusIcon aria-hidden="true" />{{ inspection.processing ? 'Reading folder…' : (native ? 'Choose folder' : 'Add folder') }}</Button>
+                                            <Button type="button" variant="outline" :size="project && !native ? 'input' : 'default'" :disabled="inspection.processing" @click="inspectFolder(null, native)"><FolderPlusIcon aria-hidden="true" />{{ inspection.processing ? 'Reading folder…' : (native ? 'Choose folder' : 'Add folder') }}</Button>
                                         </div>
                                         <FieldError v-if="inspection.errors.path" :id="`${formId}-sources-folder-path-error`" role="alert">{{ inspection.errors.path }}</FieldError>
                                         <FieldDescription v-if="project">Removing a folder or repository only unlinks it from this project.</FieldDescription>
@@ -311,9 +363,9 @@ function addLink() {
                                                 </Combobox>
                                             </Field>
                                             <div class="flex flex-wrap items-center gap-2">
-                                                <OpenTargetButton v-if="project?.folders.some(saved => saved.id === folder.id)" :project-id="project.id" kind="folders" :id="folder.id" :native="native" label="Open folder" />
-                                                <Button type="button" variant="outline" size="sm" :aria-label="`Relink folder ${folder.path}`" :disabled="inspection.processing" @click="inspectFolder(folder.id, native)">Relink</Button>
-                                                <Button type="button" variant="ghost" size="sm" :aria-label="`Remove folder ${folder.path}`" @click="form.folders.splice(index, 1); delete folderWarnings[folder.id]; form.clearErrors()"><Trash2Icon aria-hidden="true" />Remove</Button>
+                                                <OpenTargetButton v-if="project?.folders.some(saved => saved.id === folder.id)" :project-id="project.id" kind="folders" :id="folder.id" :native="native" label="Open folder" size="input" />
+                                                <Button type="button" variant="outline" size="input" :aria-label="`Relink folder ${folder.path}`" :disabled="inspection.processing" @click="inspectFolder(folder.id, native)">Relink</Button>
+                                                <Button type="button" variant="ghost" size="input" :aria-label="`Remove folder ${folder.path}`" @click="form.folders.splice(index, 1); delete folderWarnings[folder.id]; form.clearErrors()"><Trash2Icon aria-hidden="true" />Remove</Button>
                                             </div>
                                         </div>
                                     </FieldGroup>
@@ -325,9 +377,9 @@ function addLink() {
                 </TabsContent>
                 <TabsContent value="links">
                     <component :is="project ? 'div' : Card">
-                    <CardHeader v-if="!project" class="px-5 pb-5 pt-4 sm:px-7">
-                        <h2 class="text-lg font-semibold tracking-[-0.025em]">Useful links</h2>
-                        <p class="mt-1 text-sm text-muted-foreground">Keep the places you visit for this project close at hand.</p>
+                    <CardHeader v-if="!project" class="px-5 pb-3 pt-3 sm:px-7">
+                        <h2 class="text-sm font-semibold tracking-[-0.025em]">Useful links</h2>
+                        <p class="text-sm text-muted-foreground">Keep the places you visit for this project close at hand.</p>
                     </CardHeader>
                     <component :is="project ? 'div' : CardContent" :class="!project ? 'p-5 sm:p-7' : undefined">
                         <FieldGroup :class="!project ? 'gap-4' : undefined">

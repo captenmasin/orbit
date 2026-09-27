@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Actions\ProtectCredential;
 use App\OrbitBackup;
+use App\SecretVault;
 use App\WorkspaceBackup;
+use App\WorkspacePreferences;
 use App\WorkspaceRestore;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,12 +20,41 @@ use Throwable;
 
 class BackupController extends Controller
 {
-    public function previewExport(Request $request, Dialog $dialog): JsonResponse
+    public function preferences(WorkspacePreferences $preferences): JsonResponse
+    {
+        $snapshot = $preferences->snapshot();
+
+        return response()->json(['revision' => $snapshot['revision'], 'backups' => $snapshot['values']['backups']]);
+    }
+
+    public function chooseFolder(Dialog $dialog): JsonResponse
+    {
+        if (! config('nativephp-internal.running')) {
+            throw ValidationException::withMessages(['folder' => 'Choose backup folders from the desktop app.']);
+        }
+        try {
+            $path = $dialog->folders()->title('Choose preferred backup folder')->button('Choose folder')->asSheet()->open();
+        } catch (Throwable) {
+            throw ValidationException::withMessages(['folder' => 'The folder picker could not open. Try again.']);
+        }
+        if ($path && (! is_dir($path) || ! is_writable($path))) {
+            throw ValidationException::withMessages(['folder' => 'Choose an existing writable backup folder.']);
+        }
+
+        return response()->json(['folder' => $path ?: null]);
+    }
+
+    public function previewExport(Request $request, Dialog $dialog, WorkspacePreferences $preferences): JsonResponse
     {
         if (! config('nativephp-internal.running')) {
             throw ValidationException::withMessages(['backup' => 'Export backups from the desktop app.']);
         }
         try {
+            $folder = $preferences->get('backups.folder');
+            $folderUnavailable = is_string($folder) && (! is_dir($folder) || ! is_writable($folder));
+            if (is_string($folder) && ! $folderUnavailable) {
+                $dialog->defaultPath($folder.'/Orbit-'.now()->format('Y-m-d').'.orbitbackup');
+            }
             $path = $dialog->title('Export Orbit backup')->filter('Orbit backups', ['orbitbackup'])->button('Choose backup destination')->asSheet()->save();
         } catch (Throwable) {
             throw ValidationException::withMessages(['backup' => 'The save dialog could not open. Try again.']);
@@ -34,10 +65,10 @@ class BackupController extends Controller
         $state = $this->destinationState($path);
         $request->session()->put('backup-export', ['path' => $path, 'state' => $state]);
 
-        return response()->json(['preview' => ['destination' => basename($path), 'exists' => $state['exists']]]);
+        return response()->json(['preview' => ['destination' => basename($path), 'exists' => $state['exists']], 'folder_unavailable' => $folderUnavailable]);
     }
 
-    public function export(Request $request, OrbitBackup $backup, WorkspaceBackup $workspace, ProtectCredential $crypto): JsonResponse
+    public function export(Request $request, OrbitBackup $backup, WorkspaceBackup $workspace, ProtectCredential $crypto, SecretVault $vault, WorkspacePreferences $preferences): JsonResponse
     {
         $password = $this->takePassword($request);
         $data = $request->validate([
@@ -45,7 +76,7 @@ class BackupController extends Controller
             'overwrite' => ['required', 'boolean'],
         ]);
         if ($data['include_secrets']) {
-            abort_unless((int) $request->session()->get('secret_pin_unlocked_until', 0) > now()->timestamp, 423, 'Unlock secrets with your PIN.');
+            abort_unless($vault->unlockedUntil($request) !== null, 423, 'Unlock secrets with your PIN.');
         }
         $preview = $request->session()->pull('backup-export');
         if (! is_array($preview) || ! is_string($preview['path'] ?? null) || ! is_array($preview['state'] ?? null) || $this->destinationState($preview['path']) !== $preview['state']) {
@@ -57,8 +88,9 @@ class BackupController extends Controller
         try {
             $contents = $backup->write($workspace->records((bool) $data['include_secrets'], $crypto), $password);
             $this->writeBackup($preview['path'], $contents);
+            $snapshot = $preferences->merge(['backups' => ['last_export_at' => now()->toIso8601String(), 'last_export_path' => $preview['path']]]);
 
-            return response()->json(['exported' => true]);
+            return response()->json(['exported' => true, 'revision' => $snapshot['revision'], 'backups' => $snapshot['values']['backups']]);
         } catch (RuntimeException $exception) {
             return response()->json(['message' => $exception->getMessage(), 'errors' => ['backup' => $exception->getMessage()]], 422);
         } finally {
@@ -89,6 +121,7 @@ class BackupController extends Controller
                 'path' => $path,
                 'hash' => hash('sha256', $contents),
                 'workspace' => $this->workspaceFingerprint(),
+                'preferences_revision' => $staged['preferences_revision'],
             ]);
 
             return response()->json(['preview' => $staged['summary']]);
@@ -104,7 +137,7 @@ class BackupController extends Controller
         $password = $this->takePassword($request, false);
         $request->validate(['confirm' => ['accepted']]);
         $preview = $request->session()->pull('backup-restore');
-        if (! is_array($preview) || ! is_string($preview['path'] ?? null) || ! is_string($preview['hash'] ?? null) || ! is_string($preview['workspace'] ?? null) || $preview['workspace'] !== $this->workspaceFingerprint()) {
+        if (! is_array($preview) || ! is_string($preview['path'] ?? null) || ! is_string($preview['hash'] ?? null) || ! is_string($preview['workspace'] ?? null) || ! is_int($preview['preferences_revision'] ?? null) || $preview['workspace'] !== $this->workspaceFingerprint()) {
             throw ValidationException::withMessages(['backup' => 'The workspace changed. Preview the backup again before restoring.']);
         }
         try {
@@ -112,7 +145,7 @@ class BackupController extends Controller
                 throw new RuntimeException;
             }
             $state = $this->snapshot($preview['hash']);
-            $restore->apply($restore->stage($backup->read($contents, $password), $crypto));
+            $restore->apply($restore->stage($backup->read($contents, $password), $crypto), $preview['preferences_revision']);
             $request->session()->invalidate();
             DB::table('restore_states')->where('id', $state)->update(['phase' => 'Applied', 'updated_at' => now()]);
 
@@ -188,6 +221,7 @@ class BackupController extends Controller
         return hash('sha256', json_encode([
             'projects' => DB::table('projects')->orderBy('id')->get(['id', 'revision']),
             'connections' => DB::table('provider_connections')->orderBy('id')->get(['id', 'revision']),
+            'preferences_revision' => app(WorkspacePreferences::class)->snapshot()['revision'],
         ], JSON_THROW_ON_ERROR));
     }
 

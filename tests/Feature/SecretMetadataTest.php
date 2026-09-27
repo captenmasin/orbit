@@ -6,7 +6,9 @@ use App\Actions\ProtectCredential;
 use App\Models\Project;
 use App\Models\ProjectSecret;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
+use Native\Desktop\Facades\Settings;
 use Native\Desktop\Facades\Shell;
 use Tests\TestCase;
 
@@ -18,7 +20,14 @@ class SecretMetadataTest extends TestCase
     {
         parent::setUp();
 
-        $this->withSession(['secret_pin_unlocked_until' => now()->addMinutes(5)->timestamp]);
+        DB::table('secret_vaults')->insert(['id' => 1, 'pin_hash' => 'fixture-pin-hash']);
+        Settings::shouldReceive('get')->with('secrets.pin_hash')->andReturn('fixture-pin-hash');
+        $this->withSession([
+            'secret_pin_unlocked_until' => now()->addMinutes(5)->timestamp,
+            'secret_pin_version' => hash('sha256', 'fixture-pin-hash'),
+            'secret_pin_generation' => 0,
+            'secret_pin_lock_minutes' => 15,
+        ]);
     }
 
     public function test_context_is_editable_without_crypto_and_preserves_names_environment_and_ciphertext(): void
@@ -62,6 +71,85 @@ class SecretMetadataTest extends TestCase
         $this->assertDatabaseHas('project_secrets', ['id' => $secret->id, 'service' => 'Redis', 'ciphertext' => 'fixture-ciphertext', 'revision' => 2]);
         $this->assertSame(2, $project->fresh()->revision);
         $this->assertSame(1, $other->fresh()->revision);
+    }
+
+    public function test_description_updates_preserve_other_fields_without_crypto_and_return_saved_revisions(): void
+    {
+        $this->freezeTime();
+        $project = Project::factory()->create();
+        $secret = ProjectSecret::factory()->for($project)->create([
+            'name' => 'API_KEY', 'environment' => 'Production', 'service' => 'Stripe',
+            'description' => 'Original description', 'management_url' => 'https://example.com/dashboard',
+        ]);
+        $this->mock(ProtectCredential::class, function ($mock): void {
+            $mock->shouldNotReceive('encrypt');
+            $mock->shouldNotReceive('decrypt');
+        });
+
+        $this->putJson('/projects/'.$project->id.'/secrets/'.$secret->id.'/description', [
+            'project_revision' => 1, 'revision' => 1, 'description' => "  Billing\ndashboard  ",
+            'name' => 'CHANGED', 'environment' => 'Changed', 'service' => 'Changed', 'management_url' => 'https://example.com/changed',
+            'value' => 'Changed', 'ciphertext' => 'Changed',
+        ])->assertOk()->assertExactJson([
+            'description' => "  Billing\ndashboard  ", 'revision' => 2, 'project_revision' => 2,
+            'updated_at' => $secret->fresh()->updated_at->toISOString(),
+        ]);
+
+        $this->assertDatabaseHas('project_secrets', [
+            'id' => $secret->id, 'name' => 'API_KEY', 'environment' => 'Production', 'service' => 'Stripe',
+            'description' => "  Billing\ndashboard  ", 'management_url' => 'https://example.com/dashboard', 'ciphertext' => 'fixture-ciphertext', 'revision' => 2,
+        ]);
+        $this->assertSame(2, $project->fresh()->revision);
+        $this->assertDatabaseCount('credential_access_events', 0);
+    }
+
+    public function test_descriptions_can_be_cleared_with_empty_text_or_null(): void
+    {
+        $project = Project::factory()->create();
+        $secret = ProjectSecret::factory()->for($project)->create(['description' => 'Original']);
+        $url = '/projects/'.$project->id.'/secrets/'.$secret->id.'/description';
+
+        $this->putJson($url, ['project_revision' => 1, 'revision' => 1, 'description' => ''])
+            ->assertOk()->assertJsonPath('description', '')->assertJsonPath('revision', 2)->assertJsonPath('project_revision', 2);
+        $this->assertSame('', $secret->fresh()->description);
+        $this->putJson($url, ['project_revision' => 2, 'revision' => 2, 'description' => null])
+            ->assertOk()->assertJsonPath('description', null)->assertJsonPath('revision', 3)->assertJsonPath('project_revision', 3);
+
+        $this->assertDatabaseHas('project_secrets', ['id' => $secret->id, 'description' => null, 'ciphertext' => 'fixture-ciphertext', 'revision' => 3]);
+        $this->assertSame(3, $project->fresh()->revision);
+    }
+
+    public function test_description_updates_reject_stale_revisions_and_other_projects_without_writes(): void
+    {
+        $project = Project::factory()->create(['revision' => 2]);
+        $secret = ProjectSecret::factory()->for($project)->create(['revision' => 2, 'description' => 'Latest description']);
+        $other = Project::factory()->create();
+        $url = '/projects/'.$project->id.'/secrets/'.$secret->id.'/description';
+        $data = ['project_revision' => 2, 'revision' => 2, 'description' => 'Changed'];
+
+        $this->putJson($url, [...$data, 'project_revision' => 1])->assertConflict();
+        $this->putJson($url, [...$data, 'revision' => 1])->assertConflict();
+        $this->putJson('/projects/'.$other->id.'/secrets/'.$secret->id.'/description', [...$data, 'project_revision' => 1])->assertNotFound();
+
+        $this->assertDatabaseHas('project_secrets', ['id' => $secret->id, 'description' => 'Latest description', 'ciphertext' => 'fixture-ciphertext', 'revision' => 2]);
+        $this->assertSame(2, $project->fresh()->revision);
+        $this->assertSame(1, $other->fresh()->revision);
+        $this->assertDatabaseCount('credential_access_events', 0);
+    }
+
+    public function test_description_validation_rejects_missing_non_text_and_oversized_values_without_writes(): void
+    {
+        $project = Project::factory()->create();
+        $secret = ProjectSecret::factory()->for($project)->create(['description' => 'Original']);
+        $url = '/projects/'.$project->id.'/secrets/'.$secret->id.'/description';
+        $data = ['project_revision' => 1, 'revision' => 1];
+
+        $this->putJson($url, $data)->assertUnprocessable()->assertJsonValidationErrors('description');
+        $this->putJson($url, [...$data, 'description' => ['invalid']])->assertUnprocessable()->assertJsonValidationErrors('description');
+        $this->putJson($url, [...$data, 'description' => str_repeat('x', 2001)])->assertUnprocessable()->assertJsonValidationErrors('description');
+
+        $this->assertDatabaseHas('project_secrets', ['id' => $secret->id, 'description' => 'Original', 'revision' => 1]);
+        $this->assertSame(1, $project->fresh()->revision);
     }
 
     public function test_creating_context_keeps_secret_uniqueness_independent_of_service_and_opens_validated_management_urls(): void

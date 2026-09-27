@@ -3,9 +3,10 @@ import { computed } from 'vue';
 import { CheckIcon, ChevronDownIcon } from '@lucide/vue';
 import { SelectContent, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport } from 'reka-ui';
 
-const props = defineProps<{ id: string; label: string; modelValue: string; options: string[]; allLabel: string }>();
+const props = defineProps<{ id: string; label: string; modelValue: string; options: (string | { value: string; label: string })[]; allLabel: string }>();
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 const allValue = '__orbit_all__';
+const choices = computed(() => props.options.map(option => typeof option === 'string' ? { value: option, label: option } : option));
 const selected = computed({
     get: () => props.modelValue || allValue,
     set: value => emit('update:modelValue', value === allValue ? '' : String(value)),
@@ -23,8 +24,8 @@ const selected = computed({
                     <SelectItem :value="allValue" class="relative flex h-8 cursor-default items-center rounded-xl px-3 pr-9 text-[13px] outline-none data-[highlighted]:bg-neutral-100 dark:data-[highlighted]:bg-neutral-700">
                         <SelectItemText>{{ allLabel }}</SelectItemText><SelectItemIndicator class="absolute right-2"><CheckIcon class="size-4" aria-hidden="true" /></SelectItemIndicator>
                     </SelectItem>
-                    <SelectItem v-for="option in options" :key="option" :value="option" class="relative flex h-8 cursor-default items-center rounded-xl px-3 pr-9 text-[13px] outline-none data-[highlighted]:bg-neutral-100 dark:data-[highlighted]:bg-neutral-700">
-                        <SelectItemText>{{ option }}</SelectItemText><SelectItemIndicator class="absolute right-2"><CheckIcon class="size-4" aria-hidden="true" /></SelectItemIndicator>
+                    <SelectItem v-for="option in choices" :key="option.value" :value="option.value" class="relative flex h-8 cursor-default items-center rounded-xl px-3 pr-9 text-[13px] outline-none data-[highlighted]:bg-neutral-100 dark:data-[highlighted]:bg-neutral-700">
+                        <SelectItemText>{{ option.label }}</SelectItemText><SelectItemIndicator class="absolute right-2"><CheckIcon class="size-4" aria-hidden="true" /></SelectItemIndicator>
                     </SelectItem>
                 </SelectViewport>
             </SelectContent>

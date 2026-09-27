@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Link, router, usePage } from '@inertiajs/vue3';
+import { useLocalStorage } from '@vueuse/core';
 import { ArrowLeftIcon, ArrowRightIcon } from '@lucide/vue';
 import { Toaster, toast } from 'vue-sonner';
 import 'vue-sonner/style.css';
+import { appearance, applyAppearance, applyMotionPreference, type Appearance, type MotionPreference } from '@/lib/appearance';
 import WorkspaceSidebar from '@/components/WorkspaceSidebar.vue';
 import ContentSearch from '@/components/ContentSearch.vue';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -11,13 +13,59 @@ import { Button } from '@/components/ui/button';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
-import type { Project, SidebarProject } from '@/types';
+import type { Project, ProjectPage, SearchResult, SidebarProject } from '@/types';
 
-const page = usePage<{ sidebarProjects: SidebarProject[]; selectedProject?: Project; message?: string | null; native: boolean }>();
+const page = usePage<{ sidebarProjects: SidebarProject[]; projects?: ProjectPage; selectedProject?: Project; message?: string | null; native: boolean; appearance: Appearance; reduceMotion: MotionPreference }>();
+watch(() => page.props.appearance, value => { if (value) applyAppearance(value); });
+watch(() => page.props.reduceMotion, value => { if (value) applyMotionPreference(value); });
+watch(() => page.props.message, message => {
+    if (!message) return;
+    toast.success(message);
+    router.replaceProp('message', null);
+}, { immediate: true, flush: 'sync' });
 const project = computed(() => page.props.selectedProject);
-const titles: Record<string, string> = { Dashboard: 'Dashboard', CreateProject: 'New project', EditProject: 'Edit project', Connections: 'Connections', Backups: 'Backups' };
+const titles: Record<string, string> = { Dashboard: 'Dashboard', CreateProject: 'New project', EditProject: 'Edit project', Connections: 'Connections', Backups: 'Backups', Settings: 'Settings' };
 const title = computed(() => titles[page.component] ?? project.value?.name ?? 'Orbit');
 const searchOpen = ref(false);
+const storedRecentItems = useLocalStorage<SearchResult[]>('orbit:recent-items', [], { flush: 'sync' });
+const resultTabs: Record<string, string> = { project: 'overview', document: 'documents', task: 'board', link: 'overview', secret: 'secrets' };
+const currentItems = computed<Record<string, { id: string; title?: string; label?: string; name?: string }[] | undefined>>(() => ({
+    document: project.value?.documents,
+    task: project.value?.board_columns?.flatMap(column => column.tasks),
+    link: project.value?.links,
+    secret: project.value?.secrets,
+}));
+function recentDestination(value: unknown): SearchResult | undefined {
+    if (!value || typeof value !== 'object') return;
+    const result = value as SearchResult;
+    if (typeof result.id !== 'string' || typeof result.project_id !== 'string' || !/^[\w-]+$/.test(result.id) || !/^[\w-]+$/.test(result.project_id) || typeof result.title !== 'string' || typeof result.project !== 'string' || typeof result.type !== 'string' || !Object.hasOwn(resultTabs, result.type)) return;
+    const projectUrl = `/projects/${result.project_id}`;
+    const url = `${projectUrl}?tab=${resultTabs[result.type]}${result.type === 'project' ? '' : `&${result.type}=${result.id}`}`;
+    if (result.url !== url && !(result.type === 'project' && result.url === projectUrl)) return;
+    return { id: result.id, project_id: result.project_id, project: result.project, type: result.type, title: result.title, excerpt: '', url };
+}
+const recentItems = computed(() => {
+    if (!Array.isArray(storedRecentItems.value)) return [];
+    return storedRecentItems.value.flatMap(value => {
+        const result = recentDestination(value);
+        const owner = result && page.props.sidebarProjects?.find(item => item.id === result.project_id);
+        if (!result || !owner) return [];
+        const records = owner.id === project.value?.id ? currentItems.value[result.type] : undefined;
+        const item = records?.find(item => item.id === result.id);
+        if (records && !item) return [];
+        return [{ ...result, project: owner.name, title: result.type === 'project' ? owner.name : item?.title ?? item?.label ?? item?.name ?? result.title }];
+    }).slice(0, 8);
+});
+function rememberRecent(result?: SearchResult) {
+    const destination = recentDestination(result);
+    if (!destination) return;
+    storedRecentItems.value = [destination, ...recentItems.value.filter(item => item.url !== destination.url)].slice(0, 8);
+}
+function navigateFromSearch(result?: SearchResult) {
+    rememberRecent(result);
+    searchOpen.value = false;
+}
+function clearRecentItems() { storedRecentItems.value = []; }
 const canGoBack = ref(false);
 const canGoForward = ref(false);
 let stopTrackingHistory: (() => void) | undefined;
@@ -31,13 +79,26 @@ function updateHistoryButtons() {
 }
 function handleNavigation() {
     updateHistoryButtons();
-    if (page.props.message) {
-        toast.success(page.props.message);
-        router.replaceProp('message', null);
+    const selectedProject = project.value;
+    const pageUrl = new URL(page.url, 'http://orbit.local');
+    if (selectedProject && pageUrl.pathname === `/projects/${selectedProject.id}`) {
+        const parameters = pageUrl.searchParams;
+        const type = Object.keys(currentItems.value).find(type => currentItems.value[type]?.some(item => item.id === parameters.get(type)));
+        const item = type ? currentItems.value[type]?.find(item => item.id === parameters.get(type)) : undefined;
+        rememberRecent({
+            id: item?.id ?? selectedProject.id,
+            project_id: selectedProject.id,
+            project: selectedProject.name,
+            type: type ?? 'project',
+            title: item?.title ?? item?.label ?? item?.name ?? selectedProject.name,
+            excerpt: '',
+            url: `/projects/${selectedProject.id}?tab=${resultTabs[type ?? 'project']}${type ? `&${type}=${item!.id}` : ''}`,
+        });
     }
 }
 onMounted(() => {
     handleNavigation();
+    window.addEventListener('keydown', handleWorkspaceShortcut);
     stopTrackingHistory = router.on('navigate', handleNavigation);
     if (page.props.native && navigator.platform.startsWith('Mac')) {
         window.addEventListener('wheel', handleTrackpadSwipe, { passive: false });
@@ -45,11 +106,32 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
     stopTrackingHistory?.();
+    window.removeEventListener('keydown', handleWorkspaceShortcut);
     window.removeEventListener('wheel', handleTrackpadSwipe);
     clearTimeout(resetSwipe);
 });
 function goBack() { window.history.back(); }
 function goForward() { window.history.forward(); }
+function handleWorkspaceShortcut(event: KeyboardEvent) {
+    if (event.isComposing || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+    if (event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        searchOpen.value = !searchOpen.value;
+        return;
+    }
+    if (event.key.toLowerCase() === 'n' && !event.defaultPrevented && !event.repeat) {
+        event.preventDefault();
+        searchOpen.value = false;
+        if (page.component !== 'CreateProject') router.visit('/projects/create');
+        return;
+    }
+    if (event.defaultPrevented || event.repeat || page.component !== 'Dashboard' || searchOpen.value || !/^[1-9]$/.test(event.key)) return;
+    if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select, [role="dialog"], [role="menu"]'))) return;
+    const targetProject = page.props.projects?.data[Number(event.key) - 1];
+    if (!targetProject) return;
+    event.preventDefault();
+    router.visit(`/projects/${targetProject.id}`);
+}
 function handleTrackpadSwipe(event: WheelEvent) {
     if (event.deltaMode !== 0 || event.ctrlKey || event.shiftKey || event.altKey || event.metaKey || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
 
@@ -70,11 +152,11 @@ function handleTrackpadSwipe(event: WheelEvent) {
 </script>
 
 <template>
-    <SidebarProvider>
+    <SidebarProvider class="bg-sidebar" style="--sidebar-width: 17rem">
         <Button as-child class="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50"><a href="#main">Skip to content</a></Button>
         <WorkspaceSidebar :projects="page.props.sidebarProjects" :selected-project="project ?? null" :page="page.component" @search-workspace="searchOpen = true" />
-        <SidebarInset class="min-w-0">
-            <header class="flex h-16 shrink-0 items-center gap-2 px-4">
+        <SidebarInset class="min-w-0 md:my-3 md:mr-0 md:ml-1 md:overflow-hidden md:rounded-l-2xl md:shadow-sm">
+            <header class="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 px-4 lg:px-6">
                 <div class="flex items-center gap-1">
                     <SidebarTrigger class="-ml-1 text-muted-foreground" />
                     <Button type="button" variant="ghost" size="icon-sm" class="text-muted-foreground" aria-label="Back" :disabled="!canGoBack" @click="goBack"><ArrowLeftIcon aria-hidden="true" /></Button>
@@ -95,11 +177,11 @@ function handleTrackpadSwipe(event: WheelEvent) {
                     </BreadcrumbList>
                 </Breadcrumb>
             </header>
-            <main id="main" tabindex="-1" class="flex min-w-0 flex-1 flex-col gap-6 p-4 pt-0 lg:p-6 lg:pt-0">
+            <main id="main" tabindex="-1" class="flex min-w-0 flex-1 flex-col gap-6 p-4 lg:p-6">
                 <slot />
             </main>
         </SidebarInset>
-        <Dialog v-model:open="searchOpen"><DialogContent class="max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Search workspace</DialogTitle><DialogDescription>Find project documents, tasks, links, and non-secret credential context.</DialogDescription></DialogHeader><ContentSearch @navigate="searchOpen = false" /></DialogContent></Dialog>
-        <Toaster position="bottom-right" />
+        <Dialog v-model:open="searchOpen"><DialogContent :show-close-button="false" class="top-[min(20vh,8rem)] translate-y-0 gap-0 overflow-hidden rounded-3xl bg-sidebar/95 p-0 shadow-2xl backdrop-blur-xl sm:max-w-3xl"><DialogHeader class="sr-only"><DialogTitle>Search workspace</DialogTitle><DialogDescription>Search projects, documents, tasks, links, and secret names. Use the arrow keys to navigate and Enter to open a result.</DialogDescription></DialogHeader><ContentSearch launcher :preferred-project-id="project?.id" :recent-items="recentItems" @navigate="navigateFromSearch" @clear-recents="clearRecentItems" @close="searchOpen = false" /></DialogContent></Dialog>
+        <Toaster position="bottom-right" :theme="appearance" />
     </SidebarProvider>
 </template>

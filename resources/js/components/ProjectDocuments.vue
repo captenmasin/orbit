@@ -72,13 +72,12 @@ async function togglePreview() {
     <div class="flex min-w-0 flex-col gap-6 pb-8">
         <div class="flex flex-wrap items-start justify-between gap-4">
             <div>
-                <h2 class="text-2xl font-semibold tracking-[-0.03em]">Documents</h2>
-                <p v-if="!documents.length" class="mt-1 text-sm leading-6 text-muted-foreground">Keep notes, instructions, and decisions together.</p>
+                <h2 class="text-xl font-semibold tracking-[-0.03em]">Documents</h2>
             </div>
             <Button :disabled="editing || change.processing" @click="edit()"><PlusIcon aria-hidden="true" />New document</Button>
         </div>
         <div class="grid min-w-0 items-start gap-5" :class="documents.length ? 'lg:grid-cols-[17rem_minmax(0,1fr)]' : ''">
-            <nav v-if="documents.length" aria-label="Project documents" class="min-w-0 rounded-[1.25rem] border border-black/8 bg-neutral-50 p-2 dark:border-white/10 dark:bg-neutral-800">
+            <nav v-if="documents.length" aria-label="Project documents" class="min-w-0 sticky top-4 rounded-[1.25rem] border border-black/8 bg-neutral-50 p-2 dark:border-white/10 dark:bg-neutral-800">
                 <ul class="grid gap-1">
                     <li v-for="document in documents" :key="document.id" class="flex min-w-0 items-center gap-1">
                         <Button :variant="selectedId === document.id ? 'secondary' : 'ghost'" class="h-auto min-h-11 min-w-0 flex-1 justify-start rounded-xl px-3 py-2 text-left whitespace-normal" :aria-current="selectedId === document.id ? 'page' : undefined" :disabled="editing" @click="selectedId = document.id"><span class="break-words">{{ document.title }}</span></Button>
@@ -111,7 +110,7 @@ async function togglePreview() {
                     <p v-else-if="missing" role="status" class="text-sm text-muted-foreground">This document was removed. Choose another document.</p>
                     <div v-else class="flex flex-1 flex-col items-center justify-center px-4 py-12 text-center">
                         <span class="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground"><PlusIcon class="size-5" aria-hidden="true" /></span>
-                        <h3 class="mt-4 text-base font-semibold">No documents yet</h3>
+                        <h3 class="mt-4 text-sm font-semibold">No documents yet</h3>
                         <p class="mt-1 max-w-sm text-sm text-muted-foreground">Add setup notes, decisions, and project reference material here.</p>
                         <Button variant="outline" class="mt-5" @click="edit()"><PlusIcon aria-hidden="true" />New document</Button>
                     </div>

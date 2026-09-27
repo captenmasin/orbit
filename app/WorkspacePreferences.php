@@ -1,0 +1,96 @@
+<?php
+
+namespace App;
+
+use App\Models\BoardColumn;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+
+class WorkspacePreferences
+{
+    public static function defaultBoardColumns(): array
+    {
+        return array_map(fn (string $name): array => ['name' => $name, 'color' => null], BoardColumn::DEFAULT_NAMES);
+    }
+
+    public static function validatedBoardColumns(array $columns): array
+    {
+        $data = Validator::make(['columns' => $columns], [
+            'columns' => ['required', 'array', 'list', 'min:1', 'max:100'],
+            'columns.*' => ['required', 'array:name,color'],
+            'columns.*.name' => ['required', 'string', 'max:100', 'regex:/\S/u'],
+            'columns.*.color' => ['nullable', 'string', Rule::in(BoardColumn::COLORS)],
+        ])->validate();
+
+        return array_map(fn (array $column): array => ['name' => trim($column['name']), 'color' => $column['color'] ?? null], $data['columns']);
+    }
+
+    public static function defaults(): array
+    {
+        return [
+            'general' => ['startup_destination' => 'dashboard'],
+            'appearance' => ['theme' => 'system', 'reduce_motion' => 'system'],
+            'security' => ['lock_minutes' => 15, 'clipboard_seconds' => 30, 'generation' => 0],
+            'project_defaults' => ['columns' => self::defaultBoardColumns()],
+            'tools' => ['paths' => array_fill_keys(['php', 'node', 'composer', 'npm', 'pnpm', 'yarn'], null)],
+            'backups' => ['folder' => null, 'last_export_at' => null, 'last_export_path' => null],
+            'startup' => ['last_project_id' => null],
+            'ai' => ['provider' => null, 'model' => null, 'credential' => null],
+        ];
+    }
+
+    /** @return array{revision: int, values: array<string, array>} */
+    public function snapshot(): array
+    {
+        $record = DB::table('workspace_preferences')->where('id', 1)->first();
+        $values = self::defaults();
+        foreach (json_decode($record?->values ?? '{}', true, flags: JSON_THROW_ON_ERROR) as $section => $fields) {
+            if (isset($values[$section]) && is_array($fields)) {
+                $values[$section] = array_replace($values[$section], $fields);
+            }
+        }
+
+        return ['revision' => (int) ($record?->revision ?? 1), 'values' => $values];
+    }
+
+    public function get(?string $key = null): mixed
+    {
+        return $key === null ? $this->snapshot()['values'] : Arr::get($this->snapshot()['values'], $key);
+    }
+
+    public function update(string $section, array $values, int $expectedRevision): array
+    {
+        return $this->write([$section => $values], $expectedRevision);
+    }
+
+    public function merge(array $values): array
+    {
+        return $this->write($values, null);
+    }
+
+    private function write(array $changes, ?int $expectedRevision): array
+    {
+        return DB::transaction(function () use ($changes, $expectedRevision): array {
+            DB::table('workspace_preferences')->insertOrIgnore(['id' => 1, 'revision' => 1, 'values' => '{}']);
+            $snapshot = $this->snapshot();
+            if ($expectedRevision !== null && $snapshot['revision'] !== $expectedRevision) {
+                throw new ConflictHttpException('Settings changed in another window. Reload before saving.');
+            }
+            foreach ($changes as $section => $fields) {
+                abort_unless(isset($snapshot['values'][$section]) && is_array($fields), 422);
+                $snapshot['values'][$section] = array_replace($snapshot['values'][$section], $fields);
+            }
+            if (! DB::table('workspace_preferences')->where('id', 1)->where('revision', $snapshot['revision'])->update([
+                'values' => json_encode($snapshot['values'], JSON_THROW_ON_ERROR), 'revision' => $snapshot['revision'] + 1,
+            ])) {
+                throw new ConflictHttpException('Settings changed. Reload before saving.');
+            }
+            $snapshot['revision']++;
+
+            return $snapshot;
+        });
+    }
+}

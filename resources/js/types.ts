@@ -71,12 +71,14 @@ export interface PackageRoot {
     scanned_at: string | null;
     scan_attempted_at: string | null;
     outdated?: DependencyUpdates | null;
+    security?: DependencySecurity | null;
     snapshot: {
         version: number;
         fingerprint?: string;
         path: string;
         files: Record<string, DependencySource>;
         unsupported_lockfiles: string[];
+        npm_lockfile?: string | null;
         runtimes: Record<string, RuntimeResult>;
     } | null;
 }
@@ -89,6 +91,16 @@ export interface ProjectLink {
     description?: string | null;
     description_html?: string;
     icon?: string | null;
+}
+
+export interface SearchResult {
+    id: string;
+    project_id?: string;
+    project: string;
+    type: string;
+    title: string;
+    excerpt: string;
+    url: string;
 }
 
 export type ScratchpadAction =
@@ -112,6 +124,7 @@ export interface FolderPreview {
 
 export interface Project {
     id: string;
+    updated_at: string;
     name: string;
     description: string | null;
     notes?: string | null;
@@ -149,7 +162,7 @@ export interface ProjectDocument {
     updated_at: string;
 }
 
-export type SidebarProject = Pick<Project, 'id' | 'name' | 'status' | 'icon_type' | 'icon_emoji' | 'icon_url'>;
+export type SidebarProject = Pick<Project, 'id' | 'name' | 'description' | 'status' | 'revision' | 'icon_type' | 'icon_emoji' | 'icon_url'>;
 
 export interface DependencyUpdates {
     checked_at: string;
@@ -158,6 +171,23 @@ export interface DependencyUpdates {
     unavailable: number;
     skipped: number;
     packages: { name: string; ecosystem: string; current: string; latest: string }[];
+}
+
+export interface DependencyAdvisory {
+    id: string;
+    title: string;
+    severity: 'Critical' | 'High' | 'Moderate' | 'Low' | 'Unknown';
+    url: string;
+    fixed_versions: string[];
+}
+
+export interface DependencySecurity {
+    checked_at: string;
+    fingerprint: string;
+    checked: number;
+    unavailable: number;
+    skipped: number;
+    packages: { name: string; ecosystem: string; current: string; advisories: DependencyAdvisory[] }[];
 }
 
 export interface ProjectSecret {
@@ -185,6 +215,7 @@ export interface BoardTask {
 export interface BoardColumn {
     id: string;
     name: string;
+    color: string | null;
     position: number;
     tasks: BoardTask[];
 }

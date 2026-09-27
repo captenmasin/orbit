@@ -45,7 +45,7 @@ class ProjectDuplicationTest extends TestCase
         ProjectDocument::factory()->for($source)->create(['title' => 'Plan', 'body' => 'Keep this', 'position' => 0]);
         ProjectSecret::factory()->for($source)->create(['name' => 'API_TOKEN', 'ciphertext' => 'sealed-value']);
         $source->boardColumns()->delete();
-        $column = $source->boardColumns()->create(['name' => 'Review', 'position' => 0]);
+        $column = $source->boardColumns()->create(['name' => 'Review', 'position' => 0, 'color' => 'purple']);
         $task = Task::factory()->for($column, 'column')->create(['title' => 'Ship it']);
         $attachmentPath = 'task-attachments/restored-source/note.txt';
         $assetPath = 'project-assets/restored-source/brief.txt';
@@ -109,6 +109,7 @@ class ProjectDuplicationTest extends TestCase
         $this->assertNotSame($source->secrets()->sole()->id, $duplicate->secrets()->sole()->id);
         $this->assertSame(1, $duplicate->secrets()->sole()->revision);
         $this->assertSame(['Review'], $duplicate->boardColumns()->pluck('name')->all());
+        $this->assertSame('purple', $duplicate->boardColumns()->sole()->color);
         $taskCopy = $duplicate->boardColumns()->sole()->tasks()->sole();
         $this->assertNotSame($task->id, $taskCopy->id);
         $this->assertSame('Ship it', $taskCopy->title);

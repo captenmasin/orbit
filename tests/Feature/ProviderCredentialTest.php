@@ -171,13 +171,46 @@ class ProviderCredentialTest extends TestCase
         });
     }
 
-    public function test_repository_picker_rejects_invalid_page_and_non_github_connection(): void
+    public function test_gitlab_repository_picker_returns_canonical_urls_and_next_page(): void
+    {
+        $connection = ProviderConnection::factory()->create(['provider' => 'gitlab']);
+        $this->mock(ProtectCredential::class, fn ($mock) => $mock->shouldReceive('decrypt')->once()->andReturn('PRIVATE-DUMMY-TOKEN'));
+        Http::preventStrayRequests();
+        Http::fake(['https://gitlab.com/api/v4/projects*' => Http::response([
+            ['id' => 123, 'path_with_namespace' => 'team/group/repo', 'visibility' => 'private', 'description' => 'Team repository', 'http_url_to_repo' => 'https://evil.test/PRIVATE-DUMMY-TOKEN'],
+            ['id' => 124, 'path_with_namespace' => 'team/shared', 'visibility' => 'internal', 'description' => null],
+            ['id' => 125, 'path_with_namespace' => 'team/public', 'visibility' => 'public', 'description' => null],
+            ['id' => 126, 'path_with_namespace' => '../escape', 'visibility' => 'public'],
+        ], 200, ['X-Next-Page' => '3'])]);
+
+        $response = $this->getJson('/connections/'.$connection->id.'/repositories?page=2')
+            ->assertOk()
+            ->assertExactJson(['repositories' => [[
+                'id' => '123', 'full_name' => 'team/group/repo', 'name' => 'repo',
+                'remote_url' => 'https://gitlab.com/team/group/repo.git', 'private' => true, 'description' => 'Team repository',
+            ], [
+                'id' => '124', 'full_name' => 'team/shared', 'name' => 'shared',
+                'remote_url' => 'https://gitlab.com/team/shared.git', 'private' => true, 'description' => null,
+            ], [
+                'id' => '125', 'full_name' => 'team/public', 'name' => 'public',
+                'remote_url' => 'https://gitlab.com/team/public.git', 'private' => false, 'description' => null,
+            ]], 'next_page' => 3])
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->assertStringNotContainsString('PRIVATE-DUMMY-TOKEN', $response->getContent());
+        Http::assertSent(function ($request): bool {
+            parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return parse_url($request->url(), PHP_URL_PATH) === '/api/v4/projects'
+                && $query === ['per_page' => '100', 'page' => '2', 'membership' => '1', 'order_by' => 'last_activity_at', 'sort' => 'desc']
+                && $request->hasHeader('PRIVATE-TOKEN', 'PRIVATE-DUMMY-TOKEN');
+        });
+    }
+
+    public function test_repository_picker_rejects_invalid_page(): void
     {
         $github = ProviderConnection::factory()->create();
-        $gitlab = ProviderConnection::factory()->create(['provider' => 'gitlab']);
 
         $this->getJson('/connections/'.$github->id.'/repositories?page=0')->assertUnprocessable()->assertJsonValidationErrors('page');
-        $this->getJson('/connections/'.$gitlab->id.'/repositories')->assertUnprocessable()->assertExactJson(['message' => 'Choose a GitHub connection.']);
     }
 
     public function test_repository_picker_sanitizes_provider_errors(): void

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\WorkspacePreferences;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -29,10 +30,10 @@ class Project extends Model
         static::creating(function (Project $project): void {
             $project->position = (static::max('position') ?? -1) + 1;
         });
-        static::created(function (Project $project) {
+        static::created(function (Project $project): void {
             $project->boardColumns()->createMany(array_map(
-                fn ($name, $position) => ['name' => $name, 'position' => $position],
-                BoardColumn::DEFAULT_NAMES, array_keys(BoardColumn::DEFAULT_NAMES),
+                fn (array $column, int $position): array => [...$column, 'position' => $position],
+                $columns = WorkspacePreferences::validatedBoardColumns(app(WorkspacePreferences::class)->get('project_defaults.columns')), array_keys($columns),
             ));
         });
     }

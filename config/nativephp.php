@@ -60,7 +60,13 @@ return [
      * .env file when the application is bundled for production.
      * You may use wildcards to match multiple keys.
      */
+    'release_notes_url' => env('ORBIT_RELEASE_NOTES_URL'),
+
     'cleanup_env_keys' => [
+        '*_API_KEY',
+        'OPENAI_*',
+        'ANTHROPIC_*',
+        'GEMINI_*',
         'AWS_*',
         'ORBIT_MCP_TOKEN',
         'DB_*',
@@ -165,6 +171,7 @@ return [
      */
     'queue_workers' => [
         'inspection' => ['queues' => ['inspection'], 'memory_limit' => 512, 'timeout' => 60, 'sleep' => 1],
+        'dependencies' => ['queues' => ['dependencies'], 'memory_limit' => 512, 'timeout' => 80, 'sleep' => 1],
     ],
 
     /**

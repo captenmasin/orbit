@@ -2,34 +2,68 @@
 import { computed, ref, watch } from 'vue';
 import { router, useForm } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
-import { ChevronRightIcon, DownloadIcon, FileIcon, FolderIcon, FolderPlusIcon, PencilIcon, Trash2Icon, UploadIcon } from '@lucide/vue';
+import { ArrowLeftIcon, ChevronRightIcon, DownloadIcon, EllipsisVerticalIcon, FileArchiveIcon, FileAudioIcon, FileCode2Icon, FileIcon, FileTextIcon, FileVideoIcon, FolderIcon, FolderPlusIcon, LayoutGridIcon, ListIcon, PencilIcon, SearchIcon, Trash2Icon, UploadIcon } from '@lucide/vue';
+import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import ChoiceSelect from '@/components/ChoiceSelect.vue';
-import { Field, FieldLabel, FieldDescription, FieldError } from '@/components/ui/field';
+import FilterSelect from '@/components/FilterSelect.vue';
+import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
 import type { Project } from '@/types';
 const props = defineProps<{ project: Project }>();
 type AssetFolder = NonNullable<Project['asset_folders']>[number];
+type AssetSelection = { type: 'file' | 'folder'; id: string };
 const upload = useForm({ revision: props.project.revision, files: [] as File[], paths: [] as string[], directories: [] as string[], folder_id: null as string | null });
-const removal = useForm({ revision: props.project.revision });
 const movement = useForm({ revision: props.project.revision, folder_id: null as string | null, name: undefined as string | undefined });
+const bulkMovement = useForm({ revision: props.project.revision, folder_id: null as string | null, items: [] as AssetSelection[] });
+const bulkRemoval = useForm({ revision: props.project.revision, items: [] as AssetSelection[] });
 const folderForm = useForm({ revision: props.project.revision, name: '', parent_id: null as string | null });
+const moveOpen = ref(false);
+const removeOpen = ref(false);
+const moveDestination = ref('');
 const folderEditorOpen = ref(false);
 const editingFolder = ref<AssetFolder | null>(null);
 const renamingFile = ref<NonNullable<Project['assets']>[number] | null>(null);
 const fileName = ref('');
-const removing = ref<{ id: string; name: string; kind: 'file' | 'folder' } | null>(null);
 const preview = ref<NonNullable<Project['assets']>[number] | null>(null);
 const failedPreviews = ref<string[]>([]);
-const pickerKey = ref(0);
+const uploadPicker = ref<HTMLInputElement | null>(null);
 const selectedType = ref('');
 const selectedFolder = ref('');
+const search = ref('');
+const sortBy = ref('default');
+const view = ref<'list' | 'tiles'>('tiles');
+const selectedKeys = ref<string[]>([]);
+const selectionAnchor = ref<string | null>(null);
+const canvas = ref<HTMLElement | null>(null);
+const marquee = ref<{ x: number; y: number; width: number; height: number } | null>(null);
+let marqueeStart: { x: number; y: number; clientX: number; clientY: number; base: string[] } | null = null;
 const dropTarget = ref<string | null>(null);
 const readingDrop = ref(false);
 const folders = computed(() => [...(props.project.asset_folders ?? [])].sort((a, b) => a.name.localeCompare(b.name)));
+const folderTree = computed(() => {
+    const children = new Map<string, AssetFolder[]>();
+    for (const folder of folders.value) {
+        const parentId = folder.parent_id ?? '';
+        children.set(parentId, [...(children.get(parentId) ?? []), folder]);
+    }
+    const tree: { folder: AssetFolder; depth: number; path: string }[] = [];
+    const seen = new Set<string>();
+    function visit(parentId: string, depth: number, parentPath: string) {
+        for (const folder of children.get(parentId) ?? []) {
+            if (seen.has(folder.id)) continue;
+            seen.add(folder.id);
+            const path = parentPath ? `${parentPath} / ${folder.name}` : folder.name;
+            tree.push({ folder, depth, path });
+            visit(folder.id, depth + 1, path);
+        }
+    }
+    visit('', 0, '');
+    return tree;
+});
 const currentFolder = computed(() => folders.value.find(folder => folder.id === selectedFolder.value));
 const childFolders = computed(() => folders.value.filter(folder => (folder.parent_id ?? '') === selectedFolder.value));
 const breadcrumbs = computed(() => {
@@ -44,12 +78,144 @@ const breadcrumbs = computed(() => {
 const assets = computed(() => (props.project.assets ?? []).map(file => ({ ...file, type: assetType(file.mime_type) })));
 const folderAssets = computed(() => assets.value.filter(file => (file.folder_id ?? '') === selectedFolder.value));
 const typeFilters = computed(() => ['Images', 'Documents', 'Audio', 'Video', 'Archives', 'Other'].map(type => ({ type, count: folderAssets.value.filter(file => file.type === type).length })));
-const filteredAssets = computed(() => selectedType.value ? folderAssets.value.filter(file => file.type === selectedType.value) : folderAssets.value);
-const busy = computed(() => readingDrop.value || upload.processing || removal.processing || movement.processing || folderForm.processing);
-const errors = computed(() => ({ ...upload.errors, ...removal.errors, ...movement.errors, ...folderForm.errors }));
-watch(selectedFolder, () => { selectedType.value = ''; });
+const filteredAssets = computed(() => {
+    const query = search.value.trim().toLocaleLowerCase();
+    const files = folderAssets.value.filter(file => (!selectedType.value || file.type === selectedType.value) && (!query || file.name.toLocaleLowerCase().includes(query)));
+    if (sortBy.value === 'name') return [...files].sort((a, b) => a.name.localeCompare(b.name));
+    if (sortBy.value === 'size') return [...files].sort((a, b) => b.size - a.size);
+    return files;
+});
+const visibleKeys = computed(() => [...childFolders.value.map(folder => `folder:${folder.id}`), ...filteredAssets.value.map(file => `file:${file.id}`)]);
+const selectedItems = computed<AssetSelection[]>(() => selectedKeys.value.map(key => {
+    const [type, id] = key.split(':');
+    return { type: type as AssetSelection['type'], id };
+}));
+const moveDestinations = computed(() => {
+    const selectedFolders = new Set(selectedItems.value.filter(item => item.type === 'folder').map(item => item.id));
+    return folderTree.value.filter(node => {
+        let folderId: string | null = node.folder.id;
+        while (folderId) {
+            if (selectedFolders.has(folderId)) return false;
+            folderId = folders.value.find(folder => folder.id === folderId)?.parent_id ?? null;
+        }
+        return true;
+    });
+});
+const menuItemClass = 'flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50';
+const busy = computed(() => readingDrop.value || upload.processing || bulkRemoval.processing || bulkMovement.processing || movement.processing || folderForm.processing);
+const errors = computed(() => ({ ...upload.errors, ...bulkRemoval.errors, ...bulkMovement.errors, ...movement.errors, ...folderForm.errors }));
+watch(selectedFolder, () => { selectedType.value = ''; search.value = ''; clearSelection(); });
+watch([search, selectedType], clearSelection);
 watch(folders, () => { if (selectedFolder.value && !currentFolder.value) selectedFolder.value = ''; });
+watch([folders, assets], () => {
+    const available = new Set([...folders.value.map(folder => `folder:${folder.id}`), ...assets.value.map(file => `file:${file.id}`)]);
+    selectedKeys.value = selectedKeys.value.filter(key => available.has(key));
+});
 const size = (bytes: number) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+const selectionKey = (type: AssetSelection['type'], id: string) => `${type}:${id}`;
+function clearSelection() { selectedKeys.value = []; selectionAnchor.value = null; }
+function selectItem(event: Pick<MouseEvent, 'metaKey' | 'ctrlKey' | 'shiftKey'>, key: string) {
+    if (event.shiftKey && selectionAnchor.value && visibleKeys.value.includes(selectionAnchor.value)) {
+        const start = visibleKeys.value.indexOf(selectionAnchor.value);
+        const end = visibleKeys.value.indexOf(key);
+        if (end !== -1) selectedKeys.value = visibleKeys.value.slice(Math.min(start, end), Math.max(start, end) + 1);
+    } else if (event.metaKey || event.ctrlKey) {
+        selectedKeys.value = selectedKeys.value.includes(key) ? selectedKeys.value.filter(item => item !== key) : [...selectedKeys.value, key];
+        selectionAnchor.value = key;
+    } else {
+        selectedKeys.value = [key];
+        selectionAnchor.value = key;
+    }
+}
+function selectForMenu(key: string) {
+    if (!selectedKeys.value.includes(key)) selectedKeys.value = [key];
+    selectionAnchor.value = key;
+}
+function openItem(type: AssetSelection['type'], id: string) {
+    if (type === 'folder') { selectedFolder.value = id; return; }
+    const file = assets.value.find(item => item.id === id);
+    if (!file) return;
+    if (file.preview_url && !failedPreviews.value.includes(id)) preview.value = file;
+    else window.location.assign(file.url);
+}
+function onItemKeydown(event: KeyboardEvent, key: string) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const [type, id] = key.split(':');
+        openItem(type as AssetSelection['type'], id);
+        return;
+    }
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    const buttons = [...(canvas.value?.querySelectorAll<HTMLButtonElement>('[data-asset-select]') ?? [])];
+    const index = buttons.findIndex(button => button.dataset.assetSelect === key);
+    if (index === -1) return;
+    let next: HTMLButtonElement | undefined;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        next = buttons[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+    } else {
+        const rect = buttons[index].getBoundingClientRect();
+        const centerX = (rect.left + rect.right) / 2;
+        const centerY = (rect.top + rect.bottom) / 2;
+        next = buttons.filter(button => {
+            const bounds = button.getBoundingClientRect();
+            const y = (bounds.top + bounds.bottom) / 2;
+            return event.key === 'ArrowUp' ? y < centerY - 1 : y > centerY + 1;
+        }).sort((first, second) => {
+            const score = (button: HTMLButtonElement) => {
+                const bounds = button.getBoundingClientRect();
+                return Math.abs((bounds.top + bounds.bottom) / 2 - centerY) * 2 + Math.abs((bounds.left + bounds.right) / 2 - centerX);
+            };
+            return score(first) - score(second);
+        })[0];
+    }
+    if (!next || next === buttons[index]) return;
+    event.preventDefault();
+    next.focus();
+    selectItem({ metaKey: false, ctrlKey: false, shiftKey: event.shiftKey }, next.dataset.assetSelect!);
+}
+function onExplorerKeydown(event: KeyboardEvent) {
+    if ((event.target as HTMLElement).closest('input, textarea, [role="combobox"]')) return;
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        selectedKeys.value = [...visibleKeys.value];
+        selectionAnchor.value = visibleKeys.value[0] ?? null;
+    } else if (event.key === 'Escape') clearSelection();
+    else if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (selectedKeys.value.length) { event.preventDefault(); removeOpen.value = true; }
+    } else if (event.key === 'F2' && selectedKeys.value.length === 1) {
+        event.preventDefault();
+        renameSelected();
+    }
+}
+function canvasPointerDown(event: PointerEvent) {
+    if (event.button !== 0 || event.pointerType !== 'mouse' || (event.target as Element).closest('[data-asset-item], button, a, input')) return;
+    const element = event.currentTarget as HTMLElement;
+    const bounds = element.getBoundingClientRect();
+    marqueeStart = { x: event.clientX - bounds.left, y: event.clientY - bounds.top, clientX: event.clientX, clientY: event.clientY, base: event.metaKey || event.ctrlKey || event.shiftKey ? [...selectedKeys.value] : [] };
+    element.setPointerCapture(event.pointerId);
+    event.preventDefault();
+}
+function canvasPointerMove(event: PointerEvent) {
+    if (!marqueeStart) return;
+    if (!marquee.value && Math.hypot(event.clientX - marqueeStart.clientX, event.clientY - marqueeStart.clientY) < 4) return;
+    const element = event.currentTarget as HTMLElement;
+    const bounds = element.getBoundingClientRect();
+    const x = event.clientX - bounds.left;
+    const y = event.clientY - bounds.top;
+    marquee.value = { x: Math.min(marqueeStart.x, x), y: Math.min(marqueeStart.y, y), width: Math.abs(x - marqueeStart.x), height: Math.abs(y - marqueeStart.y) };
+    const area = { left: Math.min(marqueeStart.clientX, event.clientX), right: Math.max(marqueeStart.clientX, event.clientX), top: Math.min(marqueeStart.clientY, event.clientY), bottom: Math.max(marqueeStart.clientY, event.clientY) };
+    const hits = [...element.querySelectorAll<HTMLElement>('[data-asset-item]')].filter(item => {
+        const rect = item.getBoundingClientRect();
+        return rect.left < area.right && rect.right > area.left && rect.top < area.bottom && rect.bottom > area.top;
+    }).map(item => item.dataset.assetItem!);
+    selectedKeys.value = [...marqueeStart.base, ...hits.filter(key => !marqueeStart!.base.includes(key))];
+}
+function canvasPointerUp() {
+    if (!marqueeStart) return;
+    if (!marquee.value && !marqueeStart.base.length) clearSelection();
+    marqueeStart = null;
+    marquee.value = null;
+}
 function assetType(mime: string | null) {
     if (mime?.startsWith('image/')) return 'Images';
     if (mime?.startsWith('audio/')) return 'Audio';
@@ -58,14 +224,35 @@ function assetType(mime: string | null) {
     if (/^application\/(zip|gzip|x-gzip|x-tar|x-7z-compressed|x-rar-compressed|vnd\.rar|x-bzip2|x-xz)$/.test(mime ?? '')) return 'Archives';
     return 'Other';
 }
+function fileIcon(mime: string | null) {
+    if (mime?.startsWith('audio/')) return FileAudioIcon;
+    if (mime?.startsWith('video/')) return FileVideoIcon;
+    if (/^application\/(zip|gzip|x-gzip|x-tar|x-7z-compressed|x-rar-compressed|vnd\.rar|x-bzip2|x-xz)$/.test(mime ?? '')) return FileArchiveIcon;
+    if (mime?.startsWith('text/') || mime?.includes('json') || mime?.includes('xml')) return FileCode2Icon;
+    if (mime?.includes('pdf') || mime?.includes('document') || mime?.includes('word')) return FileTextIcon;
+    return FileIcon;
+}
 function submit(folderId = selectedFolder.value) {
     upload.revision = props.project.revision;
     upload.folder_id = folderId || null;
-    upload.post(`/projects/${props.project.id}/assets`, { preserveScroll: true, errorBag: 'assets', onSuccess: () => { upload.reset('files', 'paths', 'directories'); pickerKey.value++; } });
+    upload.post(`/projects/${props.project.id}/assets`, { preserveScroll: true, errorBag: 'assets', onSuccess: () => upload.reset('files', 'paths', 'directories') });
+}
+function selectUploadFiles(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (!files.length || busy.value) return;
+    upload.files = files;
+    upload.paths = [];
+    upload.directories = [];
+    submit();
 }
 function startDrag(event: DragEvent, kind: 'file' | 'folder', id: string) {
     if (!event.dataTransfer || busy.value) return;
-    event.dataTransfer.setData('application/x-orbit-asset', JSON.stringify({ projectId: props.project.id, kind, id }));
+    const key = selectionKey(kind, id);
+    if (!selectedKeys.value.includes(key)) selectedKeys.value = [key];
+    const items = selectedItems.value;
+    event.dataTransfer.setData('application/x-orbit-asset', JSON.stringify({ projectId: props.project.id, items }));
     event.dataTransfer.effectAllowed = 'move';
 }
 function allowDrop(event: DragEvent, folderId: string) {
@@ -100,13 +287,20 @@ async function dropOn(event: DragEvent, folderId: string) {
     const internal = transfer.getData('application/x-orbit-asset');
     if (internal) {
         try {
-            const item = JSON.parse(internal) as { projectId: string; kind: string; id: string };
-            if (item.projectId !== props.project.id) return;
-            if (item.kind === 'file') {
-                const file = assets.value.find(asset => asset.id === item.id);
+            const payload = JSON.parse(internal) as { projectId: string; items?: AssetSelection[]; kind?: string; id?: string };
+            if (payload.projectId !== props.project.id) return;
+            const items = payload.items ?? (payload.kind && payload.id ? [{ type: payload.kind as AssetSelection['type'], id: payload.id }] : []);
+            if (folderId === selectedFolder.value || items.some(item => item.type === 'folder' && item.id === folderId)) return;
+            if (items.length > 1) {
+                bulkMovement.revision = props.project.revision;
+                bulkMovement.folder_id = folderId || null;
+                bulkMovement.items = items;
+                bulkMovement.put(`/projects/${props.project.id}/assets/move`, { preserveScroll: true, errorBag: 'assets', onSuccess: clearSelection });
+            } else if (items[0]?.type === 'file') {
+                const file = assets.value.find(asset => asset.id === items[0].id);
                 if (file && (file.folder_id ?? '') !== folderId) move(file, folderId);
-            } else if (item.kind === 'folder') {
-                const folder = folders.value.find(candidate => candidate.id === item.id);
+            } else if (items[0]?.type === 'folder') {
+                const folder = folders.value.find(candidate => candidate.id === items[0].id);
                 if (folder && (folder.parent_id ?? '') !== folderId) {
                     let ancestor = folderId;
                     while (ancestor) {
@@ -116,7 +310,7 @@ async function dropOn(event: DragEvent, folderId: string) {
                     folderForm.revision = props.project.revision;
                     folderForm.name = folder.name;
                     folderForm.parent_id = folderId || null;
-                    folderForm.put(`/projects/${props.project.id}/asset-folders/${folder.id}`, { preserveScroll: true, errorBag: 'assets' });
+                    folderForm.put(`/projects/${props.project.id}/asset-folders/${folder.id}`, { preserveScroll: true, errorBag: 'assets', onSuccess: clearSelection });
                 }
             }
         } catch {
@@ -152,10 +346,38 @@ async function dropOn(event: DragEvent, folderId: string) {
         readingDrop.value = false;
     }
 }
-function remove() {
-    if (!removing.value) return;
-    removal.revision = props.project.revision;
-    removal.delete(`/projects/${props.project.id}/${removing.value.kind === 'folder' ? 'asset-folders' : 'assets'}/${removing.value.id}`, { preserveScroll: true, errorBag: 'assets', onSuccess: () => { removing.value = null; } });
+function moveSelection() {
+    if (!selectedItems.value.length || moveDestination.value === selectedFolder.value) return;
+    bulkMovement.revision = props.project.revision;
+    bulkMovement.folder_id = moveDestination.value || null;
+    bulkMovement.items = selectedItems.value;
+    bulkMovement.put(`/projects/${props.project.id}/assets/move`, { preserveScroll: true, errorBag: 'assets', onSuccess: () => { moveOpen.value = false; clearSelection(); } });
+}
+function removeSelection() {
+    if (!selectedItems.value.length) return;
+    bulkRemoval.revision = props.project.revision;
+    bulkRemoval.items = selectedItems.value;
+    bulkRemoval.delete(`/projects/${props.project.id}/assets/selection`, { preserveScroll: true, errorBag: 'assets', onSuccess: () => { removeOpen.value = false; clearSelection(); } });
+}
+function renameSelected() {
+    if (selectedItems.value.length !== 1) return;
+    const item = selectedItems.value[0];
+    if (item.type === 'folder') {
+        const folder = folders.value.find(candidate => candidate.id === item.id);
+        if (folder) editFolder(folder);
+    } else {
+        const file = assets.value.find(candidate => candidate.id === item.id);
+        if (file) { renamingFile.value = file; fileName.value = file.name; }
+    }
+}
+function showMove(key?: string) {
+    if (key) selectForMenu(key);
+    moveDestination.value = selectedFolder.value;
+    moveOpen.value = true;
+}
+function showRemove(key?: string) {
+    if (key) selectForMenu(key);
+    removeOpen.value = true;
 }
 function editFolder(folder: AssetFolder | null = null) {
     editingFolder.value = folder;
@@ -174,7 +396,7 @@ function move(file: { id: string }, folderId: string) {
     movement.revision = props.project.revision;
     movement.folder_id = folderId || null;
     movement.name = undefined;
-    movement.put(`/projects/${props.project.id}/assets/${file.id}`, { preserveScroll: true, errorBag: 'assets' });
+    movement.put(`/projects/${props.project.id}/assets/${file.id}`, { preserveScroll: true, errorBag: 'assets', onSuccess: clearSelection });
 }
 function renameFile() {
     if (!renamingFile.value) return;
@@ -187,75 +409,71 @@ function renameFile() {
 
 <template>
     <div>
-    <section class="space-y-6" :class="dropTarget === (selectedFolder || '__root__') ? 'rounded-xl bg-primary/5' : ''" aria-labelledby="assets-title" @dragover="allowDrop($event, selectedFolder)" @dragleave="leaveDrop" @drop.prevent="dropOn($event, selectedFolder)">
+    <section class="-m-3 space-y-5 p-3" :class="dropTarget === (selectedFolder || '__root__') ? 'rounded-xl bg-primary/5' : ''" aria-labelledby="assets-title" @dragover="allowDrop($event, selectedFolder)" @dragleave="leaveDrop" @drop.prevent="dropOn($event, selectedFolder)" @keydown="onExplorerKeydown">
+        <input ref="uploadPicker" type="file" multiple class="hidden" :disabled="busy" @change="selectUploadFiles" />
         <div class="flex flex-wrap items-start justify-between gap-4">
-            <div>
-                <h2 id="assets-title" class="text-xl font-semibold tracking-[-0.025em]">Assets</h2>
-                <p class="mt-1 text-sm leading-6 text-muted-foreground">Keep files and folders for this project in one place.</p>
-            </div>
-            <Button variant="outline" :disabled="busy" @click="editFolder()"><FolderPlusIcon aria-hidden="true" />New folder</Button>
+            <div><h2 id="assets-title" class="text-xl font-semibold tracking-[-0.025em]">Assets</h2></div>
+            <div class="flex flex-wrap gap-2"><Button variant="outline" :disabled="busy" @click="editFolder()"><FolderPlusIcon aria-hidden="true" />New folder</Button><Button :disabled="busy" @click="uploadPicker?.click()"><UploadIcon aria-hidden="true" />{{ upload.processing ? `Uploading ${upload.progress?.percentage ?? 0}%` : 'Upload files' }}</Button></div>
         </div>
         <Alert v-if="Object.keys(errors).length" variant="destructive"><AlertDescription><p v-for="(error, key) in errors" :key="key">{{ error }}</p><Button v-if="errors.revision" variant="outline" @click="router.reload()">Reload project</Button></AlertDescription></Alert>
-        <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-start">
-        <div class="min-w-0 space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
-        <nav v-if="folders.length" aria-label="Asset folders" class="flex flex-wrap items-center gap-2 text-sm">
-            <Button variant="link" size="sm" class="px-0" :class="dropTarget === '__root__' ? 'rounded bg-primary/10' : ''" :disabled="busy" :aria-current="!currentFolder ? 'page' : undefined" @click="selectedFolder = ''" @dragover.stop="allowDrop($event, '')" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, '')">Assets</Button>
-            <template v-for="(folder, index) in breadcrumbs" :key="folder.id"><ChevronRightIcon class="size-4 text-muted-foreground" aria-hidden="true" /><Button v-if="index < breadcrumbs.length - 1" variant="link" size="sm" class="px-0" :class="dropTarget === folder.id ? 'rounded bg-primary/10' : ''" @click="selectedFolder = folder.id" @dragover.stop="allowDrop($event, folder.id)" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, folder.id)">{{ folder.name }}</Button><span v-else class="min-w-0 truncate font-medium" aria-current="page">{{ folder.name }}</span></template>
-        </nav>
-        <span v-else class="text-sm font-medium">All files</span>
-        <ChoiceSelect v-if="folderAssets.length || selectedType" v-model="selectedType" aria-label="Filter assets by type" :options="[{ value: '', label: `All types (${folderAssets.length})` }, ...typeFilters.map(filter => ({ value: filter.type, label: `${filter.type} (${filter.count})` }))]" />
+        <div v-if="currentFolder" class="flex flex-wrap items-center gap-3">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <Button variant="ghost" size="sm" :disabled="busy" @click="selectedFolder = currentFolder.parent_id ?? ''"><ArrowLeftIcon aria-hidden="true" />Back to parent folder</Button>
+                <nav aria-label="Current asset folder" class="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+                    <Button variant="link" size="sm" class="px-0" :class="dropTarget === '__root__' ? 'rounded bg-primary/10' : ''" @click="selectedFolder = ''" @dragover.stop="allowDrop($event, '')" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, '')">Assets</Button>
+                    <template v-for="(folder, index) in breadcrumbs" :key="folder.id"><ChevronRightIcon class="size-4 text-muted-foreground" aria-hidden="true" /><Button v-if="index < breadcrumbs.length - 1" variant="link" size="sm" class="px-0" @click="selectedFolder = folder.id" @dragover.stop="allowDrop($event, folder.id)" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, folder.id)">{{ folder.name }}</Button><span v-else class="min-w-0 truncate font-medium" aria-current="page">{{ folder.name }}</span></template>
+                </nav>
+            </div>
         </div>
-        <ul v-if="childFolders.length" class="grid gap-3 sm:grid-cols-2" aria-label="Folders">
-            <ContextMenu v-for="folder in childFolders" :key="folder.id">
-            <ContextMenuTrigger as-child><li draggable="true" class="flex items-center gap-1 rounded-xl border border-black/8 bg-neutral-50 p-2 dark:border-white/10 dark:bg-neutral-800" :class="dropTarget === folder.id ? 'border-primary bg-primary/10' : ''" @dragstart="startDrag($event, 'folder', folder.id)" @dragend="dropTarget = null" @dragover.stop="allowDrop($event, folder.id)" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, folder.id)">
-                <Button variant="ghost" class="h-auto min-w-0 flex-1 justify-start py-3" :disabled="busy" @click="selectedFolder = folder.id"><FolderIcon class="shrink-0 text-muted-foreground" aria-hidden="true" /><span class="truncate">{{ folder.name }}</span><span class="ml-auto text-xs text-muted-foreground">{{ assets.filter(file => file.folder_id === folder.id).length }}</span></Button>
-                <Button variant="ghost" size="icon-sm" :aria-label="`Rename ${folder.name}`" :disabled="busy" @click="editFolder(folder)"><PencilIcon aria-hidden="true" /></Button>
-                <Button variant="ghost" size="icon-sm" :aria-label="`Remove folder ${folder.name}`" :disabled="busy" @click="removing = { ...folder, kind: 'folder' }"><Trash2Icon aria-hidden="true" /></Button>
-            </li></ContextMenuTrigger>
-            <ContextMenuContent><ContextMenuItem @select="selectedFolder = folder.id">Open</ContextMenuItem><ContextMenuItem @select="editFolder(folder)">Rename</ContextMenuItem><ContextMenuItem variant="destructive" @select="removing = { ...folder, kind: 'folder' }">Remove</ContextMenuItem></ContextMenuContent>
-            </ContextMenu>
-        </ul>
-        <p class="sr-only" role="status">Showing {{ filteredAssets.length }} of {{ folderAssets.length }} assets in {{ currentFolder?.name ?? 'Assets' }}.</p>
-        <ul v-if="filteredAssets.length" class="divide-y divide-black/8 overflow-hidden rounded-xl border border-black/8 bg-background dark:divide-white/10 dark:border-white/10">
-            <ContextMenu v-for="file in filteredAssets" :key="file.id">
-            <ContextMenuTrigger as-child><li draggable="true" class="flex flex-wrap items-center gap-3 p-3.5 transition-colors hover:bg-muted/40" @dragstart="startDrag($event, 'file', file.id)" @dragend="dropTarget = null">
-                <button v-if="file.preview_url && !failedPreviews.includes(file.id)" type="button" class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" :aria-label="`Preview ${file.name}`" @click="preview = file">
-                    <img :src="file.preview_url" alt="" loading="lazy" class="size-full object-contain" @error="failedPreviews.push(file.id)" />
-                </button>
-                <FileIcon v-else class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <button v-if="file.preview_url && !failedPreviews.includes(file.id)" type="button" class="min-w-0 flex-1 truncate text-left text-sm font-medium underline-offset-4 hover:underline" @click="preview = file">{{ file.name }}</button>
-                <a v-else :href="file.url" download class="min-w-0 flex-1 truncate text-sm font-medium underline-offset-4 hover:underline">{{ file.name }}</a>
-                <span class="shrink-0 text-xs text-muted-foreground">{{ size(file.size) }}</span>
-                <Button as-child variant="ghost" size="icon-sm"><a :href="file.url" download :aria-label="`Download ${file.name}`"><DownloadIcon aria-hidden="true" /></a></Button>
-                <Button variant="ghost" size="icon-sm" :aria-label="`Rename ${file.name}`" :disabled="busy" @click="renamingFile = file; fileName = file.name"><PencilIcon aria-hidden="true" /></Button>
-                <ChoiceSelect v-if="folders.length" :model-value="file.folder_id ?? ''" class="max-w-40" :aria-label="`Move ${file.name} to folder`" :disabled="busy" :options="[{ value: '', label: 'Assets' }, ...folders.map(folder => ({ value: folder.id, label: folder.name }))]" @update:model-value="move(file, $event)" />
-                <Button variant="ghost" size="icon-sm" :aria-label="`Remove ${file.name}`" :disabled="busy" @click="removing = { ...file, kind: 'file' }"><Trash2Icon aria-hidden="true" /></Button>
-            </li></ContextMenuTrigger>
-            <ContextMenuContent><ContextMenuItem v-if="file.preview_url" @select="preview = file">Preview</ContextMenuItem><ContextMenuItem as-child><a :href="file.url" download>Download</a></ContextMenuItem><ContextMenuItem @select="renamingFile = file; fileName = file.name">Rename</ContextMenuItem><ContextMenuItem variant="destructive" @select="removing = { ...file, kind: 'file' }">Remove</ContextMenuItem></ContextMenuContent>
-            </ContextMenu>
-        </ul>
-        <div v-else-if="selectedType" class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <p>No assets match this type.</p><Button variant="link" size="sm" @click="selectedType = ''">Show all types</Button>
+        <div class="grid">
+        <div role="search" class="col-start-1 row-start-1 flex flex-wrap items-center gap-2.5" :class="selectedKeys.length ? 'invisible' : ''" :inert="selectedKeys.length > 0" aria-label="Filter assets">
+            <div class="relative min-w-[240px] max-w-[28rem] flex-[1_1_20rem]"><label for="asset-search" class="sr-only">Search files in this folder</label><SearchIcon class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /><Input id="asset-search" v-model="search" placeholder="Search files" maxlength="255" class="h-9 rounded-full border-0 bg-muted pl-9 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]" /></div>
+            <div v-if="folderAssets.length || selectedType" class="min-w-[155px] flex-1 sm:flex-none"><label for="asset-type" class="sr-only">Type</label><FilterSelect id="asset-type" label="Type" :model-value="selectedType" :options="typeFilters.map(filter => ({ value: filter.type, label: filter.type + ' (' + filter.count + ')' }))" :all-label="'All types (' + folderAssets.length + ')'" @update:model-value="selectedType = $event" /></div>
+            <div class="min-w-[155px] flex-1 sm:flex-none"><label for="asset-sort" class="sr-only">Sort</label><FilterSelect id="asset-sort" label="Sort" :model-value="sortBy === 'default' ? '' : sortBy" :options="[{ value: 'name', label: 'Name A–Z' }, { value: 'size', label: 'Largest first' }]" all-label="Upload order" @update:model-value="sortBy = $event || 'default'" /></div>
+            <div class="ml-auto flex rounded-full bg-muted p-0.5" role="group" aria-label="File view"><Button variant="ghost" size="icon-sm" class="rounded-full" :class="view === 'list' ? 'bg-background shadow-sm hover:bg-background dark:hover:bg-background' : ''" :aria-pressed="view === 'list'" aria-label="List view" @click="view = 'list'"><ListIcon aria-hidden="true" /></Button><Button variant="ghost" size="icon-sm" class="rounded-full" :class="view === 'tiles' ? 'bg-background shadow-sm hover:bg-background dark:hover:bg-background' : ''" :aria-pressed="view === 'tiles'" aria-label="Tile view" @click="view = 'tiles'"><LayoutGridIcon aria-hidden="true" /></Button></div>
         </div>
-        <div v-else-if="!childFolders.length" class="flex flex-col items-center rounded-xl border border-dashed border-black/10 px-6 py-12 text-center dark:border-white/10">
-            <span class="flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground"><FolderIcon class="size-5" aria-hidden="true" /></span>
-            <p class="mt-3 text-sm font-medium">{{ currentFolder ? 'This folder is empty' : 'No assets yet' }}</p>
-            <p class="mt-1 text-sm text-muted-foreground">{{ currentFolder ? 'Upload files here or move existing assets into this folder.' : 'Add designs, screenshots, documents, or other project files.' }}</p>
+        <div class="col-start-1 row-start-1 flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-sm" :class="selectedKeys.length ? '' : 'invisible'" :inert="selectedKeys.length === 0" role="status">
+            <span class="mr-auto font-medium">{{ selectedKeys.length }} selected</span>
+            <Button v-if="selectedItems.length === 1" variant="outline" size="sm" @click="renameSelected"><PencilIcon aria-hidden="true" />Rename</Button>
+            <Button variant="outline" size="sm" @click="showMove()"><FolderIcon aria-hidden="true" />Move</Button>
+            <Button variant="outline" size="sm" @click="showRemove()"><Trash2Icon aria-hidden="true" />Remove</Button>
+            <Button variant="ghost" size="sm" @click="clearSelection">Clear</Button>
         </div>
         </div>
-        <aside class="rounded-[1.25rem] border border-black/8 bg-neutral-50 p-5 dark:border-white/10 dark:bg-neutral-800" aria-labelledby="asset-upload-title">
-        <span class="flex size-10 items-center justify-center rounded-xl bg-background text-muted-foreground dark:bg-[#303030]"><UploadIcon class="size-5" aria-hidden="true" /></span>
-        <h3 id="asset-upload-title" class="mt-5 text-base font-semibold tracking-[-0.02em]">Upload files</h3>
-        <p class="mt-1 text-sm leading-6 text-muted-foreground">Drop files or folders anywhere in this area, or choose files below.</p>
-        <form class="mt-5 space-y-3" @submit.prevent="submit()">
-            <Field><FieldLabel for="asset-files">{{ currentFolder ? `Add to ${currentFolder.name}` : 'Choose files' }}</FieldLabel><Input id="asset-files" :key="pickerKey" type="file" multiple :disabled="busy" @change="upload.files = Array.from(($event.target as HTMLInputElement).files ?? []); upload.paths = []; upload.directories = []" /><FieldDescription>Up to 100 files per project, 10 MB each. Files are copied into Orbit.</FieldDescription></Field>
-            <Button type="submit" :disabled="!upload.files.length || busy"><UploadIcon aria-hidden="true" />{{ upload.processing ? `Uploading ${upload.progress?.percentage ?? 0}%` : 'Upload' }}</Button>
-        </form>
-        </aside>
+        <p class="sr-only" role="status">Showing {{ filteredAssets.length }} of {{ folderAssets.length }} files in {{ currentFolder?.name ?? 'Assets' }}.</p>
+        <div ref="canvas" class="relative min-h-48 space-y-4 pb-24" @pointerdown="canvasPointerDown" @pointermove="canvasPointerMove" @pointerup="canvasPointerUp" @pointercancel="canvasPointerUp">
+            <ul v-if="childFolders.length" :class="view === 'tiles' ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5' : 'grid gap-2'" aria-label="Folders">
+                <ContextMenu v-for="folder in childFolders" :key="folder.id">
+                <ContextMenuTrigger as-child><li :data-asset-item="selectionKey('folder', folder.id)" draggable="true" class="group relative min-w-0 rounded-xl border border-black/8 bg-muted/40 transition-colors dark:border-white/10" :class="[selectedKeys.includes(selectionKey('folder', folder.id)) ? 'ring-2 ring-ring' : 'hover:bg-muted/70', dropTarget === folder.id ? 'border-primary bg-primary/10' : '']" @dragstart="startDrag($event, 'folder', folder.id)" @dragend="dropTarget = null" @dragover.stop="allowDrop($event, folder.id)" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, folder.id)" @contextmenu="selectForMenu(selectionKey('folder', folder.id))">
+                    <button type="button" :data-asset-select="selectionKey('folder', folder.id)" class="flex h-12 w-full min-w-0 items-center gap-3 px-3 pr-11 text-left text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" :aria-label="'Select ' + folder.name + ' folder; press Enter to open'" :aria-pressed="selectedKeys.includes(selectionKey('folder', folder.id))" @click="selectItem($event, selectionKey('folder', folder.id))" @dblclick="openItem('folder', folder.id)" @keydown="onItemKeydown($event, selectionKey('folder', folder.id))"><FolderIcon class="size-5 shrink-0 fill-current text-muted-foreground" aria-hidden="true" /><span class="truncate">{{ folder.name }}</span></button>
+                    <DropdownMenuRoot><DropdownMenuTrigger as-child><Button variant="ghost" size="icon-sm" class="absolute top-1/2 right-2 -translate-y-1/2" :aria-label="'Actions for ' + folder.name" @click.stop="selectForMenu(selectionKey('folder', folder.id))"><EllipsisVerticalIcon aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end" :side-offset="4" class="z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                        <DropdownMenuItem :class="menuItemClass" @select="openItem('folder', folder.id)">Open</DropdownMenuItem><DropdownMenuItem :class="menuItemClass" :disabled="selectedKeys.length !== 1" @select="editFolder(folder)">Rename</DropdownMenuItem><DropdownMenuItem :class="menuItemClass" @select="showMove(selectionKey('folder', folder.id))">Move</DropdownMenuItem><DropdownMenuItem :class="menuItemClass" @select="showRemove(selectionKey('folder', folder.id))">Remove</DropdownMenuItem>
+                    </DropdownMenuContent></DropdownMenuPortal></DropdownMenuRoot>
+                </li></ContextMenuTrigger>
+                <ContextMenuContent><ContextMenuItem @select="openItem('folder', folder.id)">Open</ContextMenuItem><ContextMenuItem :disabled="selectedKeys.length !== 1" @select="editFolder(folder)">Rename</ContextMenuItem><ContextMenuItem @select="showMove(selectionKey('folder', folder.id))">Move</ContextMenuItem><ContextMenuItem variant="destructive" @select="showRemove(selectionKey('folder', folder.id))">Remove</ContextMenuItem></ContextMenuContent>
+                </ContextMenu>
+            </ul>
+            <ul v-if="filteredAssets.length" :class="view === 'tiles' ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5' : 'grid gap-2'" aria-label="Files">
+                <ContextMenu v-for="file in filteredAssets" :key="file.id">
+                <ContextMenuTrigger as-child><li :data-asset-item="selectionKey('file', file.id)" draggable="true" class="group relative min-w-0 overflow-hidden rounded-xl border border-black/8 bg-background transition-colors dark:border-white/10" :class="selectedKeys.includes(selectionKey('file', file.id)) ? 'ring-2 ring-ring bg-primary/5' : 'hover:bg-muted/40'" @dragstart="startDrag($event, 'file', file.id)" @dragend="dropTarget = null" @contextmenu="selectForMenu(selectionKey('file', file.id))">
+                    <button type="button" :data-asset-select="selectionKey('file', file.id)" class="flex h-full w-full min-w-0 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring" :class="view === 'tiles' ? 'flex-col' : 'items-center'" :aria-label="'Select ' + file.name + '; press Enter to open'" :aria-pressed="selectedKeys.includes(selectionKey('file', file.id))" @click="selectItem($event, selectionKey('file', file.id))" @dblclick="openItem('file', file.id)" @keydown="onItemKeydown($event, selectionKey('file', file.id))">
+                        <span class="flex w-full min-w-0 items-center gap-2 px-3 pr-11 text-[13px] font-medium" :class="view === 'tiles' ? 'h-14' : 'h-16'"><component :is="fileIcon(file.mime_type)" class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span class="truncate">{{ file.name }}</span></span>
+                        <span class="flex shrink-0 items-center justify-center overflow-hidden bg-muted/40" :class="view === 'tiles' ? 'aspect-[4/3] w-full p-2' : 'order-first ml-2 size-12 rounded-md'"><img v-if="file.preview_url && !failedPreviews.includes(file.id)" :src="file.preview_url" alt="" loading="lazy" class="size-full object-contain" @error="failedPreviews.push(file.id)" /><component :is="fileIcon(file.mime_type)" v-else class="text-muted-foreground stroke-[1.25]" :class="view === 'tiles' ? 'size-16 sm:size-20' : 'size-6'" aria-hidden="true" /></span>
+                        <span v-if="view === 'list'" class="ml-auto shrink-0 pr-12 text-xs text-muted-foreground">{{ size(file.size) }}</span>
+                    </button>
+                    <DropdownMenuRoot><DropdownMenuTrigger as-child><Button variant="ghost" size="icon-sm" class="absolute top-2 right-2" :aria-label="'Actions for ' + file.name" @click.stop="selectForMenu(selectionKey('file', file.id))"><EllipsisVerticalIcon aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end" :side-offset="4" class="z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                        <DropdownMenuItem v-if="file.preview_url" :class="menuItemClass" @select="preview = file">Preview</DropdownMenuItem><DropdownMenuItem as-child :class="menuItemClass"><a :href="file.url" download>Download</a></DropdownMenuItem><DropdownMenuItem :class="menuItemClass" :disabled="selectedKeys.length !== 1" @select="renamingFile = file; fileName = file.name">Rename</DropdownMenuItem><DropdownMenuItem :class="menuItemClass" @select="showMove(selectionKey('file', file.id))">Move</DropdownMenuItem><DropdownMenuItem :class="menuItemClass" @select="showRemove(selectionKey('file', file.id))">Remove</DropdownMenuItem>
+                    </DropdownMenuContent></DropdownMenuPortal></DropdownMenuRoot>
+                </li></ContextMenuTrigger>
+                <ContextMenuContent><ContextMenuItem v-if="file.preview_url" @select="preview = file">Preview</ContextMenuItem><ContextMenuItem as-child><a :href="file.url" download>Download</a></ContextMenuItem><ContextMenuItem :disabled="selectedKeys.length !== 1" @select="renamingFile = file; fileName = file.name">Rename</ContextMenuItem><ContextMenuItem @select="showMove(selectionKey('file', file.id))">Move</ContextMenuItem><ContextMenuItem variant="destructive" @select="showRemove(selectionKey('file', file.id))">Remove</ContextMenuItem></ContextMenuContent>
+                </ContextMenu>
+            </ul>
+            <div v-else-if="search || selectedType" class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><p>No files match these filters in this folder.</p><Button variant="link" size="sm" @click="search = ''; selectedType = ''">Clear filters</Button></div>
+            <div v-else-if="!childFolders.length" class="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-black/10 px-6 py-12 text-center dark:border-white/10"><FolderIcon class="size-8 text-muted-foreground" aria-hidden="true" /><p class="mt-3 text-sm font-medium">{{ currentFolder ? 'This folder is empty' : 'No assets yet' }}</p><p class="mt-1 text-sm text-muted-foreground">{{ currentFolder ? 'Upload files here or move existing assets into this folder.' : 'Add designs, screenshots, documents, or other project files.' }}</p><Button variant="outline" class="mt-4" :disabled="busy" @click="uploadPicker?.click()"><UploadIcon aria-hidden="true" />Upload files</Button></div>
+            <div v-if="marquee" class="pointer-events-none absolute z-10 border border-primary bg-primary/10" :style="{ left: marquee.x + 'px', top: marquee.y + 'px', width: marquee.width + 'px', height: marquee.height + 'px' }" aria-hidden="true" />
         </div>
     </section>
-    <Dialog :open="folderEditorOpen" @update:open="value => { if (!folderForm.processing) folderEditorOpen = value; }"><DialogContent><DialogHeader><DialogTitle>{{ editingFolder ? 'Rename folder' : 'New asset folder' }}</DialogTitle><DialogDescription>Organize project assets into folders such as logos or screenshots.</DialogDescription></DialogHeader>
+    <Dialog :open="folderEditorOpen" @update:open="value => { if (!folderForm.processing) folderEditorOpen = value; }"><DialogContent :aria-describedby="undefined"><DialogHeader><DialogTitle>{{ editingFolder ? 'Rename folder' : 'New asset folder' }}</DialogTitle></DialogHeader>
         <form class="space-y-4" @submit.prevent="saveFolder"><Field><FieldLabel for="asset-folder-name">Folder name</FieldLabel><Input id="asset-folder-name" v-model="folderForm.name" placeholder="logo" maxlength="100" required :aria-invalid="!!folderForm.errors.name" /><FieldError v-if="folderForm.errors.name">{{ folderForm.errors.name }}</FieldError></Field><Field><FieldLabel for="asset-folder-parent">Inside</FieldLabel><ChoiceSelect id="asset-folder-parent" :model-value="folderForm.parent_id ?? ''" :options="[{ value: '', label: 'Assets' }, ...folders.filter(item => item.id !== editingFolder?.id).map(folder => ({ value: folder.id, label: folder.name }))]" @update:model-value="folderForm.parent_id = $event || null" /><FieldError v-if="folderForm.errors.parent_id">{{ folderForm.errors.parent_id }}</FieldError></Field><FieldError v-if="folderForm.errors.revision">{{ folderForm.errors.revision }}</FieldError><DialogFooter><Button type="button" variant="outline" :disabled="folderForm.processing" @click="folderEditorOpen = false">Cancel</Button><Button type="submit" :disabled="folderForm.processing">{{ folderForm.processing ? 'Saving…' : 'Save folder' }}</Button></DialogFooter></form>
     </DialogContent></Dialog>
     <Dialog :open="!!renamingFile" @update:open="value => { if (!value && !movement.processing) renamingFile = null; }"><DialogContent><DialogHeader><DialogTitle>Rename file</DialogTitle><DialogDescription>Change the name shown in Orbit and used for downloads.</DialogDescription></DialogHeader><form class="space-y-4" @submit.prevent="renameFile"><Field><FieldLabel for="asset-file-name">File name</FieldLabel><Input id="asset-file-name" v-model="fileName" maxlength="255" required /><FieldError v-if="movement.errors.name">{{ movement.errors.name }}</FieldError></Field><DialogFooter><Button type="button" variant="outline" @click="renamingFile = null">Cancel</Button><Button type="submit" :disabled="movement.processing">Rename</Button></DialogFooter></form></DialogContent></Dialog>
@@ -267,8 +485,18 @@ function renameFile() {
             <DialogFooter><Button as-child variant="outline"><a :href="preview.url" download><DownloadIcon aria-hidden="true" />Download</a></Button></DialogFooter>
         </DialogContent>
     </Dialog>
-    <Dialog :open="!!removing" @update:open="value => { if (!value && !removal.processing) removing = null; }">
-        <DialogContent><DialogHeader><DialogTitle>Remove {{ removing?.name }}?</DialogTitle><DialogDescription>{{ removing?.kind === 'folder' ? 'Files and subfolders will move into the parent folder. No files will be deleted.' : 'This deletes the stored copy from Orbit. Your original file stays on disk.' }}</DialogDescription></DialogHeader><FieldError v-for="(error, key) in removal.errors" :key="key">{{ error }}</FieldError><DialogFooter><Button variant="outline" :disabled="removal.processing" @click="removing = null">Cancel</Button><Button variant="destructive" :disabled="removal.processing" @click="remove">Remove {{ removing?.kind }}</Button></DialogFooter></DialogContent>
+    <Dialog :open="moveOpen" @update:open="value => { if (!bulkMovement.processing) moveOpen = value; }">
+        <DialogContent :aria-describedby="undefined"><DialogHeader><DialogTitle>Move {{ selectedItems.length }} {{ selectedItems.length === 1 ? 'item' : 'items' }}</DialogTitle></DialogHeader>
+            <Field><FieldLabel for="asset-move-destination">Move to</FieldLabel><ChoiceSelect id="asset-move-destination" :model-value="moveDestination" :options="[{ value: '', label: 'Assets' }, ...moveDestinations.map(node => ({ value: node.folder.id, label: node.path }))]" @update:model-value="moveDestination = $event" /></Field>
+            <FieldError v-for="(error, key) in bulkMovement.errors" :key="key">{{ error }}</FieldError>
+            <DialogFooter><Button variant="outline" :disabled="bulkMovement.processing" @click="moveOpen = false">Cancel</Button><Button :disabled="bulkMovement.processing || moveDestination === selectedFolder" @click="moveSelection">Move</Button></DialogFooter>
+        </DialogContent>
+    </Dialog>
+    <Dialog :open="removeOpen" @update:open="value => { if (!bulkRemoval.processing) removeOpen = value; }">
+        <DialogContent><DialogHeader><DialogTitle>Remove {{ selectedItems.length }} {{ selectedItems.length === 1 ? 'item' : 'items' }}?</DialogTitle><DialogDescription>Selected files will be deleted from Orbit. Contents of removed folders will move to the nearest remaining parent folder.</DialogDescription></DialogHeader>
+            <FieldError v-for="(error, key) in bulkRemoval.errors" :key="key">{{ error }}</FieldError>
+            <DialogFooter><Button variant="outline" :disabled="bulkRemoval.processing" @click="removeOpen = false">Cancel</Button><Button variant="destructive" :disabled="bulkRemoval.processing" @click="removeSelection">Remove</Button></DialogFooter>
+        </DialogContent>
     </Dialog>
     </div>
 </template>

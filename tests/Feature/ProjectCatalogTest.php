@@ -41,7 +41,7 @@ class ProjectCatalogTest extends TestCase
 
         $this->post('/projects', ['name' => 'GitHub project', 'status' => 'Idea', 'repositories' => [[
             'id' => $repositoryId, 'name' => 'Repository', 'remote_url' => 'https://github.com/team/repo.git',
-            'github_connection_id' => $connection->id, 'github_full_name' => 'team/repo',
+            'provider_connection_id' => $connection->id, 'provider_full_name' => 'team/repo',
         ]]])->assertRedirect();
 
         $this->assertDatabaseHas('repositories', ['id' => $repositoryId, 'remote_url' => 'https://github.com/team/repo.git',
@@ -53,26 +53,56 @@ class ProjectCatalogTest extends TestCase
 
         $project = Project::sole();
         $this->put('/projects/'.$project->id, ['name' => 'Renamed project', 'status' => 'Idea', 'revision' => 1, 'repositories' => [[
-            'id' => $repositoryId, 'name' => 'Repository', 'remote_url' => 'https://github.com/team/repo.git',
+            'id' => $repositoryId, 'name' => 'Repository', 'remote_url' => 'https://github.com/team/repo.git', 'provider_connection_id' => $connection->id,
         ]]])->assertRedirect();
         $this->assertSame($connection->id, Repository::findOrFail($repositoryId)->provider_connection_id);
     }
 
-    public function test_creating_project_rejects_non_github_connection_and_mismatched_remote(): void
+    public function test_create_page_includes_gitlab_connections(): void
     {
         $connection = ProviderConnection::factory()->create(['provider' => 'gitlab']);
+
+        $this->get('/projects/create')->assertInertia(fn (Assert $page) => $page
+            ->has('connections', 1)->where('connections.0.id', $connection->id));
+    }
+
+    public function test_creating_project_with_selected_gitlab_repository_verifies_and_queues_it(): void
+    {
+        $connection = ProviderConnection::factory()->create(['provider' => 'gitlab']);
+        $repositoryId = (string) Str::uuid();
+        $this->mock(ProtectCredential::class, fn ($mock) => $mock->shouldReceive('decrypt')->once()->andReturn('dummy-provider-token'));
+        Queue::fake([RefreshProviderResource::class]);
+        Http::preventStrayRequests();
+        Http::fake(['https://gitlab.com/api/v4/projects/group%2Fteam%2Frepo' => Http::response([
+            'id' => 42, 'path_with_namespace' => 'group/team/repo', 'default_branch' => 'main', 'web_url' => 'https://gitlab.com/group/team/repo',
+        ])]);
+
+        $this->post('/projects', ['name' => 'GitLab project', 'status' => 'Idea', 'repositories' => [[
+            'id' => $repositoryId, 'name' => 'Repository', 'remote_url' => 'https://gitlab.com/group/team/repo.git',
+            'provider_connection_id' => $connection->id, 'provider_full_name' => 'group/team/repo',
+        ]]])->assertRedirect();
+
+        $this->assertDatabaseHas('repositories', ['id' => $repositoryId, 'remote_url' => 'https://gitlab.com/group/team/repo.git',
+            'provider_connection_id' => $connection->id, 'provider_repository_id' => '42', 'provider_name' => 'group/team/repo',
+            'default_branch' => 'main', 'provider_url' => 'https://gitlab.com/group/team/repo']);
+        Queue::assertPushed(RefreshProviderResource::class, 1);
+        Http::assertSentCount(1);
+    }
+
+    public function test_creating_project_rejects_missing_connection_and_mismatched_remote(): void
+    {
+        $connection = ProviderConnection::factory()->create();
         Queue::fake([RefreshProviderResource::class]);
         Http::preventStrayRequests();
 
         $this->postJson('/projects', ['name' => 'Invalid project', 'status' => 'Idea', 'repositories' => [[
             'id' => (string) Str::uuid(), 'remote_url' => 'https://github.com/team/repo.git',
-            'github_connection_id' => $connection->id, 'github_full_name' => 'team/repo',
-        ]]])->assertUnprocessable()->assertJsonValidationErrors(['repositories.0.github_connection_id' => 'Choose a saved GitHub connection.']);
+            'provider_connection_id' => (string) Str::uuid(), 'provider_full_name' => 'team/repo',
+        ]]])->assertUnprocessable()->assertJsonValidationErrors(['repositories.0.provider_connection_id' => 'Choose a saved Git connection.']);
         $this->assertDatabaseCount('projects', 0);
         Queue::assertNotPushed(RefreshProviderResource::class);
         Http::assertNothingSent();
 
-        $connection->update(['provider' => 'github']);
         $this->mock(ProtectCredential::class, fn ($mock) => $mock->shouldReceive('decrypt')->once()->andReturn('dummy-provider-token'));
         Http::fake(['https://api.github.com/repos/team/repo' => Http::response([
             'id' => 42, 'full_name' => 'team/repo', 'default_branch' => 'main', 'html_url' => 'https://github.com/team/repo',
@@ -80,8 +110,8 @@ class ProjectCatalogTest extends TestCase
 
         $this->postJson('/projects', ['name' => 'Wrong remote', 'status' => 'Idea', 'repositories' => [[
             'id' => (string) Str::uuid(), 'remote_url' => 'https://github.com/other/repo.git',
-            'github_connection_id' => $connection->id, 'github_full_name' => 'team/repo',
-        ]]])->assertUnprocessable()->assertJsonValidationErrors(['repositories.0.remote_url' => 'The remote URL does not match the selected GitHub repository.']);
+            'provider_connection_id' => $connection->id, 'provider_full_name' => 'team/repo',
+        ]]])->assertUnprocessable()->assertJsonValidationErrors(['repositories.0.remote_url' => 'The remote URL does not match the selected repository.']);
         $this->assertDatabaseCount('projects', 0);
         Queue::assertNotPushed(RefreshProviderResource::class);
     }
@@ -96,8 +126,8 @@ class ProjectCatalogTest extends TestCase
 
         $this->postJson('/projects', ['name' => 'Unavailable project', 'status' => 'Idea', 'repositories' => [[
             'id' => (string) Str::uuid(), 'remote_url' => 'https://github.com/team/repo.git',
-            'github_connection_id' => $connection->id, 'github_full_name' => 'team/repo',
-        ]]])->assertUnprocessable()->assertJsonValidationErrors(['repositories.0.github_full_name' => 'Token required']);
+            'provider_connection_id' => $connection->id, 'provider_full_name' => 'team/repo',
+        ]]])->assertUnprocessable()->assertJsonValidationErrors(['repositories.0.provider_full_name' => 'Token required']);
 
         $this->assertDatabaseCount('projects', 0);
         $this->assertDatabaseCount('repositories', 0);
@@ -135,6 +165,7 @@ class ProjectCatalogTest extends TestCase
         $project = Project::sole();
         $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page) => $page
             ->has('selectedProject.repositories', 2)->has('selectedProject.folders', 3)->has('selectedProject.links', 2)
+            ->where('sidebarProjects.0.description', 'My workspace')->where('sidebarProjects.0.revision', 1)
             ->where('selectedProject.tags.0.name', 'php')->where('selectedProject.tags.1.name', 'vue')
             ->where('selectedProject.icon_emoji', '🪐')->where('selectedProject.links.0.label', 'Site'));
         $this->assertDatabaseHas('project_folders', ['id' => $checkout, 'repository_id' => $repo, 'git_state' => 'Not a Git repository']);

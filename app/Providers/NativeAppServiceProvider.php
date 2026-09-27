@@ -2,8 +2,14 @@
 
 namespace App\Providers;
 
+use App\SecretVault;
+use App\WorkspacePreferences;
+use Illuminate\Support\Facades\Cache;
 use Native\Desktop\Contracts\ProvidesPhpIni;
+use Native\Desktop\Enums\SystemThemesEnum;
+use Native\Desktop\Facades\System;
 use Native\Desktop\Facades\Window;
+use Throwable;
 
 class NativeAppServiceProvider implements ProvidesPhpIni
 {
@@ -13,7 +19,16 @@ class NativeAppServiceProvider implements ProvidesPhpIni
      */
     public function boot(): void
     {
-        $url = str_replace('://127.0.0.1', '://localhost', url('/'));
+        app(SecretVault::class)->revokeUnlocks();
+        if ($owner = Cache::pull('orbit-update-restart-owner')) {
+            Cache::restoreLock('orbit-workspace-write', $owner)->release();
+        }
+        try {
+            System::theme(SystemThemesEnum::from(app(WorkspacePreferences::class)->get('appearance.theme')));
+        } catch (Throwable) {
+            // The page can apply its saved appearance while the native theme bridge recovers.
+        }
+        $url = str_replace('://127.0.0.1', '://localhost', route('startup'));
         Window::open()->url($url)->title('Orbit')->width(1180)->height(850)->minWidth(600)->minHeight(600);
     }
 

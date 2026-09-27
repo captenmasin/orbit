@@ -98,28 +98,31 @@ class ProviderController extends Controller
 
     public function repositories(Request $request, ProviderConnection $connection, ProviderHttp $http): JsonResponse
     {
-        if ($connection->provider !== 'github') {
-            return response()->json(['message' => 'Choose a GitHub connection.'], 422);
-        }
         $page = $request->validate(['page' => ['sometimes', 'integer', 'min:1', 'max:10000']])['page'] ?? 1;
+        $github = $connection->provider === 'github';
 
         try {
-            $result = $http->using($connection, fn (string $token): array => $http->get('github', '/user/repos', $token, ['per_page' => 100, 'page' => $page, 'sort' => 'updated']));
+            $result = $http->using($connection, fn (string $token): array => $http->get($connection->provider, $github ? '/user/repos' : '/projects', $token,
+                $github ? ['per_page' => 100, 'page' => $page, 'sort' => 'updated'] : ['per_page' => 100, 'page' => $page, 'membership' => true, 'order_by' => 'last_activity_at', 'sort' => 'desc']));
             if (! array_is_list($result['data'])) {
                 throw new RuntimeException('Invalid provider response');
             }
             $repositories = [];
             foreach ($result['data'] as $row) {
-                if (! is_array($row) || ! is_int($row['id'] ?? null) || $row['id'] < 1 || ! is_string($row['full_name'] ?? null) || ! is_bool($row['private'] ?? null)
-                    || ! preg_match('~^([A-Za-z0-9-]+)/([A-Za-z0-9_.-]+)$~D', $row['full_name'], $name) || in_array($name[2], ['.', '..'], true)) {
+                $fullName = is_array($row) ? ($row[$github ? 'full_name' : 'path_with_namespace'] ?? null) : null;
+                $private = $github ? ($row['private'] ?? null) : (($row['visibility'] ?? null) !== 'public');
+                if (! is_array($row) || ! is_int($row['id'] ?? null) || $row['id'] < 1 || ! is_string($fullName) || strlen($fullName) > 255
+                    || ($github ? ! is_bool($private) : ! in_array($row['visibility'] ?? null, ['public', 'internal', 'private'], true))
+                    || ! preg_match($github ? '~^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$~D' : '~^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+$~D', $fullName)
+                    || str_contains($fullName, '..') || in_array(basename($fullName), ['.', '..'], true)) {
                     continue;
                 }
                 $repositories[] = [
                     'id' => (string) $row['id'],
-                    'full_name' => $row['full_name'],
-                    'name' => $name[2],
-                    'remote_url' => 'https://github.com/'.$row['full_name'].'.git',
-                    'private' => $row['private'],
+                    'full_name' => $fullName,
+                    'name' => basename($fullName),
+                    'remote_url' => 'https://'.($github ? 'github.com' : 'gitlab.com').'/'.$fullName.'.git',
+                    'private' => $private,
                     'description' => is_string($row['description'] ?? null) ? $row['description'] : null,
                 ];
             }

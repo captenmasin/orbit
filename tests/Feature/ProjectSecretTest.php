@@ -5,12 +5,18 @@ namespace Tests\Feature;
 use App\Actions\ProtectCredential;
 use App\Models\Project;
 use App\Models\ProjectSecret;
+use App\WorkspacePreferences;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 use Native\Desktop\Dialog;
 use Native\Desktop\Facades\Clipboard;
+use Native\Desktop\Facades\Settings;
 use Native\Desktop\Facades\System;
+use PHPUnit\Framework\Attributes\TestWith;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -240,25 +246,199 @@ class ProjectSecretTest extends TestCase
         }
     }
 
-    public function test_secret_replacement_and_removal_use_independent_revisions(): void
+    public function test_secret_editing_updates_every_field_and_removal_uses_independent_revisions(): void
     {
         $project = Project::factory()->create();
-        $secret = ProjectSecret::factory()->for($project)->create();
+        $secret = ProjectSecret::factory()->for($project)->create(['name' => 'OLD_KEY']);
         $this->mock(ProtectCredential::class, function ($mock): void {
             $mock->shouldReceive('encrypt')->once()->with("replacement\nvalue")->andReturn('replacement-ciphertext');
         });
+        $data = [
+            'environment' => '  Production  ', 'name' => 'API_KEY', 'value' => "replacement\nvalue",
+            'service' => '  Stripe  ', 'description' => "Billing\ndashboard", 'management_url' => 'https://example.com/dashboard',
+            'project_revision' => 1, 'revision' => 1,
+        ];
 
         $url = '/projects/'.$project->id.'/secrets/'.$secret->id;
-        $this->putJson($url, ['value' => "replacement\nvalue", 'project_revision' => 1, 'revision' => 1])->assertOk()->assertExactJson(['saved' => true]);
+        $this->putJson($url, $data)->assertOk()->assertExactJson(['saved' => true]);
+        $this->assertDatabaseHas('project_secrets', [
+            'id' => $secret->id, 'environment' => 'Production', 'name' => 'API_KEY', 'ciphertext' => 'replacement-ciphertext',
+            'service' => 'Stripe', 'description' => "Billing\ndashboard", 'management_url' => 'https://example.com/dashboard', 'revision' => 2,
+        ]);
+        $this->assertSame(2, $project->fresh()->revision);
+        $this->assertDatabaseHas('credential_access_events', ['secret_id' => $secret->id, 'operation' => 'replace', 'result' => 'Succeeded']);
+        $this->putJson($url, [...$data, 'project_revision' => 2])->assertConflict();
+        $this->putJson($url, [...$data, 'revision' => 2])->assertConflict();
         $this->assertSame('replacement-ciphertext', $secret->fresh()->ciphertext);
         $this->assertSame(2, $secret->fresh()->revision);
         $this->assertSame(2, $project->fresh()->revision);
-        $this->putJson($url, ['value' => 'stale', 'project_revision' => 2, 'revision' => 1])->assertConflict();
-        $this->assertSame('replacement-ciphertext', $secret->fresh()->ciphertext);
         $this->deleteJson($url, ['project_revision' => 2, 'revision' => 2])->assertOk()->assertExactJson(['removed' => true]);
         $this->assertModelMissing($secret);
         $this->assertSame(3, $project->fresh()->revision);
         $this->assertDatabaseHas('credential_access_events', ['secret_id' => $secret->id, 'operation' => 'remove', 'result' => 'Succeeded']);
+    }
+
+    public function test_secret_editing_accepts_its_unchanged_name_and_environment(): void
+    {
+        $project = Project::factory()->create();
+        $secret = ProjectSecret::factory()->for($project)->create(['name' => 'API_KEY', 'service' => 'Stripe', 'description' => 'Billing', 'management_url' => 'https://example.com/dashboard']);
+        $this->mock(ProtectCredential::class, function ($mock): void {
+            $mock->shouldReceive('encrypt')->once()->with('')->andReturn('empty-ciphertext');
+        });
+
+        $this->putJson('/projects/'.$project->id.'/secrets/'.$secret->id, [
+            'environment' => 'Default', 'name' => 'API_KEY', 'value' => '', 'service' => '', 'description' => '', 'management_url' => '',
+            'project_revision' => 1, 'revision' => 1,
+        ])->assertOk()->assertExactJson(['saved' => true]);
+
+        $this->assertDatabaseHas('project_secrets', [
+            'id' => $secret->id, 'environment' => 'Default', 'name' => 'API_KEY', 'ciphertext' => 'empty-ciphertext',
+            'service' => null, 'description' => '', 'management_url' => '', 'revision' => 2,
+        ]);
+        $this->assertSame(2, $project->fresh()->revision);
+    }
+
+    public function test_secret_editing_rejects_duplicate_names_without_changing_any_fields(): void
+    {
+        $project = Project::factory()->create();
+        $secret = ProjectSecret::factory()->for($project)->create(['name' => 'ORIGINAL_KEY', 'service' => 'Original', 'description' => 'Original description', 'management_url' => 'https://example.com/original']);
+        ProjectSecret::factory()->for($project)->create(['environment' => 'Production', 'name' => 'API_KEY']);
+        $this->mock(ProtectCredential::class, function ($mock): void {
+            $mock->shouldNotReceive('encrypt');
+        });
+
+        $this->putJson('/projects/'.$project->id.'/secrets/'.$secret->id, [
+            'environment' => 'Production', 'name' => 'API_KEY', 'value' => 'changed', 'service' => 'Changed',
+            'description' => 'Changed description', 'management_url' => 'https://example.com/changed', 'project_revision' => 1, 'revision' => 1,
+        ])->assertUnprocessable()->assertJsonValidationErrors('name')->assertJsonPath('errors.name.0', 'A secret with this name already exists in this environment.');
+
+        $this->assertDatabaseHas('project_secrets', [
+            'id' => $secret->id, 'environment' => 'Default', 'name' => 'ORIGINAL_KEY', 'ciphertext' => 'fixture-ciphertext',
+            'service' => 'Original', 'description' => 'Original description', 'management_url' => 'https://example.com/original', 'revision' => 1,
+        ]);
+        $this->assertSame(1, $project->fresh()->revision);
+        $this->assertDatabaseCount('credential_access_events', 0);
+    }
+
+    public function test_bulk_secret_removal_deletes_only_selected_secrets_and_audits_each_without_crypto(): void
+    {
+        $project = Project::factory()->create();
+        $first = ProjectSecret::factory()->for($project)->create(['name' => 'FIRST_KEY']);
+        $second = ProjectSecret::factory()->for($project)->create(['name' => 'SECOND_KEY', 'revision' => 2]);
+        $unselected = ProjectSecret::factory()->for($project)->create(['name' => 'UNSELECTED_KEY', 'service' => 'Stripe']);
+        $other = ProjectSecret::factory()->create();
+        $unselectedAttributes = $unselected->fresh()->getAttributes();
+        $otherAttributes = $other->fresh()->getAttributes();
+        $this->mock(ProtectCredential::class, function ($mock): void {
+            $mock->shouldNotReceive('encrypt');
+            $mock->shouldNotReceive('decrypt');
+        });
+
+        $this->deleteJson('/projects/'.$project->id.'/secrets/bulk', [
+            'project_revision' => 1,
+            'secrets' => [['id' => $first->id, 'revision' => 1], ['id' => $second->id, 'revision' => 2]],
+        ])->assertOk()->assertExactJson(['removed' => true, 'deleted' => 2]);
+
+        $this->assertModelMissing($first);
+        $this->assertModelMissing($second);
+        $this->assertSame($unselectedAttributes, $unselected->fresh()->getAttributes());
+        $this->assertSame($otherAttributes, $other->fresh()->getAttributes());
+        $this->assertSame(2, $project->fresh()->revision);
+        $this->assertSame(1, $other->project->revision);
+        $this->assertDatabaseCount('credential_access_events', 2);
+        $this->assertDatabaseHas('credential_access_events', ['secret_id' => $first->id, 'operation' => 'remove', 'result' => 'Succeeded']);
+        $this->assertDatabaseHas('credential_access_events', ['secret_id' => $second->id, 'operation' => 'remove', 'result' => 'Succeeded']);
+    }
+
+    #[TestWith([1, 2])]
+    #[TestWith([2, 1])]
+    public function test_bulk_secret_removal_returns_409_for_stale_revisions_and_rolls_back_all_deletions_and_audits(int $projectRevision, int $secondRevision): void
+    {
+        $project = Project::factory()->create(['revision' => 2]);
+        $first = ProjectSecret::factory()->for($project)->create(['name' => 'A_FIRST_KEY']);
+        $second = ProjectSecret::factory()->for($project)->create(['name' => 'B_SECOND_KEY', 'revision' => 2]);
+        $firstAttributes = $first->fresh()->getAttributes();
+        $secondAttributes = $second->fresh()->getAttributes();
+
+        $this->deleteJson('/projects/'.$project->id.'/secrets/bulk', [
+            'project_revision' => $projectRevision,
+            'secrets' => [['id' => $first->id, 'revision' => 1], ['id' => $second->id, 'revision' => $secondRevision]],
+        ])->assertConflict();
+
+        $this->assertSame($firstAttributes, $first->fresh()->getAttributes());
+        $this->assertSame($secondAttributes, $second->fresh()->getAttributes());
+        $this->assertSame(2, $project->fresh()->revision);
+        $this->assertDatabaseCount('credential_access_events', 0);
+    }
+
+    #[TestWith([false])]
+    #[TestWith([true])]
+    public function test_bulk_secret_removal_rejects_foreign_or_missing_secrets_without_deleting_anything(bool $missing): void
+    {
+        $project = Project::factory()->create();
+        $secret = ProjectSecret::factory()->for($project)->create();
+        $foreign = ProjectSecret::factory()->create();
+
+        $this->deleteJson('/projects/'.$project->id.'/secrets/bulk', [
+            'project_revision' => 1,
+            'secrets' => [['id' => $secret->id, 'revision' => 1], ['id' => $missing ? (string) Str::uuid() : $foreign->id, 'revision' => 1]],
+        ])->assertConflict()->assertJsonPath('message', 'Some secrets changed. Reload before removing them.');
+
+        $this->assertModelExists($secret);
+        $this->assertModelExists($foreign);
+        $this->assertSame(1, $project->fresh()->revision);
+        $this->assertSame(1, $foreign->project->revision);
+        $this->assertDatabaseCount('credential_access_events', 0);
+    }
+
+    public function test_bulk_secret_removal_returns_422_for_duplicate_ids_without_deleting_the_secret(): void
+    {
+        $project = Project::factory()->create();
+        $secret = ProjectSecret::factory()->for($project)->create();
+
+        $response = $this->deleteJson('/projects/'.$project->id.'/secrets/bulk', [
+            'project_revision' => 1,
+            'secrets' => [['id' => $secret->id, 'revision' => 1], ['id' => $secret->id, 'revision' => 1]],
+        ])->assertUnprocessable()->assertJsonValidationErrors(['secrets.0.id', 'secrets.1.id']);
+
+        $this->assertSame('The secrets.0.id field has a duplicate value.', $response->json('errors')['secrets.0.id'][0]);
+        $this->assertModelExists($secret);
+        $this->assertSame(1, $project->fresh()->revision);
+        $this->assertDatabaseCount('credential_access_events', 0);
+    }
+
+    /**
+     * @param  array{project_revision?: int, secrets?: list<array{id: string, revision: int}>}  $payload
+     * @param  list<string>  $errors
+     */
+    #[TestWith([[], ['project_revision', 'secrets']])]
+    #[TestWith([['project_revision' => 0, 'secrets' => []], ['project_revision', 'secrets']])]
+    #[TestWith([['project_revision' => 1, 'secrets' => [['id' => 'not-a-uuid', 'revision' => 0]]], ['secrets.0.id', 'secrets.0.revision']])]
+    public function test_bulk_secret_removal_returns_422_for_invalid_selection_data_without_writes(array $payload, array $errors): void
+    {
+        $project = Project::factory()->create();
+        $secret = ProjectSecret::factory()->for($project)->create();
+
+        $this->deleteJson('/projects/'.$project->id.'/secrets/bulk', $payload)
+            ->assertUnprocessable()->assertJsonValidationErrors($errors);
+
+        $this->assertModelExists($secret);
+        $this->assertSame(1, $project->fresh()->revision);
+        $this->assertDatabaseCount('credential_access_events', 0);
+    }
+
+    public function test_bulk_secret_removal_returns_422_for_more_than_1000_selected_secrets_without_writes(): void
+    {
+        $project = Project::factory()->create();
+        $secret = ProjectSecret::factory()->for($project)->create();
+        $selected = array_map(fn (int $index): array => ['id' => (string) Str::uuid(), 'revision' => 1], range(1, 1001));
+
+        $this->deleteJson('/projects/'.$project->id.'/secrets/bulk', ['project_revision' => 1, 'secrets' => $selected])
+            ->assertUnprocessable()->assertJsonValidationErrors('secrets')->assertJsonPath('errors.secrets.0', 'The secrets field must not have more than 1000 items.');
+
+        $this->assertModelExists($secret);
+        $this->assertSame(1, $project->fresh()->revision);
+        $this->assertDatabaseCount('credential_access_events', 0);
     }
 
     public function test_reveal_is_scoped_no_store_and_records_safe_failures(): void
@@ -283,22 +463,46 @@ class ProjectSecretTest extends TestCase
         $this->assertDatabaseHas('credential_access_events', ['secret_id' => $secret->id, 'operation' => 'reveal', 'result' => 'Failed']);
     }
 
-    public function test_copy_uses_the_native_clipboard_without_returning_the_value(): void
+    #[TestWith([0])]
+    #[TestWith([30])]
+    #[TestWith([60])]
+    public function test_copy_uses_the_saved_native_clipboard_policy_without_returning_the_value(int $seconds): void
     {
+        config(['nativephp-internal.running' => true, 'nativephp-internal.api_url' => 'http://native.test/api/']);
+        app(WorkspacePreferences::class)->merge(['security' => ['clipboard_seconds' => $seconds]]);
         $project = Project::factory()->create();
         $secret = ProjectSecret::factory()->for($project)->create(['ciphertext' => 'native-ciphertext']);
         $this->mock(ProtectCredential::class, function ($mock): void {
-            $mock->shouldReceive('decrypt')->twice()->with('native-ciphertext')->andReturn('clipboard-value');
+            $mock->shouldReceive('decrypt')->once()->with('native-ciphertext')->andReturn('clipboard-value');
         });
-        Clipboard::shouldReceive('text')->once()->with('clipboard-value')->andReturn('clipboard-value');
-        Clipboard::shouldReceive('text')->twice()->withNoArgs()->andReturn('clipboard-value', 'different-value');
-        Clipboard::shouldReceive('clear')->never();
+        Http::preventStrayRequests();
+        Http::fake(['http://native.test/api/clipboard/secret' => Http::response(['copied' => true])]);
+        Clipboard::shouldReceive('text')->once()->withNoArgs()->andReturn('clipboard-value');
 
         $url = '/projects/'.$project->id.'/secrets/'.$secret->id.'/copy';
         $this->unlockVault();
         $this->postJson($url, ['revision' => 1])->assertOk()->assertExactJson(['copied' => true]);
-        $this->deleteJson($url, ['revision' => 1])->assertOk()->assertExactJson(['cleared' => true]);
+        Http::assertSent(fn ($request): bool => $request->url() === 'http://native.test/api/clipboard/secret'
+            && $request->data() === ['text' => 'clipboard-value', 'clearAfterSeconds' => $seconds]);
         $this->assertDatabaseHas('credential_access_events', ['secret_id' => $secret->id, 'operation' => 'copy', 'result' => 'Succeeded']);
+    }
+
+    public function test_native_clipboard_failure_reports_no_success_and_keeps_plaintext_out_of_errors(): void
+    {
+        config(['nativephp-internal.running' => true, 'nativephp-internal.api_url' => 'http://native.test/api/']);
+        $project = Project::factory()->create();
+        $secret = ProjectSecret::factory()->for($project)->create(['ciphertext' => 'native-ciphertext']);
+        $this->mock(ProtectCredential::class, function ($mock): void {
+            $mock->shouldReceive('decrypt')->once()->andReturn('private-clipboard-value');
+        });
+        Http::preventStrayRequests();
+        Http::fake(['http://native.test/api/clipboard/secret' => Http::response('Native clipboard failed.', 500)]);
+
+        $this->postJson('/projects/'.$project->id.'/secrets/'.$secret->id.'/copy', ['revision' => 1])
+            ->assertUnprocessable()->assertJsonMissing(['copied' => true])->assertDontSee('private-clipboard-value');
+
+        Http::assertSentCount(1);
+        $this->assertDatabaseHas('credential_access_events', ['secret_id' => $secret->id, 'operation' => 'copy', 'result' => 'Failed']);
     }
 
     public function test_duplicate_names_and_encryption_failures_preserve_existing_secrets(): void
@@ -316,16 +520,28 @@ class ProjectSecretTest extends TestCase
         $this->mock(ProtectCredential::class, function ($mock): void {
             $mock->shouldReceive('encrypt')->once()->andThrow(new RuntimeException('Native credential storage is unavailable. Open the desktop app and try again.'));
         });
-        $this->putJson('/projects/'.$project->id.'/secrets/'.$secret->id, ['value' => 'replacement', 'project_revision' => 1, 'revision' => 1])
+        $this->putJson('/projects/'.$project->id.'/secrets/'.$secret->id, [
+            'environment' => 'Production', 'name' => 'CHANGED_KEY', 'value' => 'replacement', 'service' => 'Changed',
+            'description' => 'Changed description', 'management_url' => 'https://example.com/changed', 'project_revision' => 1, 'revision' => 1,
+        ])
             ->assertUnprocessable()->assertJsonPath('message', 'Native credential storage is unavailable. Open the desktop app and try again.');
 
-        $this->assertSame('fixture-ciphertext', $secret->fresh()->ciphertext);
-        $this->assertSame(1, $secret->fresh()->revision);
+        $this->assertDatabaseHas('project_secrets', [
+            'id' => $secret->id, 'environment' => 'Default', 'name' => 'APP_KEY', 'ciphertext' => 'fixture-ciphertext',
+            'service' => null, 'description' => null, 'management_url' => null, 'revision' => 1,
+        ]);
         $this->assertSame(1, $project->fresh()->revision);
     }
 
     private function unlockVault(): void
     {
-        $this->withSession(['secret_pin_unlocked_until' => now()->addMinutes(5)->timestamp]);
+        DB::table('secret_vaults')->updateOrInsert(['id' => 1], ['pin_hash' => 'fixture-pin-hash']);
+        Settings::shouldReceive('get')->with('secrets.pin_hash')->andReturn('fixture-pin-hash');
+        $this->withSession([
+            'secret_pin_unlocked_until' => now()->addMinutes(5)->timestamp,
+            'secret_pin_version' => hash('sha256', 'fixture-pin-hash'),
+            'secret_pin_generation' => 0,
+            'secret_pin_lock_minutes' => 15,
+        ]);
     }
 }

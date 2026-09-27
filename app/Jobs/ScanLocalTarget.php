@@ -67,7 +67,7 @@ class ScanLocalTarget implements ShouldQueue
         }
 
         DB::transaction(function () use ($model, $folderPath, $revision, $values): void {
-            $current = $model::find($this->targetId);
+            $current = $model::query()->lockForUpdate()->find($this->targetId);
             if (! $current || $current->scan_token !== $this->token) {
                 return;
             }

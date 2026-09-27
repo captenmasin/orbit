@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\CheckDependencies;
 use App\Actions\CheckDependencyUpdates;
 use App\Actions\ProbeRuntimes;
 use App\Actions\QueueInspection;
@@ -16,6 +17,14 @@ use Illuminate\Validation\ValidationException;
 
 class InspectionController extends Controller
 {
+    public function check(Project $project, PackageRoot $root, CheckDependencies $check): JsonResponse
+    {
+        abort_unless($root->folder->project_id === $project->id, 404);
+        $check->handle($root);
+
+        return response()->json(['ok' => true]);
+    }
+
     public function outdated(Project $project, PackageRoot $root, CheckDependencyUpdates $check): JsonResponse
     {
         abort_unless($root->folder->project_id === $project->id, 404);
@@ -25,7 +34,7 @@ class InspectionController extends Controller
         $result = $check->handle($root->snapshot);
         DB::transaction(function () use ($root, $result): void {
             $current = $root->fresh();
-            if (! $current || $current->revision !== $root->revision || ReadDependencies::fingerprint($current->snapshot ?? []) !== $result['fingerprint']) {
+            if (! $current || $current->revision !== $root->revision || $current->scan_token !== $root->scan_token || ! in_array($current->scan_state, ['Current', 'Partial'], true) || ReadDependencies::fingerprint($current->snapshot ?? []) !== $result['fingerprint']) {
                 throw ValidationException::withMessages(['root' => 'This package root changed. Check for updates again.']);
             }
             $current->forceFill(['outdated' => $result])->save();
@@ -100,6 +109,7 @@ class InspectionController extends Controller
                 'scan_state' => 'Not scanned', 'scan_error' => null, 'scan_attempted_at' => null, 'scan_started_at' => null,
                 'snapshot' => $relative === $root?->relative_path ? $root?->snapshot : null,
                 'outdated' => $relative === $root?->relative_path ? $root?->outdated : null,
+                'security' => $relative === $root?->relative_path ? $root?->security : null,
                 'scanned_at' => $relative === $root?->relative_path ? $root?->scanned_at : null,
             ])->save();
         });

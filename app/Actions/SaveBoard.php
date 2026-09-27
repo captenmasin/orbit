@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Models\BoardColumn;
 use App\Models\Project;
 use App\Models\Task;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -22,7 +23,10 @@ class SaveBoard
             'action' => ['required', Rule::in(['column.save', 'column.move', 'column.delete', 'task.save', 'task.bulk', 'task.move', 'task.delete'])],
         ])->validate()['action'];
         $rules = match ($action) {
-            'column.save' => ['name' => ['required', 'string', 'max:100', 'regex:/\S/u']],
+            'column.save' => [
+                'name' => ['required', 'string', 'max:100', 'regex:/\S/u'],
+                'color' => ['sometimes', 'nullable', 'string', Rule::in(BoardColumn::COLORS)],
+            ],
             'column.move' => ['position' => ['required', 'integer', 'min:0']],
             'column.delete' => ['destination_id' => ['nullable', 'uuid']],
             'task.save' => [
@@ -76,10 +80,14 @@ class SaveBoard
 
     private function saveColumn(Project $project, array $data): void
     {
+        $attributes = ['name' => trim($data['name'])];
+        if (array_key_exists('color', $data)) {
+            $attributes['color'] = $data['color'];
+        }
         if ($data['id'] ?? null) {
-            $project->boardColumns()->findOrFail($data['id'])->update(['name' => trim($data['name'])]);
+            $project->boardColumns()->findOrFail($data['id'])->update($attributes);
         } else {
-            $project->boardColumns()->create(['name' => trim($data['name']), 'position' => $project->boardColumns()->count()]);
+            $project->boardColumns()->create([...$attributes, 'position' => $project->boardColumns()->count()]);
         }
     }
 

@@ -28,8 +28,8 @@ class ProjectDetailsTest extends TestCase
         $this->get('/projects/create')->assertInertia(fn (Assert $page) => $page->component('CreateProject')->has('sidebarProjects', 26));
         $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page) => $page->component('ShowProject')->where('selectedProject.id', $project->id));
         $this->get('/projects/'.$project->id.'/edit')->assertInertia(fn (Assert $page) => $page->component('EditProject'));
-        $this->get('/settings/connections')->assertInertia(fn (Assert $page) => $page->component('Connections'));
-        $this->get('/settings/backups')->assertInertia(fn (Assert $page) => $page->component('Backups'));
+        $this->get('/settings/connections')->assertInertia(fn (Assert $page) => $page->component('Settings')->where('section', 'connections'));
+        $this->get('/settings/backups')->assertInertia(fn (Assert $page) => $page->component('Settings')->where('section', 'backups'));
     }
 
     public function test_notes_are_saved_rendered_safely_and_protected_against_stale_edits(): void
@@ -116,7 +116,7 @@ class ProjectDetailsTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles('project-assets'));
     }
 
-    public function test_dropped_folders_preserve_nested_and_empty_directories_and_reuse_existing_folders(): void
+    public function test_dropped_folders_preserve_nested_and_empty_directories_in_a_numbered_copy(): void
     {
         Storage::fake('local');
         $project = Project::factory()->create();
@@ -132,17 +132,62 @@ class ProjectDetailsTest extends TestCase
         ])->assertRedirect();
 
         $current = $project->fresh();
-        $this->assertCount(3, $current->asset_folders);
-        $this->assertSame($brandId, $current->asset_folders[0]['id']);
-        $this->assertSame($brandId, $current->asset_folders[1]['parent_id']);
-        $this->assertSame(['id' => $current->asset_folders[2]['id'], 'name' => 'Empty', 'parent_id' => $brandId], $current->asset_folders[2]);
-        $this->assertSame($current->asset_folders[1]['id'], $current->asset_files[0]['folder_id']);
+        $this->assertCount(4, $current->asset_folders);
+        $this->assertSame(['id' => $brandId, 'name' => 'Brand', 'parent_id' => null], $current->asset_folders[0]);
+        $copyId = $current->asset_folders[1]['id'];
+        $this->assertSame(['id' => $copyId, 'name' => 'Brand (2)', 'parent_id' => null], $current->asset_folders[1]);
+        $this->assertSame($copyId, $current->asset_folders[2]['parent_id']);
+        $this->assertSame(['id' => $current->asset_folders[3]['id'], 'name' => 'Empty', 'parent_id' => $copyId], $current->asset_folders[3]);
+        $this->assertSame($current->asset_folders[2]['id'], $current->asset_files[0]['folder_id']);
         Storage::disk('local')->assertExists($current->asset_files[0]['path']);
 
         $this->post($url.'/assets', ['revision' => 3, 'folder_id' => $brandId, 'directories' => ['EmptyOnly']])->assertRedirect();
-        $this->assertCount(4, $project->fresh()->asset_folders);
-        $this->assertSame($brandId, $project->fresh()->asset_folders[3]['parent_id']);
+        $this->assertCount(5, $project->fresh()->asset_folders);
+        $this->assertSame($brandId, $project->fresh()->asset_folders[4]['parent_id']);
         $this->assertSame(4, $project->fresh()->revision);
+    }
+
+    #[TestWith([false])]
+    #[TestWith([true])]
+    public function test_dropped_empty_folders_use_the_first_available_number_in_the_destination(bool $nested): void
+    {
+        $containerId = (string) Str::uuid();
+        $parentId = $nested ? $containerId : null;
+        $folders = [
+            ['id' => $containerId, 'name' => 'Container', 'parent_id' => null],
+            ['id' => (string) Str::uuid(), 'name' => 'Brand', 'parent_id' => $parentId],
+            ['id' => (string) Str::uuid(), 'name' => 'BRAND (2)', 'parent_id' => $parentId],
+            ['id' => (string) Str::uuid(), 'name' => 'Brand (4)', 'parent_id' => $parentId],
+            ['id' => (string) Str::uuid(), 'name' => 'brand (3)', 'parent_id' => $nested ? null : $containerId],
+        ];
+        $project = Project::factory()->create(['asset_folders' => $folders]);
+
+        $this->post('/projects/'.$project->id.'/assets', [
+            'revision' => 1, 'folder_id' => $parentId, 'directories' => ['brand'],
+        ])->assertRedirect();
+
+        $current = $project->fresh();
+        $this->assertCount(6, $current->asset_folders);
+        $this->assertSame([...$folders, ['id' => $current->asset_folders[5]['id'], 'name' => 'brand (3)', 'parent_id' => $parentId]], $current->asset_folders);
+        $this->assertSame(2, $current->revision);
+    }
+
+    public function test_numbered_dropped_folder_names_fit_the_character_limit(): void
+    {
+        $name = str_repeat('é', 100);
+        $folders = [
+            ['id' => (string) Str::uuid(), 'name' => $name, 'parent_id' => null],
+            ['id' => (string) Str::uuid(), 'name' => str_repeat('é', 96).' (2)', 'parent_id' => null],
+        ];
+        $project = Project::factory()->create(['asset_folders' => $folders]);
+
+        $this->post('/projects/'.$project->id.'/assets', [
+            'revision' => 1, 'directories' => [$name],
+        ])->assertRedirect();
+
+        $current = $project->fresh();
+        $this->assertCount(3, $current->asset_folders);
+        $this->assertSame([...$folders, ['id' => $current->asset_folders[2]['id'], 'name' => str_repeat('é', 96).' (3)', 'parent_id' => null]], $current->asset_folders);
     }
 
     public function test_dropped_folder_names_keep_their_original_spacing(): void

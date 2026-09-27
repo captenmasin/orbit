@@ -12,7 +12,8 @@ class CheckDependencyUpdates
     {
         $packages = [];
         $skipped = 0;
-        foreach (['composer' => ['composer.json', 'composer.lock'], 'npm' => ['package.json', 'package-lock.json']] as $ecosystem => [$manifest, $lockfile]) {
+        $npmLockfile = array_key_exists('npm_lockfile', $snapshot) ? $snapshot['npm_lockfile'] : 'package-lock.json';
+        foreach (['composer' => ['composer.json', 'composer.lock'], 'npm' => ['package.json', $npmLockfile]] as $ecosystem => [$manifest, $lockfile]) {
             $source = $snapshot['files'][$manifest] ?? [];
             $lock = $snapshot['files'][$lockfile] ?? [];
             $lockedPackages = collect($lock['entries'] ?? [])->keyBy($ecosystem === 'composer' ? 'name' : 'location');

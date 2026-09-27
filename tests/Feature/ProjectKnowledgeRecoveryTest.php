@@ -44,7 +44,7 @@ class ProjectKnowledgeRecoveryTest extends TestCase
     {
         $project = Project::factory()->create();
         $crypto = $this->mock(ProtectCredential::class, fn ($mock) => $mock->shouldNotReceive('decrypt')->shouldNotReceive('encrypt'));
-        $backup = app(WorkspaceBackup::class)->records(false, $crypto);
+        $backup = array_values(array_filter(app(WorkspaceBackup::class)->records(false, $crypto), fn (array $record): bool => $record['type'] !== 'preferences'));
         $backup[0]['data']['schema'] = 1;
         $body = "  Old notes\r\n\r\n```sh\r\necho hello\r\n```\r\n";
         foreach ($backup as &$record) {
@@ -68,7 +68,7 @@ class ProjectKnowledgeRecoveryTest extends TestCase
         $folders = [['id' => '00000000-0000-4000-8000-000000000001', 'name' => 'Brand']];
         $project = Project::factory()->create(['asset_folders' => $folders]);
         $crypto = $this->mock(ProtectCredential::class, fn ($mock) => $mock->shouldNotReceive('decrypt')->shouldNotReceive('encrypt'));
-        $backup = app(WorkspaceBackup::class)->records(false, $crypto);
+        $backup = array_values(array_filter(app(WorkspaceBackup::class)->records(false, $crypto), fn (array $record): bool => $record['type'] !== 'preferences'));
         $backup[0]['data']['schema'] = 1;
         foreach ($backup as &$record) {
             if ($record['type'] === 'projects') {

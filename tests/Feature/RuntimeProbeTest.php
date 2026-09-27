@@ -4,11 +4,14 @@ namespace Tests\Feature;
 
 use App\Actions\ProbeRuntimes;
 use App\Actions\RunInspectionProcess;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class RuntimeProbeTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_supported_tools_use_bounded_version_commands_outside_the_project(): void
     {
         Storage::fake('local');

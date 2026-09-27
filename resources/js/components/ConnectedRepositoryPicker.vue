@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, useId, watch } from 'vue';
 import { Link, useHttp } from '@inertiajs/vue3';
 import { CheckIcon, GitBranchIcon, LoaderCircleIcon } from '@lucide/vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import ChoiceSelect from '@/components/ChoiceSelect.vue';
 import type { ProviderConnection } from '@/types';
 
-interface GitHubRepository {
+interface ConnectedRepository {
     id: string;
     full_name: string;
     name: string;
@@ -20,18 +20,20 @@ interface GitHubRepository {
     description: string | null;
 }
 
-const props = defineProps<{ connections: ProviderConnection[]; existingUrls: string[]; native: boolean }>();
-const emit = defineEmits<{ select: [repository: GitHubRepository & { connection_id: string }] }>();
+const props = withDefaults(defineProps<{ connections: ProviderConnection[]; existingUrls: string[]; native: boolean; clone?: boolean; busy?: boolean }>(), { clone: false, busy: false });
+const emit = defineEmits<{ select: [repository: ConnectedRepository & { connection_id: string }] }>();
+const fieldId = useId();
 const open = ref(false);
 const connectionId = ref(props.connections[0]?.id ?? '');
 const query = ref('');
-const repositories = ref<GitHubRepository[]>([]);
+const repositories = ref<ConnectedRepository[]>([]);
 const nextPage = ref<number | null>(null);
 const error = ref('');
-const listing = useHttp<{ page: number }, { repositories: GitHubRepository[]; next_page: number | null }>({ page: 1 });
+const listing = useHttp<{ page: number }, { repositories: ConnectedRepository[]; next_page: number | null }>({ page: 1 });
 const visible = computed(() => repositories.value.filter(repository => repository.full_name.toLowerCase().includes(query.value.trim().toLowerCase())));
 const normalize = (url: string) => url.trim().replace(/\.git\/?$/i, '').replace(/\/$/, '').toLowerCase();
-const added = (repository: GitHubRepository) => props.existingUrls.some(url => normalize(url) === normalize(repository.remote_url));
+const added = (repository: ConnectedRepository) => props.existingUrls.some(url => normalize(url) === normalize(repository.remote_url));
+const providerName = computed(() => props.connections.find(connection => connection.id === connectionId.value)?.provider === 'gitlab' ? 'GitLab' : 'GitHub');
 
 async function load(page = 1) {
     if (!props.native || !connectionId.value) return;
@@ -54,7 +56,7 @@ async function load(page = 1) {
     }
 }
 
-function choose(repository: GitHubRepository) {
+function choose(repository: ConnectedRepository) {
     if (added(repository)) return;
     emit('select', { ...repository, connection_id: connectionId.value });
     open.value = false;
@@ -68,21 +70,21 @@ onBeforeUnmount(() => listing.cancel());
 
 <template>
   <div class="contents">
-    <Button type="button" variant="outline" @click="open = true"><GitBranchIcon aria-hidden="true" />Browse GitHub</Button>
+    <Button type="button" variant="outline" :disabled="busy" @click="open = true"><GitBranchIcon aria-hidden="true" />{{ clone ? 'Choose repository' : 'Browse repositories' }}</Button>
     <Dialog v-model:open="open">
         <DialogContent class="max-h-[calc(100dvh-2rem)] overflow-hidden sm:max-w-xl">
-            <DialogHeader><DialogTitle>Choose a GitHub repository</DialogTitle><DialogDescription>Select a repository from an Orbit connection. It will be linked when you create the project.</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>Choose a repository</DialogTitle><DialogDescription>{{ clone ? 'Choose a repository, then select where to clone it.' : 'Select a repository from an Orbit connection. It will be linked when you create the project.' }}</DialogDescription></DialogHeader>
             <p v-if="!native" class="text-sm text-muted-foreground">Browse connected repositories in the Orbit desktop app. You can still add a remote URL manually here.</p>
             <div v-else-if="!connections.length" class="grid gap-4">
-                <p class="text-sm text-muted-foreground">No GitHub connection is set up yet.</p>
+                <p class="text-sm text-muted-foreground">No Git connection is set up yet.</p>
                 <div><Button as-child variant="outline"><Link href="/settings/connections">Manage connections</Link></Button></div>
             </div>
             <template v-else>
-                <Field v-if="connections.length > 1" class="gap-2"><FieldLabel for="github-connection">Connection</FieldLabel><ChoiceSelect id="github-connection" v-model="connectionId" :options="connections.map(connection => ({ value: connection.id, label: `${connection.label} · ${connection.login}` }))" /></Field>
-                <Field class="gap-2"><FieldLabel for="github-repository-search">Search repositories</FieldLabel><Input id="github-repository-search" v-model="query" placeholder="Filter loaded repositories" /></Field>
+                <Field v-if="connections.length > 1" class="gap-2"><FieldLabel :for="`${fieldId}-connection`">Connection</FieldLabel><ChoiceSelect :id="`${fieldId}-connection`" v-model="connectionId" :options="connections.map(connection => ({ value: connection.id, label: `${connection.label} · ${connection.login} · ${connection.provider === 'gitlab' ? 'GitLab' : 'GitHub'}` }))" /></Field>
+                <Field class="gap-2"><FieldLabel :for="`${fieldId}-search`">Search {{ providerName }} repositories</FieldLabel><Input :id="`${fieldId}-search`" v-model="query" placeholder="Filter loaded repositories" /></Field>
                 <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }} <button type="button" class="font-medium underline underline-offset-2" @click="load()">Try again</button></AlertDescription></Alert>
                 <div v-if="listing.processing && !repositories.length" class="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircleIcon class="size-4 animate-spin" aria-hidden="true" />Loading repositories…</div>
-                <div v-else-if="!repositories.length && !error" class="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No repositories are available to this connection. Check its repository access in GitHub.</div>
+                <div v-else-if="!repositories.length && !error" class="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No repositories are available to this connection. Check its repository access in {{ providerName }}.</div>
                 <div v-if="repositories.length" class="max-h-[min(45vh,22rem)] overflow-y-auto rounded-xl border">
                     <ul class="divide-y">
                         <li v-for="repository in visible" :key="repository.id">

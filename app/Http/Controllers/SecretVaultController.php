@@ -5,63 +5,64 @@ namespace App\Http\Controllers;
 use App\Actions\ProtectCredential;
 use App\Actions\RecordAccessEvent;
 use App\Models\Project;
+use App\SecretVault;
+use App\WorkspacePreferences;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use SensitiveParameter;
 
 class SecretVaultController extends Controller
 {
+    public function __construct(private SecretVault $vault, private WorkspacePreferences $preferences) {}
+
     public function status(Request $request): JsonResponse
     {
-        $pinSet = DB::table('secret_vaults')->where('id', 1)->exists();
+        $unlockedUntil = $this->vault->unlockedUntil($request);
 
         return response()->json([
-            'pin_set' => $pinSet,
-            'unlocked' => $pinSet && (int) $request->session()->get('secret_pin_unlocked_until', 0) > now()->timestamp,
+            'pin_set' => $this->vault->pinHash() !== null,
+            'unlocked' => $unlockedUntil !== null,
+            'unlocked_until' => $unlockedUntil,
         ])->header('Cache-Control', 'private, no-store');
     }
 
     public function setup(Request $request): JsonResponse
     {
         abort_unless(config('nativephp-internal.running'), 403);
-        $pin = $this->validatedPin($request, true);
-        if (DB::table('secret_vaults')->insertOrIgnore(['id' => 1, 'pin_hash' => Hash::make($pin)]) !== 1) {
+        $pins = $this->validatedPins($request, true);
+        if ($this->vault->pinHash() !== null) {
             throw ValidationException::withMessages(['pin' => 'A PIN is already set. Unlock with it.']);
         }
-        $this->unlockSession($request);
+        $hash = Hash::make($pins['pin']);
+        $this->vault->savePinHash($hash, null);
+        $this->vault->revokeUnlocks();
+        $this->vault->unlock($request, $hash);
 
-        return response()->json(['unlocked' => true])->header('Cache-Control', 'private, no-store');
+        return $this->pinSaved($request);
     }
 
     public function unlock(Request $request): JsonResponse
     {
         abort_unless(config('nativephp-internal.running'), 403);
-        $pin = $this->validatedPin($request, false);
-        $hash = DB::table('secret_vaults')->where('id', 1)->value('pin_hash');
+        $pins = $this->validatedPins($request, false);
+        $hash = $this->vault->pinHash();
         if (! $hash) {
             throw ValidationException::withMessages(['pin' => 'Set up a PIN first.']);
         }
-        if (RateLimiter::tooManyAttempts('secret-vault-pin', 5)) {
-            return response()->json(['message' => 'Too many attempts. Try again in '.RateLimiter::availableIn('secret-vault-pin').' seconds.'], 429);
-        }
-        if (! Hash::check($pin, $hash)) {
-            RateLimiter::hit('secret-vault-pin', 300);
-            throw ValidationException::withMessages(['pin' => 'Incorrect PIN.']);
-        }
-        RateLimiter::clear('secret-vault-pin');
-        $this->unlockSession($request);
+        $this->verifyPin($pins['pin'], $hash, 'pin');
+        $this->vault->unlock($request, $hash);
 
-        return response()->json(['unlocked' => true])->header('Cache-Control', 'private, no-store');
+        return $this->status($request);
     }
 
     public function lock(Request $request): JsonResponse
     {
-        $request->session()->forget('secret_pin_unlocked_until');
+        $this->vault->lock($request);
 
         return response()->json(['locked' => true]);
     }
@@ -83,25 +84,59 @@ class SecretVaultController extends Controller
         }
     }
 
-    private function validatedPin(Request $request, bool $confirmation): string
+    public function update(Request $request): JsonResponse
     {
-        $pin = $request->input('pin');
-        $confirmedPin = $request->input('pin_confirmation');
-        $request->request->remove('pin');
-        $request->request->remove('pin_confirmation');
-        $request->json()->remove('pin');
-        $request->json()->remove('pin_confirmation');
+        abort_unless(config('nativephp-internal.running'), 403);
+        $pins = $this->validatedPins($request, true, true);
+        $hash = $this->vault->pinHash();
+        if (! $hash) {
+            throw ValidationException::withMessages(['current_pin' => 'Set up a PIN first.']);
+        }
+        $this->verifyPin($pins['current_pin'], $hash, 'current_pin');
+        $newHash = Hash::make($pins['pin']);
+        $this->vault->savePinHash($newHash, $hash);
+        $this->vault->revokeUnlocks();
+        $this->vault->lock($request);
+
+        return $this->pinSaved($request);
+    }
+
+    private function pinSaved(Request $request): JsonResponse
+    {
+        $response = $this->status($request);
+        $response->setData([...$response->getData(true), 'revision' => $this->preferences->snapshot()['revision']]);
+
+        return $response;
+    }
+
+    /**
+     * @return array{pin: string, pin_confirmation?: string, current_pin?: string}
+     */
+    private function validatedPins(Request $request, bool $confirmation, bool $currentPin = false): array
+    {
+        $pins = $request->only(['pin', 'pin_confirmation', 'current_pin']);
+        foreach (['pin', 'pin_confirmation', 'current_pin'] as $field) {
+            $request->request->remove($field);
+            $request->json()->remove($field);
+        }
         $rules = ['pin' => ['required', 'string', 'regex:/\A[0-9]{4}\z/D']];
         if ($confirmation) {
             $rules['pin_confirmation'] = ['required', 'same:pin'];
         }
+        if ($currentPin) {
+            $rules['current_pin'] = $rules['pin'];
+        }
 
-        return Validator::make(['pin' => $pin, 'pin_confirmation' => $confirmedPin], $rules)->validate()['pin'];
+        return Validator::make($pins, $rules)->validate();
     }
 
-    private function unlockSession(Request $request): void
+    private function verifyPin(#[SensitiveParameter] string $pin, string $hash, string $field): void
     {
-        $request->session()->regenerate();
-        $request->session()->put('secret_pin_unlocked_until', now()->addMinutes(5)->timestamp);
+        abort_if(RateLimiter::tooManyAttempts('secret-vault-pin', 5), 429, 'Too many attempts. Try again in '.RateLimiter::availableIn('secret-vault-pin').' seconds.');
+        if (! Hash::check($pin, $hash)) {
+            RateLimiter::hit('secret-vault-pin', 300);
+            throw ValidationException::withMessages([$field => 'Incorrect PIN.']);
+        }
+        RateLimiter::clear('secret-vault-pin');
     }
 }

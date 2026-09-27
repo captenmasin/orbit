@@ -4,6 +4,7 @@ namespace App\Mcp\Tools;
 
 use App\Actions\SaveBoard;
 use App\Mcp\LocalUpload;
+use App\Models\BoardColumn;
 use App\Models\Project;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
@@ -40,7 +41,7 @@ class ManageBoardTool extends Tool
         return Response::json([
             'project_revision' => $current->revision,
             'board' => $current->boardColumns->map(fn ($column): array => [
-                'id' => $column->id, 'name' => $column->name, 'position' => $column->position,
+                'id' => $column->id, 'name' => $column->name, 'color' => $column->color, 'position' => $column->position,
                 'tasks' => $column->tasks->map->only(['id', 'title', 'description', 'position', 'attachments']),
             ]),
         ]);
@@ -55,6 +56,7 @@ class ManageBoardTool extends Tool
             'revision' => $schema->integer()->description('Current project revision.')->required(),
             'id' => $schema->string()->description('Existing column or task ID for edit, move, or delete.'),
             'name' => $schema->string()->description('Column name for column.save.'),
+            'color' => $schema->string()->enum([...BoardColumn::COLORS, null])->nullable()->description('Column color for column.save. Omit to keep the current color; null resets it.'),
             'title' => $schema->string()->description('Task title for task.save.'),
             'description' => $schema->string()->nullable(),
             'column_id' => $schema->string()->description('Target column ID for task actions.'),

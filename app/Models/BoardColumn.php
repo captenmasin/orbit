@@ -16,7 +16,9 @@ class BoardColumn extends Model
 
     public const DEFAULT_NAMES = ['Backlog', 'To Do', 'In Progress', 'Done'];
 
-    protected $fillable = ['name', 'position'];
+    public const COLORS = ['gray', 'blue', 'amber', 'green', 'purple', 'pink', 'red'];
+
+    protected $fillable = ['name', 'position', 'color'];
 
     protected function casts(): array
     {

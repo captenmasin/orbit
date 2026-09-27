@@ -34,6 +34,7 @@ class ReadProjectTool extends Tool
             'board' => $project->boardColumns->map(fn ($column): array => [
                 'id' => $column->id,
                 'name' => $column->name,
+                'color' => $column->color,
                 'position' => $column->position,
                 'tasks' => $column->tasks->map->only(['id', 'title', 'description', 'position', 'attachments']),
             ]),

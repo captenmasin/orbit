@@ -3,35 +3,59 @@
 namespace App;
 
 use App\Actions\ProtectCredential;
+use App\Models\BoardColumn;
 use App\Rules\ProjectUrl;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use Throwable;
 
 class WorkspaceRestore
 {
+    public function __construct(private WorkspacePreferences $preferences) {}
+
     /**
      * Validates a complete backup and replaces portable secret values with local ciphertext.
      *
      * @param  list<array{type: string, data: array<string, mixed>}>  $records
-     * @return array{summary: array{created_at: string, projects: int, tasks: int, secrets: int, includes_secrets: bool}, records: list<array{type: string, data: array<string, mixed>}>}
+     * @return array{summary: array<string, mixed>, records: list<array{type: string, data: array<string, mixed>}>, preferences_revision: int}
      */
     public function stage(array $records, ProtectCredential $crypto): array
     {
         $tables = array_fill_keys(['projects', 'tags', 'project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'project_documents', 'board_columns', 'tasks', 'project_secrets'], []);
         $assets = [];
-        if (! isset($records[0]) || $records[0]['type'] !== 'workspace' || ! in_array($records[0]['data']['schema'] ?? null, [1, 2, 3], true) || ! is_string($records[0]['data']['created_at'] ?? null) || ! is_bool($records[0]['data']['includes_secrets'] ?? null)) {
+        if (! isset($records[0]) || $records[0]['type'] !== 'workspace' || ! in_array($records[0]['data']['schema'] ?? null, [1, 2, 3, 4], true) || ! is_string($records[0]['data']['created_at'] ?? null) || ! is_bool($records[0]['data']['includes_secrets'] ?? null)) {
             $this->invalid();
         }
+        $preferencesRevision = $this->preferences->snapshot()['revision'];
+        $portablePreferences = null;
         $includesSecrets = $records[0]['data']['includes_secrets'];
         foreach ($records as $index => &$record) {
             if (! is_array($record) || ! isset($record['type'], $record['data']) || ! is_string($record['type']) || ! is_array($record['data']) || ($index === 0 && $record['type'] !== 'workspace')) {
                 $this->invalid();
             }
             if ($index === 0) {
+                continue;
+            }
+            if ($record['type'] === 'preferences') {
+                if ($records[0]['data']['schema'] !== 4 || $portablePreferences !== null || Validator::make(['preferences' => $record['data']], [
+                    'preferences' => ['required', 'array:project_defaults'],
+                    'preferences.project_defaults' => ['required', 'array:columns'],
+                    'preferences.project_defaults.columns' => ['required', 'array'],
+                ])->fails()) {
+                    $this->invalid();
+                }
+                try {
+                    $record['data']['project_defaults']['columns'] = WorkspacePreferences::validatedBoardColumns($record['data']['project_defaults']['columns']);
+                } catch (ValidationException) {
+                    $this->invalid();
+                }
+                $portablePreferences = $record['data'];
+
                 continue;
             }
             if (array_key_exists($record['type'], $tables)) {
@@ -45,6 +69,9 @@ class WorkspaceRestore
             $this->asset($record['data'], $assets);
         }
         unset($record);
+        if ($records[0]['data']['schema'] === 4 && $portablePreferences === null) {
+            $this->invalid();
+        }
         if (! $includesSecrets && $tables['project_secrets']) {
             $this->invalid();
         }
@@ -146,7 +173,7 @@ class WorkspaceRestore
             }
         }
         foreach ($tables['board_columns'] as $column) {
-            if (! isset($projects[$column['project_id'] ?? '']) || ! is_int($column['position'] ?? null)) {
+            if (! isset($projects[$column['project_id'] ?? '']) || ! is_int($column['position'] ?? null) || Validator::make($column, ['color' => ['sometimes', 'nullable', 'string', Rule::in(BoardColumn::COLORS)]])->fails()) {
                 $this->invalid();
             }
         }
@@ -229,13 +256,13 @@ class WorkspaceRestore
         }
         unset($project);
 
-        return ['summary' => ['created_at' => $records[0]['data']['created_at'], 'projects' => count($projects), 'tasks' => count($tasks), 'secrets' => count($secrets), 'includes_secrets' => $includesSecrets], 'records' => $records];
+        return ['summary' => ['created_at' => $records[0]['data']['created_at'], 'projects' => count($projects), 'tasks' => count($tasks), 'secrets' => count($secrets), 'includes_secrets' => $includesSecrets, 'project_defaults' => $portablePreferences['project_defaults'] ?? null], 'records' => $records, 'preferences_revision' => $preferencesRevision];
     }
 
     /**
      * @param  array{records: list<array{type: string, data: array<string, mixed>}>}  $staged
      */
-    public function apply(array $staged): void
+    public function apply(array $staged, ?int $expectedPreferencesRevision = null): void
     {
         $records = $staged['records'] ?? null;
         if (! is_array($records)) {
@@ -243,6 +270,7 @@ class WorkspaceRestore
         }
         $tables = array_fill_keys(['projects', 'tags', 'project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'project_documents', 'board_columns', 'tasks', 'project_secrets'], []);
         $assets = [];
+        $portablePreferences = null;
         foreach ($records as $record) {
             if (! is_array($record) || ! is_string($record['type'] ?? null) || ! is_array($record['data'] ?? null)) {
                 $this->invalid();
@@ -251,13 +279,21 @@ class WorkspaceRestore
                 $tables[$record['type']][] = $record['data'];
             } elseif ($record['type'] === 'asset') {
                 $assets[$record['data']['id']][] = $record['data'];
+            } elseif ($record['type'] === 'preferences') {
+                $portablePreferences = $record['data'];
             }
         }
         $restoreId = (string) Str::uuid7();
         $paths = $this->writeAssets($assets, $restoreId);
         $oldFiles = [];
         try {
-            DB::transaction(function () use ($tables, $paths, &$oldFiles): void {
+            DB::transaction(function () use ($tables, $paths, $portablePreferences, $staged, $expectedPreferencesRevision, &$oldFiles): void {
+                if ($this->preferences->snapshot()['revision'] !== ($expectedPreferencesRevision ?? $staged['preferences_revision'] ?? null)) {
+                    throw new InvalidArgumentException('Settings changed. Preview the backup again before restoring.');
+                }
+                if ($portablePreferences !== null) {
+                    $this->preferences->merge($portablePreferences);
+                }
                 $oldFiles = [
                     ...DB::table('projects')->whereNotNull('icon_path')->pluck('icon_path')->all(),
                     ...DB::table('projects')->whereNotNull('asset_files')->pluck('asset_files')->flatMap(fn (string $files): array => array_column(json_decode($files, true) ?: [], 'path'))->all(),

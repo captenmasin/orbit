@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Actions\ProtectCredential;
 use App\Models\Project;
 use App\WorkspaceBackup;
+use App\WorkspacePreferences;
 use App\WorkspaceRestore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -40,9 +41,11 @@ class ProjectScratchpadTest extends TestCase
     {
         $project = Project::factory()->create();
 
-        $this->withHeader('X-Inertia-Version', 'stale')
+        $response = $this->withHeader('X-Inertia-Version', 'stale')
             ->putJson('/projects/'.$project->id.'/scratchpad', ['scratchpad' => 'Draft release tasks', 'revision' => 1])
-            ->assertOk()->assertExactJson(['revision' => 2]);
+            ->assertOk();
+
+        $response->assertExactJson(['revision' => 2, 'updated_at' => $project->fresh()->updated_at->toJSON()]);
 
         $this->assertDatabaseHas('projects', ['id' => $project->id, 'scratchpad' => 'Draft release tasks', 'revision' => 2]);
     }
@@ -64,7 +67,7 @@ class ProjectScratchpadTest extends TestCase
 
     public function test_ai_preview_returns_typed_actions_without_creating_records(): void
     {
-        config(['ai.providers.openai.key' => 'testing']);
+        $this->configureAi();
         StructuredAnonymousAgent::fake([['actions' => [
             ['type' => 'link', 'label' => '  Launch site  ', 'url' => 'https://example.com', 'description' => 'Reference'],
             ['type' => 'document', 'title' => '  Release plan  ', 'body' => 'Draft launch notes'],
@@ -92,7 +95,7 @@ class ProjectScratchpadTest extends TestCase
 
     public function test_bare_url_previews_as_a_link_without_an_ai_key_or_call(): void
     {
-        config(['ai.providers.openai.key' => null]);
+        app(WorkspacePreferences::class)->merge(['ai' => ['provider' => null, 'model' => null, 'credential' => null]]);
         StructuredAnonymousAgent::fake()->preventStrayPrompts();
         $project = Project::factory()->create(['scratchpad' => 'https://usebuff.app/']);
 
@@ -108,7 +111,7 @@ class ProjectScratchpadTest extends TestCase
 
     public function test_ai_preview_drops_task_suggestions_when_the_project_has_no_board(): void
     {
-        config(['ai.providers.openai.key' => 'testing']);
+        $this->configureAi();
         StructuredAnonymousAgent::fake([['actions' => [
             ['type' => 'task', 'title' => 'Review launch'],
             ['type' => 'link', 'label' => 'Launch', 'url' => 'https://example.com'],
@@ -126,7 +129,7 @@ class ProjectScratchpadTest extends TestCase
 
     public function test_ai_preview_with_no_actions_keeps_notes(): void
     {
-        config(['ai.providers.openai.key' => 'testing']);
+        $this->configureAi();
         StructuredAnonymousAgent::fake([['actions' => []]])->preventStrayPrompts();
         $project = Project::factory()->create(['scratchpad' => 'General background context']);
 
@@ -197,7 +200,7 @@ class ProjectScratchpadTest extends TestCase
         $this->assertDatabaseCount('tasks', 1);
     }
 
-    public function test_ai_preview_requires_current_notes_and_openai_key(): void
+    public function test_ai_preview_requires_current_notes_and_saved_ai_connection(): void
     {
         $project = Project::factory()->create();
         $url = '/projects/'.$project->id.'/scratchpad/actions/preview';
@@ -205,7 +208,7 @@ class ProjectScratchpadTest extends TestCase
         $this->postJson($url, ['revision' => 1])->assertUnprocessable()->assertJsonValidationErrors('scratchpad');
         $project->update(['scratchpad' => 'Make a release checklist']);
         $this->postJson($url, ['revision' => 2])->assertConflict();
-        config(['ai.providers.openai.key' => null]);
+        app(WorkspacePreferences::class)->merge(['ai' => ['provider' => null, 'model' => null, 'credential' => null]]);
         $this->postJson($url, ['revision' => 1])->assertUnprocessable()->assertJsonValidationErrors('scratchpad');
 
         $this->assertDatabaseCount('tasks', 0);
@@ -213,7 +216,7 @@ class ProjectScratchpadTest extends TestCase
 
     public function test_ai_provider_failure_keeps_the_scratchpad_and_board_unchanged(): void
     {
-        config(['ai.providers.openai.key' => 'testing']);
+        $this->configureAi();
         StructuredAnonymousAgent::fake([fn () => throw new AiException('Provider failed')])->preventStrayPrompts();
         $project = Project::factory()->create(['scratchpad' => 'Ship the release']);
 
@@ -236,5 +239,13 @@ class ProjectScratchpadTest extends TestCase
 
         $this->assertSame('Turn these notes into tasks', $project->fresh()->scratchpad);
         $this->assertSame('Turn these notes into tasks', Project::whereKeyNot($project->id)->sole()->scratchpad);
+    }
+
+    private function configureAi(): void
+    {
+        $this->mock(ProtectCredential::class, function ($mock): void {
+            $mock->shouldReceive('decrypt')->with('encrypted-test-key')->andReturn('test-key');
+        });
+        app(WorkspacePreferences::class)->merge(['ai' => ['provider' => 'openai', 'model' => 'test-model', 'credential' => 'encrypted-test-key']]);
     }
 }

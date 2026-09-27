@@ -11,6 +11,8 @@ use RuntimeException;
 
 class WorkspaceBackup
 {
+    public function __construct(private WorkspacePreferences $preferences) {}
+
     /**
      * @return list<array{type: string, data: array<string, mixed>}>
      */
@@ -26,7 +28,10 @@ class WorkspaceBackup
     {
         $records = [[
             'type' => 'workspace',
-            'data' => ['schema' => 3, 'created_at' => now()->toIso8601String(), 'includes_secrets' => $includeSecrets],
+            'data' => ['schema' => 4, 'created_at' => now()->toIso8601String(), 'includes_secrets' => $includeSecrets],
+        ], [
+            'type' => 'preferences',
+            'data' => ['project_defaults' => ['columns' => $this->preferences->get('project_defaults.columns')]],
         ]];
         $assets = [];
         foreach (['projects', 'tags', 'project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'project_documents', 'board_columns', 'tasks'] as $table) {

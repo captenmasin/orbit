@@ -65,11 +65,11 @@ class ProjectAssetController extends Controller
                     $parts = explode('/', $folderPath);
                     $name = array_pop($parts);
                     $parentId = $parts === [] ? ($data['folder_id'] ?? null) : $folderIds[implode('/', $parts)];
-                    $existing = collect($folders)->first(fn (array $folder): bool => ($folder['parent_id'] ?? null) === $parentId && mb_strtolower($folder['name']) === mb_strtolower($name));
-                    if ($existing) {
-                        $folderIds[$folderPath] = $existing['id'];
-
-                        continue;
+                    $originalName = $name;
+                    $number = 2;
+                    while (collect($folders)->contains(fn (array $folder): bool => ($folder['parent_id'] ?? null) === $parentId && mb_strtolower($folder['name']) === mb_strtolower($name))) {
+                        $suffix = ' ('.$number++.')';
+                        $name = mb_substr($originalName, 0, 100 - mb_strlen($suffix)).$suffix;
                     }
                     if (count($folders) >= 100) {
                         throw ValidationException::withMessages(['directories' => 'A project can store up to 100 asset folders.']);
@@ -146,6 +146,172 @@ class ProjectAssetController extends Controller
         });
 
         return to_route('projects.show', $project)->with('message', 'File updated');
+    }
+
+    public function moveMany(Request $request, Project $project): RedirectResponse
+    {
+        $data = $this->validateSelection($request, [
+            'folder_id' => ['present', 'nullable', 'uuid'],
+        ]);
+        DB::transaction(function () use ($project, $data): void {
+            $this->claim($project, $data['revision']);
+            $current = $project->fresh();
+            $folders = $current->asset_folders ?? [];
+            $files = $current->asset_files ?? [];
+            $folderById = array_column($folders, null, 'id');
+            $targetId = $data['folder_id'];
+            if ($targetId !== null && ! isset($folderById[$targetId])) {
+                throw ValidationException::withMessages(['folder_id' => 'Choose a folder in this project.']);
+            }
+            [$fileIds, $folderIds] = $this->selectedIds($data['items'], $files, $folders);
+
+            $fileById = array_column($files, null, 'id');
+            foreach ($data['items'] as $item) {
+                $ancestorId = $item['type'] === 'file'
+                    ? ($fileById[$item['id']]['folder_id'] ?? null)
+                    : ($folderById[$item['id']]['parent_id'] ?? null);
+                $seen = [];
+                while ($ancestorId !== null) {
+                    if (isset($folderIds[$ancestorId])) {
+                        throw ValidationException::withMessages(['items' => 'Select either a folder or its contents to move.']);
+                    }
+                    if (isset($seen[$ancestorId])) {
+                        throw ValidationException::withMessages(['items' => 'The selected folders contain a cycle.']);
+                    }
+                    $seen[$ancestorId] = true;
+                    $ancestorId = $folderById[$ancestorId]['parent_id'] ?? null;
+                }
+            }
+
+            foreach ($folderIds as $folderId => $_) {
+                $ancestorId = $targetId;
+                $seen = [];
+                while ($ancestorId !== null) {
+                    if ($ancestorId === $folderId || isset($seen[$ancestorId])) {
+                        throw ValidationException::withMessages(['folder_id' => 'A folder cannot contain itself.']);
+                    }
+                    $seen[$ancestorId] = true;
+                    $ancestorId = $folderById[$ancestorId]['parent_id'] ?? null;
+                }
+            }
+
+            $folders = array_map(fn (array $folder): array => isset($folderIds[$folder['id']]) ? [...$folder, 'parent_id' => $targetId] : $folder, $folders);
+            $names = [];
+            foreach ($folders as $folder) {
+                if (($folder['parent_id'] ?? null) !== $targetId || $folderIds === []) {
+                    continue;
+                }
+                $name = mb_strtolower($folder['name']);
+                if (isset($names[$name])) {
+                    throw ValidationException::withMessages(['folder_id' => 'A folder with this name already exists in the destination.']);
+                }
+                $names[$name] = true;
+            }
+
+            $project->forceFill([
+                'asset_folders' => $folders,
+                'asset_files' => array_map(fn (array $file): array => isset($fileIds[$file['id']]) ? [...$file, 'folder_id' => $targetId] : $file, $files),
+            ])->save();
+        });
+
+        return to_route('projects.show', $project)->with('message', 'Assets moved');
+    }
+
+    public function destroyMany(Request $request, Project $project): RedirectResponse
+    {
+        $data = $this->validateSelection($request);
+        $paths = DB::transaction(function () use ($project, $data): array {
+            $this->claim($project, $data['revision']);
+            $current = $project->fresh();
+            $folders = $current->asset_folders ?? [];
+            $files = $current->asset_files ?? [];
+            [$fileIds, $folderIds] = $this->selectedIds($data['items'], $files, $folders);
+            $folderById = array_column($folders, null, 'id');
+            $survivingParent = function (?string $parentId) use ($folderIds, $folderById): ?string {
+                $seen = [];
+                while ($parentId !== null && isset($folderIds[$parentId])) {
+                    if (isset($seen[$parentId])) {
+                        throw ValidationException::withMessages(['items' => 'The selected folders contain a cycle.']);
+                    }
+                    $seen[$parentId] = true;
+                    $parentId = $folderById[$parentId]['parent_id'] ?? null;
+                }
+
+                return $parentId;
+            };
+
+            $remainingFolders = [];
+            $names = [];
+            foreach ($folders as $folder) {
+                if (isset($folderIds[$folder['id']])) {
+                    continue;
+                }
+                $parentId = $survivingParent($folder['parent_id'] ?? null);
+                $name = mb_strtolower($folder['name']);
+                if (isset($names[$parentId ?? ''][$name])) {
+                    throw ValidationException::withMessages(['items' => 'Rename or move conflicting subfolders before removing these folders.']);
+                }
+                $names[$parentId ?? ''][$name] = true;
+                $remainingFolders[] = [...$folder, 'parent_id' => $parentId];
+            }
+
+            $remainingFiles = [];
+            $paths = [];
+            foreach ($files as $file) {
+                if (isset($fileIds[$file['id']])) {
+                    $paths[] = $file['path'];
+                } else {
+                    $remainingFiles[] = [...$file, 'folder_id' => $survivingParent($file['folder_id'] ?? null)];
+                }
+            }
+            $project->forceFill(['asset_folders' => $remainingFolders, 'asset_files' => $remainingFiles])->save();
+
+            return $paths;
+        });
+        Storage::disk('local')->delete($paths);
+
+        return to_route('projects.show', $project)->with('message', 'Assets removed');
+    }
+
+    /**
+     * @param  array<string, array<int, string>>  $additionalRules
+     * @return array<string, mixed>
+     */
+    private function validateSelection(Request $request, array $additionalRules = []): array
+    {
+        return $request->validate([
+            'revision' => ['required', 'integer', 'min:1'],
+            'items' => ['required', 'array', 'list', 'min:1', 'max:200'],
+            'items.*' => ['required', 'array'],
+            'items.*.type' => ['required', Rule::in(['file', 'folder'])],
+            'items.*.id' => ['required', 'uuid', 'distinct:strict'],
+            ...$additionalRules,
+        ]);
+    }
+
+    /**
+     * @param  list<array{type: string, id: string}>  $items
+     * @param  list<array<string, mixed>>  $files
+     * @param  list<array<string, mixed>>  $folders
+     * @return array{array<string, true>, array<string, true>}
+     */
+    private function selectedIds(array $items, array $files, array $folders): array
+    {
+        $availableFiles = array_column($files, null, 'id');
+        $availableFolders = array_column($folders, null, 'id');
+        $fileIds = [];
+        $folderIds = [];
+        foreach ($items as $item) {
+            if ($item['type'] === 'file') {
+                abort_unless(isset($availableFiles[$item['id']]), 404);
+                $fileIds[$item['id']] = true;
+            } else {
+                abort_unless(isset($availableFolders[$item['id']]), 404);
+                $folderIds[$item['id']] = true;
+            }
+        }
+
+        return [$fileIds, $folderIds];
     }
 
     public function saveFolder(Request $request, Project $project, ?string $folder = null): RedirectResponse

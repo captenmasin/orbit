@@ -6,7 +6,9 @@ use App\Actions\ReadDependencies;
 use App\Models\ProjectFolder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class DependencyUpdatesTest extends TestCase
@@ -79,6 +81,85 @@ class DependencyUpdatesTest extends TestCase
         $this->assertSame($fingerprint, ReadDependencies::fingerprint($snapshot));
         $snapshot['files']['package-lock.json']['entries'][0]['version'] = '3.5.2';
         $this->assertNotSame($fingerprint, ReadDependencies::fingerprint($snapshot));
+    }
+
+    #[TestWith(['pnpm-lock.yaml', "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      vue:\n        specifier: ^3.5\n        version: 3.5.1(typescript@5.9.3)\n  apps/admin:\n    dependencies:\n      vue:\n        specifier: ^3.4\n        version: 3.4.2\npackages:\n  vue@3.5.1: {}\n  vue@3.4.2: {}\n"])]
+    #[TestWith(['yarn.lock', "__metadata:\n  version: 8\n\"vue@npm:^3.5\":\n  version: 3.5.1\n  resolution: \"vue@npm:3.5.1\"\n\"vue@npm:^3.4\":\n  version: 3.4.2\n  resolution: \"vue@npm:3.4.2\"\n"])]
+    #[TestWith(['bun.lock', '{"lockfileVersion":2,"workspaces":{"":{"dependencies":{"vue":"^3.5"}}},"packages":{"vue":["vue@3.5.1","",{},"integrity"],"admin/vue":["vue@3.4.2","",{},"integrity"]}}'])]
+    public function test_checks_direct_versions_from_the_selected_lockfile(string $lockfile, string $contents): void
+    {
+        Storage::fake('local');
+        Storage::put('package.json', '{"dependencies":{"vue":"^3.5"}}');
+        Storage::put($lockfile, $contents);
+        Http::preventStrayRequests();
+        Http::fake(['https://registry.npmjs.org/vue/latest' => Http::response(['version' => '3.5.2'])]);
+        $folder = ProjectFolder::factory()->create();
+        $root = $folder->packageRoots()->sole();
+        $root->forceFill(['scan_state' => 'Current', 'snapshot' => app(ReadDependencies::class)->handle(Storage::path(''))])->save();
+
+        $this->postJson('/projects/'.$folder->project_id.'/roots/'.$root->id.'/outdated')->assertJsonPath('checked', true);
+
+        $this->assertSame([
+            ['name' => 'vue', 'ecosystem' => 'npm', 'current' => '3.5.1', 'latest' => '3.5.2'],
+        ], $root->fresh()->outdated['packages']);
+        $this->assertSame(1, $root->fresh()->outdated['checked']);
+        Http::assertSentCount(1);
+    }
+
+    #[TestWith(['pnpm@10.12.1', 'pnpm-lock.yaml', "lockfileVersion: '10.0'\n"])]
+    #[TestWith(['yarn@1.22.22', 'yarn.lock', "# yarn lockfile v1\n"])]
+    #[TestWith(['bun@1.1.0', 'bun.lockb', "bun-lockfile-format-v0\0binary"])]
+    public function test_does_not_fall_back_to_another_managers_lock_when_selected_lock_is_unsupported(string $manager, string $lockfile, string $contents): void
+    {
+        Storage::fake('local');
+        Storage::put('package.json', json_encode(['dependencies' => ['vue' => '^3.5'], 'packageManager' => $manager]));
+        Storage::put('package-lock.json', '{"lockfileVersion":3,"packages":{"node_modules/vue":{"version":"3.5.1"}}}');
+        Storage::put($lockfile, $contents);
+        Http::preventStrayRequests();
+        $folder = ProjectFolder::factory()->create();
+        $root = $folder->packageRoots()->sole();
+        $root->forceFill(['scan_state' => 'Partial', 'snapshot' => app(ReadDependencies::class)->handle(Storage::path(''))])->save();
+
+        $this->postJson('/projects/'.$folder->project_id.'/roots/'.$root->id.'/outdated')->assertOk();
+
+        $this->assertSame(0, $root->fresh()->outdated['checked']);
+        $this->assertSame(1, $root->fresh()->outdated['skipped']);
+        Http::assertNothingSent();
+    }
+
+    public function test_ambiguous_lock_selection_skips_registry_checks(): void
+    {
+        Http::preventStrayRequests();
+        $folder = ProjectFolder::factory()->create();
+        $root = $folder->packageRoots()->sole();
+        $snapshot = ['files' => [
+            'package.json' => ['state' => 'Current', 'entries' => [['name' => 'vue', 'required' => '^3.5']]],
+            'package-lock.json' => ['state' => 'Current', 'entries' => [['name' => 'vue', 'version' => '3.5.1', 'location' => 'node_modules/vue']]],
+        ], 'npm_lockfile' => null];
+        $root->forceFill(['scan_state' => 'Current', 'snapshot' => $snapshot])->save();
+
+        $this->postJson('/projects/'.$folder->project_id.'/roots/'.$root->id.'/outdated')->assertOk();
+
+        $this->assertSame(0, $root->fresh()->outdated['checked']);
+        $this->assertSame(1, $root->fresh()->outdated['skipped']);
+        Http::assertNothingSent();
+    }
+
+    public function test_workspace_roots_without_a_local_lock_do_not_borrow_versions_from_the_parent(): void
+    {
+        Storage::fake('local');
+        Storage::put('package-lock.json', '{"lockfileVersion":3,"packages":{"node_modules/vue":{"version":"3.5.1"}}}');
+        Storage::put('apps/admin/package.json', '{"dependencies":{"vue":"^3.4"}}');
+        Http::preventStrayRequests();
+        $folder = ProjectFolder::factory()->create();
+        $root = $folder->packageRoots()->sole();
+        $root->forceFill(['scan_state' => 'Current', 'snapshot' => app(ReadDependencies::class)->handle(Storage::path('apps/admin'))])->save();
+
+        $this->postJson('/projects/'.$folder->project_id.'/roots/'.$root->id.'/outdated')->assertOk();
+
+        $this->assertSame(0, $root->fresh()->outdated['checked']);
+        $this->assertSame(1, $root->fresh()->outdated['skipped']);
+        Http::assertNothingSent();
     }
 
     private function snapshot(): array

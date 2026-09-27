@@ -2,15 +2,22 @@
 
 namespace App\Actions;
 
+use App\Models\ProjectFolder;
+use App\WorkspacePreferences;
+use Illuminate\Validation\ValidationException;
+
 class ProbeRuntimes
 {
     public const TOOLS = ['php', 'node', 'composer', 'npm', 'pnpm', 'yarn'];
 
-    public function handle(string $root, array $overrides = [], array $previous = []): array
+    public function handle(string $root, array $overrides = [], array $previous = [], ?array $globalPaths = null): array
     {
+        $globalPaths ??= app(WorkspacePreferences::class)->get('tools.paths');
+        $excludedRoots = $this->excludedRoots($root);
         $paths = [];
         foreach (self::TOOLS as $tool) {
-            $paths[$tool] = $this->resolve($tool, $root, $overrides[$tool] ?? null);
+            $override = ($overrides[$tool] ?? null) ?: ($globalPaths[$tool] ?? null);
+            $paths[$tool] = [...$this->resolve($tool, $excludedRoots, $override), 'source' => ! empty($overrides[$tool]) ? 'root' : ($override ? 'global' : 'automatic')];
         }
         $results = [];
         foreach ($paths as $tool => $candidate) {
@@ -18,14 +25,16 @@ class ProbeRuntimes
             $command = null;
             if ($candidate['state'] === 'Current') {
                 $path = $candidate['path'];
-                if (in_array($tool, ['php', 'node'], true) && $this->binary($path)) {
+                if (! $this->supported($tool, $path)) {
+                    $result['state'] = 'Unsupported wrapper; select the underlying executable';
+                } elseif (in_array($tool, ['php', 'node'], true)) {
                     $command = $tool === 'php' ? [$path, '-n', '-v'] : [$path, '--version'];
-                } elseif ($tool === 'composer' && $this->composer($path) && $paths['php']['state'] === 'Current' && $this->binary($paths['php']['path'])) {
+                } elseif ($tool === 'composer' && $paths['php']['state'] === 'Current' && $this->binary($paths['php']['path'])) {
                     $command = [$paths['php']['path'], '-n', $path, '--no-plugins', '--no-scripts', '--no-interaction', '--no-ansi', '--version'];
-                } elseif (in_array($tool, ['npm', 'pnpm', 'yarn'], true) && $this->nodeCli($tool, $path) && $paths['node']['state'] === 'Current' && $this->binary($paths['node']['path'])) {
+                } elseif (in_array($tool, ['npm', 'pnpm', 'yarn'], true) && $paths['node']['state'] === 'Current' && $this->binary($paths['node']['path'])) {
                     $command = [$paths['node']['path'], $path, '--version'];
                 } else {
-                    $result['state'] = 'Unsupported wrapper; select the underlying executable';
+                    $result['state'] = $tool === 'composer' ? 'PHP executable unavailable' : 'Node executable unavailable';
                 }
             }
             if ($command) {
@@ -52,7 +61,7 @@ class ProbeRuntimes
             }
             if (! $result['version'] && isset($previous[$tool])) {
                 $last = $previous[$tool];
-                $result['last_success'] = $last['version'] ? array_intersect_key($last, array_flip(['version', 'path', 'probe_directory', 'scanned_at'])) : ($last['last_success'] ?? null);
+                $result['last_success'] = ! empty($last['version']) ? array_intersect_key($last, array_flip(['version', 'path', 'probe_directory', 'scanned_at'])) : ($last['last_success'] ?? null);
             }
             $results[$tool] = $result;
         }
@@ -60,7 +69,37 @@ class ProbeRuntimes
         return $results;
     }
 
-    private function resolve(string $tool, string $root, ?string $override): array
+    public function validatePaths(array $paths, string $prefix = 'paths'): void
+    {
+        $excludedRoots = $this->excludedRoots('');
+        $errors = [];
+        foreach ($paths as $tool => $path) {
+            if ($path === null && in_array($tool, self::TOOLS, true)) {
+                continue;
+            }
+            if (! in_array($tool, self::TOOLS, true) || ! is_string($path) || ! str_starts_with($path, '/') || str_contains($path, "\0") || strlen($path) > 4096) {
+                $errors[$prefix.'.'.$tool] = 'Choose an absolute executable path or automatic detection.';
+
+                continue;
+            }
+            $resolved = $this->resolve($tool, $excludedRoots, $path);
+            if ($resolved['state'] !== 'Current') {
+                $errors[$prefix.'.'.$tool] = $resolved['state'];
+            } elseif (! $this->supported($tool, $resolved['path'])) {
+                $errors[$prefix.'.'.$tool] = 'Unsupported wrapper; select the underlying executable';
+            }
+        }
+        if ($errors) {
+            throw ValidationException::withMessages($errors);
+        }
+    }
+
+    private function excludedRoots(string $root): array
+    {
+        return array_filter([$root, ...ProjectFolder::pluck('path')->map(fn (string $path): string => realpath($path) ?: $path)->all()]);
+    }
+
+    private function resolve(string $tool, array $excludedRoots, ?string $override): array
     {
         $candidates = $override ? [$override] : array_map(fn ($directory) => $directory.'/'.$tool, array_filter(explode(PATH_SEPARATOR, getenv('PATH') ?: ''), fn ($directory) => str_starts_with($directory, '/')));
         $rejected = null;
@@ -69,7 +108,7 @@ class ProbeRuntimes
             if (! $path || ! is_file($path) || ! is_executable($path)) {
                 continue;
             }
-            if ($path === $root || str_starts_with($path, rtrim($root, '/').'/')) {
+            if (array_any($excludedRoots, fn (string $root): bool => $path === $root || str_starts_with($path, rtrim($root, '/').'/'))) {
                 $rejected = 'Project executables are not probed';
 
                 continue;
@@ -85,6 +124,15 @@ class ProbeRuntimes
         }
 
         return ['path' => $override, 'state' => $rejected ?? 'Missing executable'];
+    }
+
+    private function supported(string $tool, string $path): bool
+    {
+        return match ($tool) {
+            'php', 'node' => $this->binary($path),
+            'composer' => $this->composer($path),
+            default => $this->nodeCli($tool, $path),
+        };
     }
 
     private function binary(string $path): bool

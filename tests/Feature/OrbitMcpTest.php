@@ -32,6 +32,7 @@ class OrbitMcpTest extends TestCase
         $project = Project::factory()->create(['name' => 'Orbit', 'status' => 'Live']);
         $project->links()->create(['label' => 'App Store Connect', 'url' => 'https://appstoreconnect.apple.com', 'description' => 'Sign in with the shared team account']);
         $project->documents()->create(['title' => 'Setup', 'body' => 'Run the app', 'position' => 0]);
+        $project->boardColumns()->first()->update(['color' => 'purple']);
         ProjectSecret::factory()->for($project)->create(['name' => 'API_KEY', 'environment' => 'Production', 'service' => 'Apple', 'ciphertext' => 'never-share-this']);
 
         $workspace = json_decode((string) app(ReadWorkspaceTool::class)->handle(new Request)->content(), true);
@@ -44,6 +45,7 @@ class OrbitMcpTest extends TestCase
         $this->assertSame('App Store Connect', $details['links'][0]['label']);
         $this->assertSame($project->links()->sole()->id, $details['links'][0]['id']);
         $this->assertSame('Run the app', $details['documents'][0]['body']);
+        $this->assertSame('purple', $details['board'][0]['color']);
         $this->assertSame('API_KEY', $details['secrets'][0]['name']);
         $this->assertSame(1, $details['secrets'][0]['revision']);
         $this->assertStringNotContainsString('never-share-this', json_encode($details));
@@ -103,6 +105,21 @@ class OrbitMcpTest extends TestCase
         OrbitServer::tool(ManageDocumentTool::class, ['project_id' => $project->id, 'action' => 'delete', 'revision' => 3, 'id' => $document->id, 'document_revision' => 1])->assertOk();
         $this->assertModelMissing($document);
         $this->assertSame(4, $project->fresh()->revision);
+    }
+
+    public function test_mcp_can_set_column_colors_and_returns_them_in_the_board(): void
+    {
+        $project = Project::factory()->create();
+        $column = $project->boardColumns()->first();
+
+        OrbitServer::tool(ManageBoardTool::class, ['project_id' => $project->id, 'action' => 'column.save', 'revision' => 1, 'id' => $column->id, 'name' => $column->name, 'color' => 'blue'])
+            ->assertOk()->assertSee('"color":"blue"');
+
+        $this->assertSame('blue', $column->fresh()->color);
+        $this->assertSame(2, $project->fresh()->revision);
+        OrbitServer::tool(ManageBoardTool::class, ['project_id' => $project->id, 'action' => 'column.save', 'revision' => 2, 'id' => $column->id, 'name' => $column->name, 'color' => null])
+            ->assertOk()->assertSee('"color":null');
+        $this->assertNull($column->fresh()->color);
     }
 
     public function test_mcp_can_upload_read_move_and_delete_project_assets(): void

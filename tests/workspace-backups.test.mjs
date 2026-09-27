@@ -9,25 +9,28 @@ import * as vue from 'vue';
 
 const { http } = inertia;
 
-function mount(t) {
+function mount(t, events = []) {
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/WorkspaceBackups.vue', import.meta.url), 'utf8'));
     const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'backup-test' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
-    const modules = { vue: { ...vue, onBeforeUnmount: vue.onScopeDispose }, '@inertiajs/vue3': inertia };
+    const toast = Object.assign(() => {}, { success() {}, error() {} });
+    const modules = { vue: { ...vue, onMounted() {}, onBeforeUnmount: vue.onScopeDispose }, '@inertiajs/vue3': inertia, 'vue-sonner': { toast } };
     const context = { exports: {}, require: name => modules[name] ?? {} };
     runInNewContext(outputText, context);
     const scope = vue.effectScope();
     t.after(() => scope.stop());
-    return scope.run(() => context.exports.default.setup({ native: true }, { expose() {} }));
+    return scope.run(() => context.exports.default.setup({ native: true }, { expose() {}, emit(...args) { events.push(args); } }));
 }
 
 test('backup export submits the entered password then clears it from state', async t => {
-    const state = mount(t);
+    const events = [];
+    const state = mount(t, events);
     state.destination.value = { destination: 'workspace.orbitbackup', exists: false };
     state.password.value = state.confirmation.value = 'dummy-backup-password';
     const requests = [];
     t.mock.method(http.getClient(), 'request', async request => {
         requests.push(JSON.parse(request.data));
-        return { status: 200, data: JSON.stringify({ exported: true }), headers: {} };
+        return { status: 200, data: JSON.stringify({ exported: true, revision: 2,
+            backups: { folder: null, last_export_at: '2026-09-27T12:00:00+00:00', last_export_path: '/workspace.orbitbackup' } }), headers: {} };
     });
 
     await state.exportBackup();
@@ -39,6 +42,33 @@ test('backup export submits the entered password then clears it from state', asy
     assert.equal(state.form.password, '');
     assert.equal(state.form.password_confirmation, '');
     assert.equal(state.destination.value, null);
+    assert.equal(state.backupPreferences.value.last_export_path, '/workspace.orbitbackup');
+    assert.equal(state.folderForm.revision, 2);
+    assert.deepEqual(events, [['saved', 2]]);
+});
+
+test('backup folder loads and saves with the preference revision contract', async t => {
+    const events = [];
+    const state = mount(t, events);
+    const requests = [];
+    t.mock.method(http.getClient(), 'request', async request => {
+        requests.push(request);
+        return { status: 200, data: JSON.stringify(request.method === 'get'
+            ? { revision: 2, backups: { folder: '/previous', last_export_at: null, last_export_path: null } }
+            : { preferences: { revision: 3 } }), headers: {} };
+    });
+
+    await state.loadPreferences();
+    assert.equal(state.folderForm.folder, '/previous');
+    assert.equal(state.folderForm.isDirty, false);
+    state.folderForm.folder = '/chosen';
+    await state.saveFolder();
+
+    assert.deepEqual(JSON.parse(requests[1].data), { revision: 2, folder: '/chosen' });
+    assert.equal(state.folderForm.revision, 3);
+    assert.equal(state.backupPreferences.value.folder, '/chosen');
+    assert.equal(state.folderForm.isDirty, false);
+    assert.deepEqual(events, [['saved', 2], ['saved', 3]]);
 });
 
 test('rejected backup exports and restores retain the selection and do not reload', async t => {

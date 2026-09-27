@@ -16,13 +16,14 @@ class PackageRoot extends Model
 
     protected $fillable = ['relative_path', 'executable_overrides'];
 
-    protected $hidden = ['scan_token', 'scan_job_id'];
+    protected $hidden = ['scan_token', 'scan_job_id', 'dependency_check_token'];
 
     protected function casts(): array
     {
         return [
-            'executable_overrides' => 'array', 'snapshot' => 'array', 'outdated' => 'array', 'revision' => 'integer',
+            'executable_overrides' => 'array', 'snapshot' => 'array', 'outdated' => 'array', 'security' => 'array', 'revision' => 'integer',
             'scanned_at' => 'datetime', 'scan_attempted_at' => 'datetime', 'scan_started_at' => 'datetime',
+            'dependency_check_attempted_at' => 'datetime',
         ];
     }
 

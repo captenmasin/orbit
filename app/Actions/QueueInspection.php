@@ -27,7 +27,8 @@ class QueueInspection
             if ($target->scan_state === 'Scanning' && $target->scan_started_at?->isAfter(now()->subSeconds(90))) {
                 return false;
             }
-            if ($onlyStale && ! in_array($target->scan_state, ['Queued', 'Scanning']) && $target->scan_attempted_at?->isAfter(now()->subMinutes(5))) {
+            $staleRuntime = $target instanceof PackageRoot && array_any($target->snapshot['runtimes'] ?? [], fn (array $runtime): bool => ($runtime['state'] ?? null) === 'Stale');
+            if ($onlyStale && ! $staleRuntime && ! in_array($target->scan_state, ['Queued', 'Scanning']) && $target->scan_attempted_at?->isAfter(now()->subMinutes(5))) {
                 return false;
             }
             $token = (string) Str::uuid();

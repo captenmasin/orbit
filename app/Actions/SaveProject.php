@@ -40,8 +40,8 @@ class SaveProject
             'repositories.*.id' => ['required', 'uuid', 'distinct'],
             'repositories.*.name' => ['nullable', 'string', 'max:255', 'regex:/\S/u'],
             'repositories.*.remote_url' => ['required', 'string', 'max:2048', 'distinct', new ProjectUrl(repository: true)],
-            'repositories.*.github_connection_id' => [$id ? 'prohibited' : 'nullable', 'uuid'],
-            'repositories.*.github_full_name' => [$id ? 'prohibited' : 'nullable', 'string', 'max:255'],
+            'repositories.*.provider_connection_id' => [$id ? 'exclude' : 'nullable', 'uuid'],
+            'repositories.*.provider_full_name' => [$id ? 'prohibited' : 'nullable', 'string', 'max:255'],
             'folders' => ['sometimes', 'array', 'max:100'],
             'folders.*.id' => ['required', 'uuid', 'distinct'],
             'folders.*.path' => ['required', 'string', 'max:4096', 'distinct'],
@@ -74,29 +74,29 @@ class SaveProject
         }
         $verifiedRepositories = [];
         foreach ($data['repositories'] ?? [] as $index => $repository) {
-            $connectionId = $repository['github_connection_id'] ?? null;
-            $fullName = $repository['github_full_name'] ?? null;
+            $connectionId = $repository['provider_connection_id'] ?? null;
+            $fullName = $repository['provider_full_name'] ?? null;
             if ($connectionId === null && $fullName === null) {
                 continue;
             }
             if ($connectionId === null || $fullName === null) {
-                throw ValidationException::withMessages(["repositories.$index.".($connectionId === null ? 'github_connection_id' : 'github_full_name') => 'Choose a GitHub connection and repository.']);
+                throw ValidationException::withMessages(["repositories.$index.".($connectionId === null ? 'provider_connection_id' : 'provider_full_name') => 'Choose a connection and repository.']);
             }
-            $connection = ProviderConnection::whereKey($connectionId)->where('provider', 'github')->first();
+            $connection = ProviderConnection::whereKey($connectionId)->whereIn('provider', ['github', 'gitlab'])->first();
             if (! $connection) {
-                throw ValidationException::withMessages(["repositories.$index.github_connection_id" => 'Choose a saved GitHub connection.']);
+                throw ValidationException::withMessages(["repositories.$index.provider_connection_id" => 'Choose a saved Git connection.']);
             }
             try {
-                $metadata = app(ProviderHttp::class)->using($connection, fn (string $credential): array => app(ReadProvider::class)->repository('github', $fullName, $credential));
+                $metadata = app(ProviderHttp::class)->using($connection, fn (string $credential): array => app(ReadProvider::class)->repository($connection->provider, $fullName, $credential));
             } catch (RuntimeException $exception) {
-                throw ValidationException::withMessages(["repositories.$index.github_full_name" => get_class($exception) === RuntimeException::class ? $exception->getMessage() : 'GitHub repository could not be verified.']);
+                throw ValidationException::withMessages(["repositories.$index.provider_full_name" => get_class($exception) === RuntimeException::class ? $exception->getMessage() : 'Repository could not be verified.']);
             }
-            $webUrl = 'https://github.com/'.$metadata['provider_name'];
+            $webUrl = 'https://'.($connection->provider === 'github' ? 'github.com' : 'gitlab.com').'/'.$metadata['provider_name'];
             if (strcasecmp($metadata['provider_name'], $fullName) !== 0 || strcasecmp($metadata['provider_url'], $webUrl) !== 0) {
-                throw ValidationException::withMessages(["repositories.$index.github_full_name" => 'GitHub returned a different repository. Choose it again.']);
+                throw ValidationException::withMessages(["repositories.$index.provider_full_name" => 'The provider returned a different repository. Choose it again.']);
             }
             if (strcasecmp($repository['remote_url'], $webUrl.'.git') !== 0 && strcasecmp($repository['remote_url'], $webUrl) !== 0) {
-                throw ValidationException::withMessages(["repositories.$index.remote_url" => 'The remote URL does not match the selected GitHub repository.']);
+                throw ValidationException::withMessages(["repositories.$index.remote_url" => 'The remote URL does not match the selected repository.']);
             }
             $verifiedRepositories[$repository['id']] = ['connection' => $connection, 'metadata' => $metadata, 'index' => $index];
         }
@@ -170,7 +170,7 @@ class SaveProject
                     if (isset($verifiedRepositories[$repository['id']])) {
                         $verified = $verifiedRepositories[$repository['id']];
                         if ($verified['connection']->fresh()?->revision !== $verified['connection']->revision) {
-                            throw ValidationException::withMessages(["repositories.{$verified['index']}.github_connection_id" => 'GitHub connection changed. Choose it again.']);
+                            throw ValidationException::withMessages(["repositories.{$verified['index']}.provider_connection_id" => 'Connection changed. Choose it again.']);
                         }
                         $savedRepository->forceFill([...$verified['metadata'], 'provider_connection_id' => $verified['connection']->id])->save();
                         app(QueueProviderRefresh::class)->handle($savedRepository);

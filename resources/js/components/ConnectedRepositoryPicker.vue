@@ -76,11 +76,11 @@ onBeforeUnmount(() => listing.cancel());
             variant="outline"
             :disabled="busy"
             @click="open = true">
-            <GitBranchIcon aria-hidden="true" />{{ clone ? 'Choose repository' : 'Browse repositories' }}
+            <GitBranchIcon aria-hidden="true" />{{ clone ? 'Choose repository' : 'From connected account' }}
         </Button>
         <Dialog v-model:open="open">
             <DialogContent class="max-h-[calc(100dvh-2rem)] overflow-hidden sm:max-w-xl">
-                <DialogHeader><DialogTitle>Choose a repository</DialogTitle><DialogDescription>{{ clone ? 'Choose a repository, then select where to clone it.' : 'Select a repository from an Orbit connection. It will be linked when you create the project.' }}</DialogDescription></DialogHeader>
+                <DialogHeader><DialogTitle>Choose a repository</DialogTitle><DialogDescription>{{ clone ? 'Choose a repository, then select where to clone it.' : 'Choose from a connected GitHub or GitLab account. It will be linked when you save the project.' }}</DialogDescription></DialogHeader>
                 <p
                     v-if="!native"
                     class="text-sm text-muted-foreground">
@@ -104,10 +104,9 @@ onBeforeUnmount(() => listing.cancel());
                 </div>
                 <template v-else>
                     <Field
-                        v-if="connections.length > 1"
                         class="gap-2">
                         <FieldLabel :for="`${fieldId}-connection`">
-                            Connection
+                            Connected account
                         </FieldLabel><ChoiceSelect
                             :id="`${fieldId}-connection`"
                             v-model="connectionId"

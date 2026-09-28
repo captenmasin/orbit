@@ -48,20 +48,20 @@ test('project menus change status, archive, and confirm deletion using the chose
     menu.changeStatus('Live');
     assert.equal(requests.length, 1);
     assert.equal(requests[0].url, '/projects/beta');
-    assert.deepEqual({ ...requests[0].data }, { name: 'Beta', description: 'Keep this description', status: 'Archived', revision: 7 });
+    assert.deepEqual({ ...requests[0].data }, { name: 'Beta', description: 'Keep this description', status: 'Archived', revision: 7, return_back: true });
     requests[0].callbacks.onError({ revision: 'This project changed. Reload it before saving again.' });
     requests[0].callbacks.onFinish();
     assert.deepEqual(toasts, ['This project changed. Reload it before saving again.']);
 
     menu.changeStatus('Live');
     assert.equal(requests.length, 2);
-    assert.deepEqual({ ...requests[1].data }, { name: 'Beta', description: 'Keep this description', status: 'Live', revision: 7 });
+    assert.deepEqual({ ...requests[1].data }, { name: 'Beta', description: 'Keep this description', status: 'Live', revision: 7, return_back: true });
     requests[1].callbacks.onSuccess({});
     requests[1].callbacks.onFinish();
     props.project = { ...project, status: 'Archived', revision: 8 };
     menu.changeStatus('Live');
     assert.equal(requests.length, 3);
-    assert.deepEqual({ ...requests[2].data }, { name: 'Beta', description: 'Keep this description', status: 'Live', revision: 8 });
+    assert.deepEqual({ ...requests[2].data }, { name: 'Beta', description: 'Keep this description', status: 'Live', revision: 8, return_back: true });
     requests[2].callbacks.onSuccess({});
     requests[2].callbacks.onFinish();
 
@@ -127,6 +127,18 @@ test('project cards and sidebar items offer every status and hide archive for ar
                 assert.equal(menuHtml.includes('Mark archived'), status !== 'Archived');
             }
             assert.match(html, /Beta/);
+        }
+    }
+
+    for (const description of [null, '', 'Project CRM']) {
+        const project = { id: 'beta', name: 'Beta', description, status: 'Paused', revision: 7, tags: [] };
+        const html = await renderToString(vue.createSSRApp(modules['@/components/ProjectCard.vue'].default, { project, selectedTags: [] }));
+
+        if (description) {
+            assert.match(html, /Project CRM/);
+            assert.doesNotMatch(html, /Add a description…/);
+        } else {
+            assert.match(html, /<a\b[^>]*href="\/projects\/beta\/edit\?tab=overview"[^>]*>\s*Add a description…\s*<\/a>/);
         }
     }
 });

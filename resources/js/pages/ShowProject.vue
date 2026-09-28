@@ -327,14 +327,14 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                     class="text-sm font-normal">
                                     Sources
                                 </h2>
-                                <Button
-                                    v-if="inspection.length"
-                                    variant="outline"
-                                    size="sm"
-                                    :disabled="scan.processing || pending"
-                                    @click="refresh()">
-                                    Refresh local folders
-                                </Button>
+<!--                                <Button-->
+<!--                                    v-if="inspection.length"-->
+<!--                                    variant="outline"-->
+<!--                                    size="sm"-->
+<!--                                    :disabled="scan.processing || pending"-->
+<!--                                    @click="refresh()">-->
+<!--                                    Refresh local folders-->
+<!--                                </Button>-->
                             </CardHeader>
 
                             <CardContent

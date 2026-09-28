@@ -199,7 +199,7 @@ function actionsSaved() {
                     maxlength="50000"
                     :rows="4"
                     placeholder="Jot down ideas, reminders, and rough notes…"
-                    class="min-h-24 resize-none rounded-none border-0 bg-transparent p-0 font-mono shadow-none focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 dark:bg-transparent"
+                    class="min-h-24 resize-none leading-6 text-foreground/90 rounded-none border-0 bg-transparent p-0 font-mono shadow-none focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 dark:bg-transparent"
                     :aria-invalid="!!scratchpadForm.errors.scratchpad"
                     :aria-describedby="scratchpadForm.errors.scratchpad ? 'scratchpad-error' : undefined" />
                 <div class="flex items-center gap-2">

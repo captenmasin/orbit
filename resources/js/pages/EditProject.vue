@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import ProjectForm from '@/components/ProjectForm.vue';
-import type { Project } from '@/types';
+import type { Project, ProviderConnection } from '@/types';
 import { Head, Link } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
-defineProps<{ selectedProject: Project; statuses: string[]; native: boolean }>();
+defineProps<{ selectedProject: Project; statuses: string[]; native: boolean; connections: ProviderConnection[] }>();
 </script>
 
 <template>
@@ -25,6 +25,7 @@ defineProps<{ selectedProject: Project; statuses: string[]; native: boolean }>()
             :key="selectedProject.id"
             :project="selectedProject"
             :statuses="statuses"
-            :native="native" />
+            :native="native"
+            :connections="connections" />
     </div>
 </template>

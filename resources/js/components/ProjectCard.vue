@@ -44,6 +44,13 @@ const date = (value: string) => new Date(value).toLocaleDateString();
                     class="line-clamp-2 text-sm leading-6 text-muted-foreground">
                     {{ project.description }}
                 </p>
+                <Link
+                    v-else
+                    :href="`/projects/${project.id}/edit?tab=overview`"
+                    :aria-label="`Add a description for ${project.name}`"
+                    class="self-start rounded-sm text-sm leading-6 text-muted-foreground/80 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                    Add a description…
+                </Link>
                 <div
                     v-if="project.tags.length"
                     class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">

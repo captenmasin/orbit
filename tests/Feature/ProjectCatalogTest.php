@@ -28,6 +28,35 @@ class ProjectCatalogTest extends TestCase
 {
     use RefreshDatabase;
 
+    #[TestWith(['/', 'Live'])]
+    #[TestWith(['/?q=project&status=Idea&tag[]=php&page=2', 'Archived'])]
+    #[TestWith(['/projects/another?tab=board', 'Paused'])]
+    public function test_status_menu_updates_return_to_the_current_page(string $source, string $status): void
+    {
+        $project = Project::factory()->create();
+
+        $this->from($source)->withHeaders(['X-Inertia' => 'true'])->put('/projects/'.$project->id, [
+            'name' => $project->name, 'description' => $project->description,
+            'status' => $status, 'revision' => 1, 'return_back' => true,
+        ])->assertRedirect($source);
+
+        $this->assertDatabaseHas('projects', [
+            'id' => $project->id, 'status' => $status, 'revision' => 2,
+            'name' => $project->name, 'description' => $project->description,
+        ]);
+    }
+
+    public function test_saving_the_edit_form_redirects_to_the_saved_project(): void
+    {
+        $project = Project::factory()->create();
+
+        $this->from('/projects/'.$project->id.'/edit')->put('/projects/'.$project->id, [
+            'name' => 'Renamed project', 'status' => 'Live', 'revision' => 1,
+        ])->assertRedirect('/projects/'.$project->id);
+
+        $this->assertDatabaseHas('projects', ['id' => $project->id, 'name' => 'Renamed project', 'status' => 'Live', 'revision' => 2]);
+    }
+
     public function test_creating_project_with_selected_github_repository_verifies_and_queues_it(): void
     {
         $connection = ProviderConnection::factory()->create();

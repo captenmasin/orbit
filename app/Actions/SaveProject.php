@@ -40,8 +40,8 @@ class SaveProject
             'repositories.*.id' => ['required', 'uuid', 'distinct'],
             'repositories.*.name' => ['nullable', 'string', 'max:255', 'regex:/\S/u'],
             'repositories.*.remote_url' => ['required', 'string', 'max:2048', 'distinct', new ProjectUrl(repository: true)],
-            'repositories.*.provider_connection_id' => [$id ? 'exclude' : 'nullable', 'uuid'],
-            'repositories.*.provider_full_name' => [$id ? 'prohibited' : 'nullable', 'string', 'max:255'],
+            'repositories.*.provider_connection_id' => ['nullable', 'uuid'],
+            'repositories.*.provider_full_name' => ['nullable', 'string', 'max:255'],
             'folders' => ['sometimes', 'array', 'max:100'],
             'folders.*.id' => ['required', 'uuid', 'distinct'],
             'folders.*.path' => ['required', 'string', 'max:4096', 'distinct'],
@@ -74,6 +74,9 @@ class SaveProject
         }
         $verifiedRepositories = [];
         foreach ($data['repositories'] ?? [] as $index => $repository) {
+            if ($current?->repositories->contains('id', $repository['id'])) {
+                continue;
+            }
             $connectionId = $repository['provider_connection_id'] ?? null;
             $fullName = $repository['provider_full_name'] ?? null;
             if ($connectionId === null && $fullName === null) {

@@ -99,6 +99,7 @@ class WorkspaceController extends Controller
         return $this->render($request, 'EditProject', [
             'selectedProject' => $project->load(['tags', 'repositories', 'folders', 'links']),
             'statuses' => Project::statuses(),
+            'connections' => ProviderConnection::orderBy('label')->get(),
         ]);
     }
 
@@ -150,7 +151,7 @@ class WorkspaceController extends Controller
             throw $exception;
         }
 
-        return to_route('projects.show', $project)->with('message', 'Saved');
+        return ($request->boolean('return_back') ? back() : to_route('projects.show', $project))->with('message', 'Saved');
     }
 
     public function updateScratchpad(Request $request, Project $project): RedirectResponse|JsonResponse

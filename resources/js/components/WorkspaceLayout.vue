@@ -171,7 +171,7 @@ function handleTrackpadSwipe(event: WheelEvent) {
     <SidebarProvider
         class="bg-sidebar"
         :class="{ 'native-macos': nativeMac }"
-        style="--sidebar-width: 17rem">
+        style="--sidebar-width: 15rem">
         <Button
             as-child
             class="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50">

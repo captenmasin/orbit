@@ -28,7 +28,7 @@ function changeStatus(status: string) {
     const project = props.project;
     if (projectAction.processing || props.disabled || project.status === status) return;
     projectAction.revision = project.revision;
-    projectAction.transform(data => ({ ...data, name: project.name, description: project.description, status })).put(`/projects/${project.id}`, {
+    projectAction.transform(data => ({ ...data, name: project.name, description: project.description, status, return_back: true })).put(`/projects/${project.id}`, {
         preserveScroll: true,
         errorBag: 'projectContextMenu',
         onError: errors => { toast.error(Object.values(errors)[0] ?? 'Could not change project status.'); },

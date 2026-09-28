@@ -31,7 +31,7 @@ function statusKey(status: Status) {
     return String(keys.get(status));
 }
 const replacementOptions = computed(() => form.statuses.filter(status => status.name.trim()).map(status => ({ value: statusKey(status), label: status.name.trim(), dotClass: projectStatusColors[status.color]?.dotClass })));
-function usage(name: string | null) { return props.usage.find(item => item.name === name)?.count ?? 0; }
+function statusUsageCount(name: string | null) { return props.usage.find(item => item.name === name)?.count ?? 0; }
 watch(() => props.revision, value => { form.revision = value; form.defaults({ revision: value }); });
 function reset(names: string[], colors: Record<string, string>) {
     form.statuses = statusRows(names, colors);
@@ -173,7 +173,7 @@ onBeforeUnmount(() => form.cancel());
             :key="statusKey(item.status)"
             class="grid gap-4 rounded-xl border p-4 sm:p-5">
             <p class="text-sm">
-                Removing <strong>{{ item.status.original }}</strong><span v-if="usage(item.status.original)"> · {{ usage(item.status.original) }} {{ usage(item.status.original) === 1 ? 'project' : 'projects' }}, including archived projects</span>
+                Removing <strong>{{ item.status.original }}</strong><span v-if="statusUsageCount(item.status.original)"> · {{ statusUsageCount(item.status.original) }} {{ statusUsageCount(item.status.original) === 1 ? 'project' : 'projects' }}, including archived projects</span>
             </p>
             <Field>
                 <FieldLabel :for="`replace-status-${statusKey(item.status)}`">
@@ -183,7 +183,7 @@ onBeforeUnmount(() => form.cancel());
                     v-model="item.replacement"
                     variant="filled"
                     :options="replacementOptions"
-                    :placeholder="usage(item.status.original) ? 'Choose a replacement status' : 'Optional for an unused status'"
+                    :placeholder="statusUsageCount(item.status.original) ? 'Choose a replacement status' : 'Optional for an unused status'"
                     :disabled="form.processing || needsReload" />
             </Field>
             <Button

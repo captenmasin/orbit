@@ -88,7 +88,7 @@ module.exports = defineConfig([
             'vue/multi-word-component-names': 'off',
             'vue/no-setup-props-destructure': 'off',
             'pretty-imports/sorted': 'warn',
-            'no-duplicate-imports': 'error',
+            'no-duplicate-imports': ['error', { allowSeparateTypeImports: true }],
             'vue/require-default-prop': 'off',
             'vue/no-use-v-if-with-v-for': 'error',
             'vue/script-indent': ['error', 4],

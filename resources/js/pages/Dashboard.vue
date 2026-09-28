@@ -106,7 +106,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
             <p
                 v-if="filters.q || filters.status || filters.tag.length"
                 class="text-sm text-muted-foreground">
-                {{ projects.data.length }} {{ projects.data.length === 1 ? 'match' : 'matches' }}
+                {{ projects.data.length }} {{ projects.data.length === 1 ? 'project' : 'projects' }} shown<span v-if="projects.next_page_url"> · more available</span>
             </p>
             <div
                 v-if="projects.data.length"

@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Live + source — ProviderConnections.vue:64–83; ProviderController.php:45; ReadProvider.php:14
 
@@ -24,10 +24,10 @@ Saving verifies account identity, then shows Current. Repository permissions, or
 
 ## Acceptance criteria
 
-- [ ] Healthy connection wording describes account verification accurately.
-- [ ] Repository-access limits are visible before users expect activity to load.
-- [ ] Token and rate-limit states point to the appropriate existing action.
-- [ ] Provider identity, stored states and request behavior remain unchanged.
+- [x] Healthy connection wording describes account verification accurately.
+- [x] Repository-access limits are visible before users expect activity to load.
+- [x] Token and rate-limit states point to the appropriate existing action.
+- [x] Provider identity, stored states and request behavior remain unchanged.
 
 ## Verification
 
@@ -39,3 +39,9 @@ No new automated tests are required for presentation-only wording. If implementa
 
 None.
 
+
+## Completion — 28 September 2026
+
+Healthy connections say Account verified, explain repository-access scope and show token/retry recovery guidance without changing stored states.
+
+Checks: tests/provider-connections.test.mjs; tests/Feature/ProviderCredentialTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

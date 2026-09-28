@@ -104,3 +104,50 @@ if (! str_contains($source, "get('app/open-at-login')->throw()") || ! str_contai
 if (file_put_contents($path, $source) === false) {
     throw new RuntimeException('Unable to patch the native login-item facade.');
 }
+
+// NativePHP 2.3.1 only copies flat icons and overlays icon.png in development.
+// Let macOS render the Icon Composer catalog, as electron-builder does in releases.
+$iconCopy = "@copy(public_path('icon.icns'), ElectronServiceProvider::electronPath('build/icon.icns'));";
+$macosIcon = <<<'PHP'
+
+        if (! (new \Illuminate\Filesystem\Filesystem)->copyDirectory(public_path('icon.icon'), ElectronServiceProvider::electronPath('build/icon.icon'))) {
+            throw new \RuntimeException('Unable to copy the Icon Composer asset.');
+        }
+
+        if (PHP_OS_FAMILY === 'Darwin') {
+            $electronApp = ElectronServiceProvider::electronPath('node_modules/electron/dist/Electron.app');
+            if (is_dir($electronApp)) {
+                $resources = $electronApp.'/Contents/Resources';
+                if (! copy(public_path('icon.icns'), $resources.'/electron.icns')
+                    || ! copy(resource_path('macos/Assets.car'), $resources.'/Assets.car')) {
+                    throw new \RuntimeException('Unable to install the macOS app icon.');
+                }
+                foreach (['CFBundleIconFile' => 'electron.icns', 'CFBundleIconName' => 'Icon'] as $key => $value) {
+                    exec('plutil -replace '.$key.' -string '.escapeshellarg($value).' '.escapeshellarg($electronApp.'/Contents/Info.plist'), $output, $status);
+                    if ($status !== 0) {
+                        throw new \RuntimeException('Unable to configure the macOS app icon.');
+                    }
+                }
+                touch($electronApp);
+            }
+        }
+PHP;
+
+foreach ([
+    $directory.'/src/index.ts' => ['app.dock.setIcon(state.icon);', '// The app bundle supplies the Icon Composer catalog.'],
+    $directory.'/dist/index.js' => ['app.dock.setIcon(state.icon);', '// The app bundle supplies the Icon Composer catalog.'],
+    dirname($directory).'/electron-builder.mjs' => ['mac: {', "mac: {\n        icon: 'icon.icon',"],
+    __DIR__.'/../vendor/nativephp/desktop/src/Drivers/Electron/Traits/InstallsAppIcon.php' => [$iconCopy, $iconCopy."\n".$macosIcon],
+] as $path => [$original, $replacement]) {
+    $source = file_get_contents($path);
+    if ($source === false) {
+        throw new RuntimeException('Unable to read NativePHP icon configuration: '.$path);
+    }
+    if (str_contains($source, $replacement)) {
+        continue;
+    }
+    $patched = str_replace($original, $replacement, $source, $count);
+    if ($count !== 1 || file_put_contents($path, $patched) === false) {
+        throw new RuntimeException('NativePHP icon configuration changed; review bootstrap/patch-nativephp.php.');
+    }
+}

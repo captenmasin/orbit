@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ContentSearch.vue:77–87,126–147
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-32)
 
@@ -22,10 +22,10 @@ Retain compact project search's intentional manual submission. The source-derive
 
 ## Acceptance criteria
 
-- [ ] Typing after a completed project search clears its previous results immediately.
-- [ ] A changed query does not trigger automatic compact searching.
-- [ ] Late responses from the prior query cannot appear under new text.
-- [ ] Enter/arrow, Escape and project-scoped navigation continue to work.
+- [x] Typing after a completed project search clears its previous results immediately.
+- [x] A changed query does not trigger automatic compact searching.
+- [x] Late responses from the prior query cannot appear under new text.
+- [x] Enter/arrow, Escape and project-scoped navigation continue to work.
 
 ## Verification
 
@@ -36,3 +36,9 @@ Run `node --test tests/content-search.test.mjs`. Manually search once, edit the 
 - [PW21 — Global search omits visible match context](pw21-global-search-omits-visible-match-context.md)
 - [PW22 — Workspace search scope is unclear](pw22-workspace-search-scope-is-unclear.md)
 
+
+## Completion — 28 September 2026
+
+Changing compact-search queries aborts and invalidates old results immediately; Enter starts the new manual search with visible guidance.
+
+Checks: tests/content-search.test.mjs; tests/Feature/ContentSearchTest.php; launcher template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

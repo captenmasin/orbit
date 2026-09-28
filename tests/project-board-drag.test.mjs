@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 import { runInNewContext } from 'node:vm';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import * as inertia from '@inertiajs/vue3';
@@ -21,7 +23,7 @@ test('board list and card drags follow changes to the reduced motion preference'
     const passthrough = (_, { slots }) => slots.default?.();
     const controls = new Proxy({ default: passthrough }, { get: (target, name) => target[name] ?? passthrough });
     const modules = {
-        vue, '@inertiajs/vue3': inertia, '@/lib/appearance': { reducedMotion }, '@/lib/project': projectHelpers.exports,
+        vue, '@/lib/utils': { cn: (...values) => twMerge(clsx(values)) }, '@inertiajs/vue3': inertia, '@/lib/appearance': { reducedMotion }, '@/lib/project': projectHelpers.exports,
         'vue-draggable-plus': { VueDraggable: vue.defineComponent({
             inheritAttrs: false,
             props: ['animation'],
@@ -324,6 +326,26 @@ test('quick-add keeps drafts on errors, uses the latest revision, and stays read
     board.cancelQuickAdd();
     assert.equal(board.quickAddColumnId.value, null);
     assert.equal(board.quickAdd.title, '');
+    board.editTask(column, task);
+    board.form.title = 'Unsaved card';
+    board.form.description = 'Unsaved body';
+    board.form.attachments = [{ name: 'new.txt' }];
+    board.form.removed_attachment_ids = ['file-a'];
+    props.project.revision = 10;
+    board.form.setError('revision', 'Conflict');
+    board.reload();
+    assert.equal(board.editor.value, 'task');
+    assert.equal(board.form.title, 'Unsaved card');
+    assert.equal(board.form.description, 'Unsaved body');
+    assert.equal(board.form.attachments[0].name, 'new.txt');
+    assert.equal(board.form.removed_attachment_ids[0], 'file-a');
+    assert.equal(board.form.revision, 10);
+    props.project = { ...props.project, board_columns: [{ ...column, tasks: [] }] };
+    await vue.nextTick();
+    board.reload();
+    assert.match(board.form.errors.id, /removed/);
+    board.submit();
+    assert.equal(requests.length, 2, 'A removed target cannot be recreated silently');
 });
 
 test('dropping a card does not open its details and cards cannot open during a save', t => {
@@ -421,4 +443,29 @@ test('card menu moves append to the chosen list and deletion waits for confirmat
     requests[1].callbacks.onCancel();
     requests[1].callbacks.onFinish();
     assert.equal(JSON.stringify(board.columns.value), saved, 'A cancelled request keeps the saved board');
+});
+
+test('keyboard ordering respects boundaries and busy state, submits exact positions and announces conflicts', async t => {
+    const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ProjectBoard.vue', import.meta.url), 'utf8'));
+    const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'keyboard-board' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
+    const context = { exports: {}, require: name => name === 'vue' ? vue : name === '@inertiajs/vue3' ? inertia : name === 'vue-sonner' ? { toast: { error() {} } } : {} };
+    runInNewContext(outputText, context);
+    const requests = [];
+    t.mock.method(inertia.router, 'post', (url, data, callbacks) => { callbacks.onStart(); requests.push({ data, callbacks }); });
+    const scope = vue.effectScope(); t.after(() => scope.stop());
+    const props = vue.reactive({ project: { id: 'one', revision: 8, board_columns: [
+        { id: 'left', tasks: [{ id: 'first' }, { id: 'second' }] }, { id: 'right', tasks: [] },
+    ] } });
+    const board = scope.run(() => context.exports.default.setup(props, { expose() {} }));
+    const left = board.columns.value[0], right = board.columns.value[1];
+    board.reorderList(left, -1); board.reorderList(right, 1); board.reorderCard(left, left.tasks[0], -1);
+    assert.equal(requests.length, 0);
+    board.reorderList(left, 1); board.reorderCard(left, left.tasks[0], 1);
+    assert.equal(requests.length, 1); assert.equal(requests[0].data.action, 'column.move'); assert.equal(requests[0].data.position, 1); assert.equal(requests[0].data.revision, 8);
+    requests[0].callbacks.onSuccess({}); await requests[0].callbacks.onFinish();
+    assert.match(board.announcement.value, /Order saved/);
+    board.reorderCard(left, left.tasks[0], 1);
+    assert.equal(requests[1].data.action, 'task.move'); assert.equal(requests[1].data.column_id, 'left'); assert.equal(requests[1].data.position, 1);
+    requests[1].callbacks.onError({ revision: 'Board changed. Reload.' }); await requests[1].callbacks.onFinish();
+    assert.equal(board.announcement.value, 'Board changed. Reload.'); assert.equal(board.form.errors.revision, 'Board changed. Reload.');
 });

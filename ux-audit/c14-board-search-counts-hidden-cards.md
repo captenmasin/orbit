@@ -2,7 +2,7 @@
 
 Priority: P2  
 Area: content  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectBoard.vue:301,320,380  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-152)
 
@@ -19,10 +19,10 @@ Search hides nonmatching cards while list badges continue displaying the total c
 
 ## Acceptance criteria
 
-- [ ] Active-search badges match the cards actually shown in each list.
-- [ ] Each badge includes its total, including lists with zero matches.
-- [ ] Clearing search restores the familiar total-only count.
-- [ ] Counts use the same matching criteria as visible cards.
+- [x] Active-search badges match the cards actually shown in each list.
+- [x] Each badge includes its total, including lists with zero matches.
+- [x] Clearing search restores the familiar total-only count.
+- [x] Counts use the same matching criteria as visible cards.
 
 ## Verification
 
@@ -33,3 +33,9 @@ After implementation, run `node --test tests/project-board-drag.test.mjs`.
 ## Related plans
 
 None.
+
+## Completion — 28 September 2026
+
+Filtered list badges show matching and total cards using the same predicate as the displayed cards.
+
+Checks: tests/project-board-drag.test.mjs; tests/scratchpad-action-review.test.mjs; tests/Feature/ProjectBoardTest.php; tests/Feature/TaskContentTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

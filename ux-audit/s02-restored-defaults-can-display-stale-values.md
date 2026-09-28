@@ -4,7 +4,7 @@ Priority: P1
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — WorkspaceBackups.vue:144; Settings.vue:35–58; WorkspaceRestore.php:294
 
@@ -24,11 +24,11 @@ Restore reloads props but preserves Settings form state. Incoming board defaults
 
 ## Acceptance criteria
 
-- [ ] Incoming board defaults appear immediately after successful restore.
-- [ ] Their baseline is clean; Save or history recovery cannot silently reapply pre-restore columns.
-- [ ] Ordinary reloads preserve unrelated drafts and their dirty state.
-- [ ] Failed or cancelled restores do not reset existing settings.
-- [ ] Draft decisions precede staging; saving preferences afterward requires a new preview.
+- [x] Incoming board defaults appear immediately after successful restore.
+- [x] Their baseline is clean; Save or history recovery cannot silently reapply pre-restore columns.
+- [x] Ordinary reloads preserve unrelated drafts and their dirty state.
+- [x] Failed or cancelled restores do not reset existing settings.
+- [x] Draft decisions precede staging; saving preferences afterward requires a new preview.
 
 ## Verification
 
@@ -40,3 +40,11 @@ Run `node --test tests/settings-preferences.test.mjs tests/workspace-backups.tes
 
 - [S05 — Settings sections handle drafts differently](s05-settings-sections-handle-drafts-differently.md)
 - [S07 — Mid-save edits can be marked saved falsely](s07-mid-save-edits-can-be-marked-saved-falsely.md)
+
+## Completion — 28 September 2026
+
+Confirmed restore reloads fresh preferences before resetting only portable board defaults. Draft decisions precede staging; revision changes invalidate previews.
+
+Checks: tests/workspace-backups.test.mjs; tests/settings-preferences.test.mjs; tests/Feature/BackupExportTest.php; tests/Feature/WorkspaceRestoreTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

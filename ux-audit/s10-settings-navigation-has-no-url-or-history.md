@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Live + source — Settings.vue:31,71,144–145; SettingsController.php:49
 
@@ -24,11 +24,11 @@ Section buttons change only a local ref. Refresh returns to the route’s origin
 
 ## Acceptance criteria
 
-- [ ] Every selected section has a shareable, reload-safe URL.
-- [ ] Back/Forward traverses section choices and updates the active label.
-- [ ] Desktop navigation and the mobile picker behave identically.
-- [ ] Invalid sections fall back safely; legacy entry routes still work.
-- [ ] Section visits do not silently discard dirty preferences.
+- [x] Every selected section has a shareable, reload-safe URL.
+- [x] Back/Forward traverses section choices and updates the active label.
+- [x] Desktop navigation and the mobile picker behave identically.
+- [x] Invalid sections fall back safely; legacy entry routes still work.
+- [x] Section visits do not silently discard dirty preferences.
 
 ## Verification
 
@@ -40,3 +40,9 @@ Run `node --test tests/settings-preferences.test.mjs` and `php artisan test --co
 
 - [S05 — Settings sections handle drafts differently](s05-settings-sections-handle-drafts-differently.md)
 
+
+## Completion — 28 September 2026
+
+Existing section URL/history behavior already satisfies the finding. It was retained and verified across section navigation and aliases.
+
+Checks: tests/settings-preferences.test.mjs; tests/settings.test.mjs; tests/workspace-backups.test.mjs; tests/Feature/WorkspacePreferencesTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

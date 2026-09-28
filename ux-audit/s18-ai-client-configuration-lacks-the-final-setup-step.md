@@ -4,7 +4,7 @@ Priority: P3
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Live + source — Settings.vue:123,147; SettingsController.php:58
 
@@ -24,10 +24,10 @@ Users can copy MCP JSON but are not told where it belongs, which clients support
 
 ## Acceptance criteria
 
-- [ ] Instructions identify where the copied configuration belongs.
-- [ ] Any named-client guide matches its current supported local-server setup.
-- [ ] Users have a concrete read-only connection check.
-- [ ] Scratchpad AI and external-client setup remain distinguishable.
+- [x] Instructions identify where the copied configuration belongs.
+- [x] Any named-client guide matches its current supported local-server setup.
+- [x] Users have a concrete read-only connection check.
+- [x] Scratchpad AI and external-client setup remain distinguishable.
 
 ## Verification
 
@@ -39,3 +39,11 @@ No automated application tests are required for this guidance-only change; manua
 
 None.
 
+
+## Completion — 28 September 2026
+
+The external-client guide specifies a project-root .mcp.json, restart/approval and a read-only project-list connection check. Current official Claude Code MCP guidance was checked.
+
+Checks: tests/Feature/OrbitMcpTest.php; server capability/source review; official client documentation. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

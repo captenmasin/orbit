@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — ProjectSecrets.vue:521; Settings.vue:31,161
 
@@ -24,10 +24,10 @@ Secrets’ Set PIN in settings CTA opens /settings, whose default is General. Th
 
 ## Acceptance criteria
 
-- [ ] The setup CTA lands directly on the Secrets PIN controls.
-- [ ] It works from both a fresh Settings visit and an existing Settings history entry.
-- [ ] Browser-only and already-configured PIN states retain their current guidance.
-- [ ] Returning to the project does not expose or carry PIN values.
+- [x] The setup CTA lands directly on the Secrets PIN controls.
+- [x] It works from both a fresh Settings visit and an existing Settings history entry.
+- [x] Browser-only and already-configured PIN states retain their current guidance.
+- [x] Returning to the project does not expose or carry PIN values.
 
 ## Verification
 
@@ -39,3 +39,11 @@ Run `node --test tests/project-secrets.test.mjs tests/settings-preferences.test.
 
 - [S10 — Settings navigation has no URL or history](s10-settings-navigation-has-no-url-or-history.md)
 
+
+## Completion — 28 September 2026
+
+PIN setup links point directly to /settings?section=security, retaining existing native/configured-PIN guidance.
+
+Checks: tests/project-secrets.test.mjs; Security-link/template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

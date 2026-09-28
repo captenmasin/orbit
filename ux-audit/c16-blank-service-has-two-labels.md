@@ -2,7 +2,7 @@
 
 Priority: P3  
 Area: assets  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectSecrets.vue:544,574,607  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-227)
 
@@ -19,10 +19,10 @@ A blank secret service appears as Unassigned in list grouping and Uncategorized 
 
 ## Acceptance criteria
 
-- [ ] Blank services have one identical label in list groups and details.
-- [ ] Editing, pasting, filtering and bulk actions all call the field Service.
-- [ ] Clearing a service makes the affected item appear under Unassigned.
-- [ ] Existing named services and metadata are preserved.
+- [x] Blank services have one identical label in list groups and details.
+- [x] Editing, pasting, filtering and bulk actions all call the field Service.
+- [x] Clearing a service makes the affected item appear under Unassigned.
+- [x] Existing named services and metadata are preserved.
 
 ## Verification
 
@@ -33,3 +33,9 @@ No new automated tests are needed for copy-only changes. If PHP validation wordi
 ## Related plans
 
 None.
+
+## Completion — 28 September 2026
+
+Blank service labels consistently read Unassigned, and editing/filter/import/bulk controls use Service.
+
+Checks: tests/project-secrets.test.mjs; tests/Feature/ProjectSecretTest.php; tests/Feature/SecretVaultTest.php; tests/Feature/EnvFileTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

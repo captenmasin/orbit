@@ -119,7 +119,7 @@ test('project cards and sidebar items offer every status and hide archive for ar
             for (const option of ['Idea', 'In Progress', 'Live', 'Paused', 'Archived']) {
                 assert.equal(buttons.get(option), option === status);
             }
-            assert.equal(html.includes('Archive project'), status !== 'Archived');
+            assert.equal(html.includes('Mark archived'), status !== 'Archived');
             assert.match(html, /Beta/);
         }
     }

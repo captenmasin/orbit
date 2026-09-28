@@ -12,7 +12,9 @@ const date = (value: string) => new Date(value).toLocaleDateString();
 </script>
 
 <template>
-    <ProjectContextMenu :project="project">
+    <ProjectContextMenu
+        :project="project"
+        visible>
         <Card as="article">
             <CardHeader class="flex min-w-0 items-center px-3 pt-2 sm:px-3 gap-3">
                 <Link
@@ -66,9 +68,9 @@ const date = (value: string) => new Date(value).toLocaleDateString();
                         <time
                             v-if="project.last_commit_at"
                             :datetime="project.last_commit_at"
-                            class="text-xs">{{ date(project.last_commit_at) }}</time><span
+                            class="text-xs">Last commit {{ date(project.last_commit_at) }}</time><span
                                 v-else
-                                class="text-xs">—</span>
+                                class="text-xs">No commit data</span>
                         <Link
                             :href="`/projects/${project.id}/edit`"
                             class="text-sm hover:text-foreground hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">

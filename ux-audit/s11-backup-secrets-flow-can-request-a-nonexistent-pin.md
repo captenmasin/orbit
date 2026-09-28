@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — WorkspaceBackups.vue:99,169–170; SecretVaultController.php:54
 
@@ -24,10 +24,10 @@ Include project secrets reveals a PIN field even before PIN setup. Export then f
 
 ## Acceptance criteria
 
-- [ ] A missing PIN produces setup guidance before any unlock request.
-- [ ] Security navigation leads to the actual setup controls.
-- [ ] Secret-free backups remain usable without a PIN.
-- [ ] Existing PIN validation, rate limiting and clearing remain intact.
+- [x] A missing PIN produces setup guidance before any unlock request.
+- [x] Security navigation leads to the actual setup controls.
+- [x] Secret-free backups remain usable without a PIN.
+- [x] Existing PIN validation, rate limiting and clearing remain intact.
 
 ## Verification
 
@@ -38,3 +38,11 @@ Run `node --test tests/workspace-backups.test.mjs tests/settings-preferences.tes
 ## Related plans
 
 - [S10 — Settings navigation has no URL or history](s10-settings-navigation-has-no-url-or-history.md)
+
+## Completion — 28 September 2026
+
+Inclusive export checks configured PIN status before unlocking and offers Security setup; secret-free export remains available.
+
+Checks: tests/workspace-backups.test.mjs; tests/settings-preferences.test.mjs; tests/Feature/BackupExportTest.php; tests/Feature/WorkspaceRestoreTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

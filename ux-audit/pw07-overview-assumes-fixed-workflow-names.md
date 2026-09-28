@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ShowProject.vue:57–65,207–229
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-38)
 
@@ -22,10 +22,10 @@ Avoid adding completion flags or migrating boards for this overview-only fix. Ne
 
 ## Acceptance criteria
 
-- [ ] The overview total includes every saved card regardless of list name.
-- [ ] Renamed or whitespace-padded completed lists cannot produce a false open-work claim.
-- [ ] The preview and empty state use neutral Card/List wording consistent with C15.
-- [ ] The summary pill and preview cards still navigate to their correct board destinations.
+- [x] The overview total includes every saved card regardless of list name.
+- [x] Renamed or whitespace-padded completed lists cannot produce a false open-work claim.
+- [x] The preview and empty state use neutral Card/List wording consistent with C15.
+- [x] The summary pill and preview cards still navigate to their correct board destinations.
 
 ## Verification
 
@@ -35,3 +35,9 @@ Run `node --test tests/project-tab.test.mjs`. Manually create cards in default a
 
 - [C15 — Board vocabulary alternates mid-flow](c15-board-vocabulary-alternates-mid-flow.md)
 - [PW13 — The same objects change names across screens](pw13-the-same-objects-change-names-across-screens.md)
+
+## Completion — 28 September 2026
+
+Overview uses a neutral total of all saved cards and list-labelled previews, without inferring completion from workflow names.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProviderActivityTest.php; source/template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

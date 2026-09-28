@@ -88,6 +88,25 @@ class ProviderCredentialTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_label_edits_preserve_credentials_associations_and_cached_activity_and_reject_invalid_or_stale_writes(): void
+    {
+        Http::preventStrayRequests();
+        $connection = ProviderConnection::factory()->create()->fresh();
+        $repository = Repository::factory()->for($connection, 'providerConnection')->create();
+        $snapshot = ProviderSnapshot::factory()->for($repository)->create()->fresh();
+        $before = $connection->getAttributes();
+        $this->putJson('/connections/'.$connection->id.'/label', ['label' => 'Team', 'revision' => 1])->assertOk();
+        $this->assertSame(array_replace($before, ['label' => 'Team', 'revision' => 2]), $connection->fresh()->getAttributes());
+        $this->assertSame($connection->id, $repository->fresh()->provider_connection_id);
+        $this->assertSame($snapshot->getAttributes(), $snapshot->fresh()->getAttributes());
+        $this->putJson('/connections/'.$connection->id.'/label', ['label' => 'Old', 'revision' => 1])->assertConflict();
+        foreach (['', str_repeat('x', 101)] as $label) {
+            $this->putJson('/connections/'.$connection->id.'/label', ['label' => $label, 'revision' => 2])->assertUnprocessable()->assertJsonValidationErrors('label');
+        }
+        $this->assertSame('Team', $connection->fresh()->label);
+        Http::assertNothingSent();
+    }
+
     public function test_disconnect_clears_private_data_and_retains_local_records(): void
     {
         $connection = ProviderConnection::factory()->create();

@@ -2,7 +2,7 @@
 
 Priority: P2  
 Area: content  
-Status: Planned  
+Status: Implemented
 Evidence: Live + source — ProjectScratchpad.vue:123–128,190–192; SecretDescription.vue:31,152  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-139)
 
@@ -20,10 +20,10 @@ Scratchpad shows only transient Saving text, then becomes blank; network failure
 
 ## Acceptance criteria
 
-- [ ] Both autosave surfaces distinguish Saved, Saving and Unsaved visibly.
-- [ ] Failed saves retain the draft and an actionable inline error.
-- [ ] New edits during a request remain Unsaved until their own save succeeds.
-- [ ] Retry/reload states never imply that a failed draft was saved.
+- [x] Both autosave surfaces distinguish Saved, Saving and Unsaved visibly.
+- [x] Failed saves retain the draft and an actionable inline error.
+- [x] New edits during a request remain Unsaved until their own save succeeds.
+- [x] Retry/reload states never imply that a failed draft was saved.
 
 ## Verification
 
@@ -35,3 +35,9 @@ After implementation, run `node --test tests/project-tab.test.mjs tests/secret-d
 
 - [C05 — Writing notes automatically runs AI](c05-writing-notes-automatically-runs-ai.md)
 - [C10 — Vault expiry can discard a value draft silently](c10-vault-expiry-can-discard-a-value-draft-silently.md)
+
+## Completion — 28 September 2026
+
+Scratchpad and secret-description autosave show persistent saved/saving/unsaved state and actionable failure feedback.
+
+Checks: tests/secret-description.test.mjs; tests/Feature/ProjectScratchpadTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

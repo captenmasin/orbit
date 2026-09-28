@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** sources
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ProjectForm.vue:100–104,134,319–324,367
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-257)
 
@@ -22,10 +22,10 @@ Reproduce the browser path on a disposable linked folder before implementation. 
 
 ## Acceptance criteria
 
-- [ ] Each browser Relink action opens the current row's path for replacement.
-- [ ] Relinking does not read or clear the independent Add folder draft.
-- [ ] Failed inspection retains the replacement draft and original linked folder.
-- [ ] Success replaces only the selected folder; cancellation changes nothing.
+- [x] Each browser Relink action opens the current row's path for replacement.
+- [x] Relinking does not read or clear the independent Add folder draft.
+- [x] Failed inspection retains the replacement draft and original linked folder.
+- [x] Success replaces only the selected folder; cancellation changes nothing.
 
 ## Verification
 
@@ -37,3 +37,11 @@ Run `node --test tests/project-tab.test.mjs` and `php artisan test --compact tes
 - [PW16 — Package location controls have several names](pw16-package-location-controls-have-several-names.md)
 - [PW24 — Disabled Open folder gives no explanation](pw24-disabled-open-folder-gives-no-explanation.md)
 
+
+## Completion — 28 September 2026
+
+Browser Relink opens a dedicated prefilled replacement-path draft for the chosen row; the independent Add folder input is preserved.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProjectDetailsTest.php; tests/Feature/RepositoryCloneTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

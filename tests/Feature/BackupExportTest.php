@@ -180,7 +180,7 @@ class BackupExportTest extends TestCase
 
         try {
             $this->postJson('/backups/restore/preview', ['password' => 'correct horse battery staple'])
-                ->assertOk()->assertJsonPath('preview.includes_secrets', false)->assertJsonMissing(['value'])->assertSessionHas('backup-restore.hash');
+                ->assertOk()->assertJsonPath('preview.includes_secrets', false)->assertJsonPath('preview.source', $path)->assertJsonMissing(['value'])->assertSessionHas('backup-restore.hash');
         } finally {
             unlink($path);
         }
@@ -263,6 +263,26 @@ class BackupExportTest extends TestCase
                     unlink($path);
                 }
             }
+        }
+    }
+
+    public function test_a_failed_new_restore_preview_discards_the_previous_candidate(): void
+    {
+        config(['nativephp-internal.running' => true]);
+        $project = Project::factory()->create();
+        $path = tempnam(sys_get_temp_dir(), 'orbit-backup-test-');
+        file_put_contents($path, app(OrbitBackup::class)->write(app(WorkspaceBackup::class)->records(false, app(ProtectCredential::class)), 'correct horse battery staple'));
+        $this->mock(Dialog::class, fn ($mock) => $mock->shouldReceive('files->filter->title->button->asSheet->open')->twice()->andReturn($path));
+
+        try {
+            $this->postJson('/backups/restore/preview', ['password' => 'correct horse battery staple'])->assertOk();
+            $this->postJson('/backups/restore/preview', ['password' => 'incorrect backup password'])
+                ->assertUnprocessable()->assertSessionMissing('backup-restore');
+            $this->postJson('/backups/restore', ['password' => 'correct horse battery staple', 'confirm' => true])
+                ->assertUnprocessable()->assertJsonValidationErrors('backup');
+            $this->assertModelExists($project);
+        } finally {
+            unlink($path);
         }
     }
 }

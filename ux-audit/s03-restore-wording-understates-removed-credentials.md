@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — WorkspaceBackups.vue:169,184,189; WorkspaceBackup.php:37–83; WorkspaceRestore.php:302–305
 
@@ -24,10 +24,10 @@ Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-
 
 ## Acceptance criteria
 
-- [ ] The user sees that provider connections are removed, not imported.
-- [ ] Both inclusive and secret-free backups explain the fate of current secrets.
-- [ ] Warnings are visible before consent and remain associated with the selected backup.
-- [ ] Copy does not promise restoration of excluded credentials or preferences.
+- [x] The user sees that provider connections are removed, not imported.
+- [x] Both inclusive and secret-free backups explain the fate of current secrets.
+- [x] Warnings are visible before consent and remain associated with the selected backup.
+- [x] Copy does not promise restoration of excluded credentials or preferences.
 
 ## Verification
 
@@ -39,3 +39,11 @@ No automated tests are required for this copy-only change. Existing backup/resto
 
 - [S01 — Restore can leave the previous backup actionable](s01-restore-can-leave-the-previous-backup-actionable.md)
 
+
+## Completion — 28 September 2026
+
+Restore consent explains removed provider connections/reconnection and the fate of current secrets for both inclusive and secret-free backups.
+
+Checks: tests/workspace-backups.test.mjs; tests/settings-preferences.test.mjs; tests/Feature/BackupExportTest.php; tests/Feature/WorkspaceRestoreTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

@@ -4,7 +4,7 @@ Priority: P3
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Live + source — Settings.vue:163; SettingsController.php:102
 
@@ -24,10 +24,10 @@ Lock duration says Changing this locks secrets immediately, but selecting a valu
 
 ## Acceptance criteria
 
-- [ ] The helper names Save as the moment a new duration takes effect.
-- [ ] It accurately describes elapsed time from unlock, not idle time.
-- [ ] Choosing a different option remains an unsaved draft.
-- [ ] Existing saved-duration revocation and rejected-save behavior remain unchanged.
+- [x] The helper names Save as the moment a new duration takes effect.
+- [x] It accurately describes elapsed time from unlock, not idle time.
+- [x] Choosing a different option remains an unsaved draft.
+- [x] Existing saved-duration revocation and rejected-save behavior remain unchanged.
 
 ## Verification
 
@@ -40,3 +40,9 @@ No automated tests are required for this copy-only correction. Existing security
 - [S05 — Settings sections handle drafts differently](s05-settings-sections-handle-drafts-differently.md)
 - [S07 — Mid-save edits can be marked saved falsely](s07-mid-save-edits-can-be-marked-saved-falsely.md)
 
+
+## Completion — 28 September 2026
+
+Security duration copy names Save as the point of application and explains that saving locks secrets immediately; draft behavior remains unchanged.
+
+Checks: tests/settings-preferences.test.mjs; tests/settings.test.mjs; tests/workspace-backups.test.mjs; tests/Feature/WorkspacePreferencesTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

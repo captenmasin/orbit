@@ -2,7 +2,7 @@
 
 Priority: P1  
 Area: content  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectBoard.vue:61–68,256–262,391; ProjectDocuments.vue:53  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-120)
 
@@ -19,10 +19,10 @@ Board conflict recovery closes the editor. Its form still exists briefly, but re
 
 ## Acceptance criteria
 
-- [ ] Reload board retains the active editor and every unsaved field.
-- [ ] Pending attachment additions/removals survive successful conflict recovery.
-- [ ] Retrying uses the refreshed revision and saves once.
-- [ ] Removed targets and failed reloads retain the draft with a clear next step.
+- [x] Reload board retains the active editor and every unsaved field.
+- [x] Pending attachment additions/removals survive successful conflict recovery.
+- [x] Retrying uses the refreshed revision and saves once.
+- [x] Removed targets and failed reloads retain the draft with a clear next step.
 
 ## Verification
 
@@ -33,3 +33,9 @@ After implementation, run `node --test tests/project-board-drag.test.mjs` and `p
 ## Related plans
 
 - [C01 — Changing tabs destroys a document draft](c01-changing-tabs-destroys-a-document-draft.md)
+
+## Completion — 28 September 2026
+
+Board reload retains fields and pending attachment changes, refreshes the revision and exposes removed targets without closing the draft.
+
+Checks: tests/project-board-drag.test.mjs; tests/scratchpad-action-review.test.mjs; tests/Feature/ProjectBoardTest.php; tests/Feature/TaskContentTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

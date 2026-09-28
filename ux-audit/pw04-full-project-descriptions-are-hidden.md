@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ProjectCard.vue:23; ProjectHeader.vue:27
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-19)
 
@@ -22,10 +22,10 @@ A project description belongs on its read view as well as its editor. Keep the e
 
 ## Acceptance criteria
 
-- [ ] The complete saved description is readable on the project detail page.
-- [ ] An empty description adds no empty panel or placeholder.
-- [ ] Multiline and very long descriptions wrap without overlapping status or Edit.
-- [ ] Dashboard previews remain compact and still lead to the full detail.
+- [x] The complete saved description is readable on the project detail page.
+- [x] An empty description adds no empty panel or placeholder.
+- [x] Multiline and very long descriptions wrap without overlapping status or Edit.
+- [x] Dashboard previews remain compact and still lead to the full detail.
 
 ## Verification
 
@@ -35,3 +35,9 @@ No new automated tests are needed for this display-only change. Manually inspect
 
 - [PW14 — Create and Edit use different form treatments](pw14-create-and-edit-use-different-form-treatments.md)
 
+
+## Completion — 28 September 2026
+
+Project detail headers display the complete multiline saved description, while dashboard previews remain compact.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProviderActivityTest.php; source/template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

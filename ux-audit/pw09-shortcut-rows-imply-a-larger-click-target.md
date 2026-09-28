@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ShowProject.vue:349–364; contrast 223,329
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-45)
 
@@ -22,10 +22,10 @@ Enlarge the existing open target without nesting interactive controls. The row m
 
 ## Acceptance criteria
 
-- [ ] Clicking a shortcut label or URL opens that saved destination.
-- [ ] Details opens its dialog independently and does not also open the link.
-- [ ] Keyboard users can identify and activate separate Open and Details controls.
-- [ ] Desktop opening, browser new-tab behavior and existing compact callers remain correct.
+- [x] Clicking a shortcut label or URL opens that saved destination.
+- [x] Details opens its dialog independently and does not also open the link.
+- [x] Keyboard users can identify and activate separate Open and Details controls.
+- [x] Desktop opening, browser new-tab behavior and existing compact callers remain correct.
 
 ## Verification
 
@@ -37,3 +37,11 @@ Manually inspect multiple links with and without notes, long labels, categorized
 - [PW15 — Link order changes when expanded](pw15-link-order-changes-when-expanded.md)
 - [PW24 — Disabled Open folder gives no explanation](pw24-disabled-open-folder-gives-no-explanation.md)
 
+
+## Completion — 28 September 2026
+
+Shortcut labels and URLs share the opening target; Details remains a separate control. Shared opening behavior covers desktop and browser callers.
+
+Checks: tests/project-tab.test.mjs; shared opening-target template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

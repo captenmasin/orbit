@@ -105,3 +105,21 @@ test('sidebar status groups save project order and open state', async t => {
     assert.deepEqual(Array.from(sidebar.groups.value, group => group.status), ['Live', 'Idea']);
     assert.deepEqual(Array.from(sidebar.groups.value[0].projects, project => project.id), ['gamma', 'live']);
 });
+
+test('shared project duplicate requires confirmation and prevents repeat requests', t => {
+    const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ProjectContextMenu.vue', import.meta.url), 'utf8'));
+    const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'project-actions' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
+    const requests = [];
+    const modules = { vue, '@inertiajs/vue3': { ...inertia, usePage: () => ({ props: { statuses: ['Idea'] } }), router: { post: (...args) => requests.push(args) } } };
+    const context = { exports: {}, require: name => modules[name] ?? {} };
+    runInNewContext(outputText, context);
+    const scope = vue.effectScope(); t.after(() => scope.stop());
+    const props = vue.reactive({ project: { id: 'one', name: 'One', revision: 1, status: 'Idea' }, disabled: false });
+    const state = scope.run(() => context.exports.default.setup(props, { expose() {} }));
+    state.duplicateProject(); assert.equal(requests.length, 0);
+    state.duplicating.value = true; state.duplicating.value = false; state.duplicateProject(); assert.equal(requests.length, 0);
+    state.duplicating.value = true; props.disabled = true; state.duplicateProject(); assert.equal(requests.length, 0);
+    props.disabled = false; state.duplicateProject(); state.duplicateProject(); assert.equal(requests.length, 1);
+    assert.equal(requests[0][0], '/projects/one/duplicate');
+    requests[0][2].onSuccess(); requests[0][2].onFinish(); assert.equal(state.duplicating.value, false); assert.equal(state.duplicateBusy.value, false);
+});

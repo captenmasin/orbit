@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — Settings.vue:35,71–75,133,157
 
@@ -25,10 +25,10 @@ Leaving Appearance resets its draft; other sections retain hidden edits. Leaving
 
 ## Acceptance criteria
 
-- [ ] Main drafts survive section switches; controllable folder departure is explicit.
-- [ ] Native history recovers nonsecret drafts against current saved baselines.
-- [ ] Failed saves retain drafts; save/discard clears only the affected section's remembered state.
-- [ ] Sensitive inputs clear on unmount and never enter remembered state.
+- [x] Main drafts survive section switches; controllable folder departure is explicit.
+- [x] Native history recovers nonsecret drafts against current saved baselines.
+- [x] Failed saves retain drafts; save/discard clears only the affected section's remembered state.
+- [x] Sensitive inputs clear on unmount and never enter remembered state.
 
 ## Verification
 
@@ -44,3 +44,11 @@ Inertia v3 guidance: [remembering state](https://inertiajs.com/docs/v3/data-prop
 - [S02 — Restored defaults can display stale values](s02-restored-defaults-can-display-stale-values.md)
 - [S07 — Mid-save edits can be marked saved falsely](s07-mid-save-edits-can-be-marked-saved-falsely.md)
 - [S06 — Invisible edits can disable update installation](s06-invisible-edits-can-disable-update-installation.md)
+
+## Completion — 28 September 2026
+
+Nonsecret preference drafts persist across sections/history with fresh-baseline reconciliation. Folder departure has explicit decisions and stale-folder review; sensitive forms still clear on unmount.
+
+Checks: tests/settings-preferences.test.mjs; tests/settings.test.mjs; tests/workspace-backups.test.mjs; tests/Feature/WorkspacePreferencesTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

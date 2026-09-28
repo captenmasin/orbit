@@ -8,6 +8,7 @@ import { onBeforeUnmount, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Field, FieldDescription, FieldLabel, FieldError } from '@/components/ui/field';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 type AiStatus = { configured: boolean; provider: string | null; model: string | null; providers: string[]; default_models: Record<string, string> };
 const props = defineProps<{ ai: AiStatus; revision: number; native: boolean }>();
@@ -16,6 +17,9 @@ const status = ref(props.ai);
 const replacing = ref(!props.ai.configured);
 const form = useHttp({ provider: props.ai.provider ?? 'openai', model: props.ai.model ?? props.ai.default_models[props.ai.provider ?? 'openai'] ?? '', key: '', revision: props.revision });
 const error = ref('');
+const removing = ref(false);
+const providerLabels: Record<string, string> = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Google Gemini' };
+const modelGuides: Record<string, string> = { openai: 'https://developers.openai.com/api/docs/models', anthropic: 'https://platform.claude.com/docs/en/models/overview', gemini: 'https://ai.google.dev/gemini-api/docs/models' };
 watch(() => props.revision, value => { form.revision = value; });
 function selectProvider(provider: string) { form.provider = provider; form.model = status.value.default_models[provider] ?? ''; }
 function clearKey() { form.key = ''; form.defaults('key', ''); }
@@ -29,12 +33,13 @@ async function save() {
     finally { clearKey(); }
 }
 async function remove() {
+    if (!removing.value || form.processing) return;
     error.value = ''; clearKey();
     try {
         const result = await form.transform(() => ({ revision: props.revision })).delete('/settings/connections/ai') as { revision: number; ai: AiStatus } | undefined;
         form.transform(data => data);
         if (!result) return;
-        status.value = result.ai; replacing.value = true; toast.success('AI connection removed. Your notes are unchanged.'); emit('saved', result.revision, result.ai);
+        removing.value = false; status.value = result.ai; replacing.value = true; toast.success('AI connection removed. Your notes are unchanged.'); emit('saved', result.revision, result.ai);
     } catch { error.value = 'Could not remove the AI connection. Try again.'; }
     finally { form.transform(data => data); }
 }
@@ -55,7 +60,7 @@ onBeforeUnmount(() => { form.cancel(); clearKey(); });
         <CardContent class="gap-6">
             <FieldDescription>Generating actions sends your scratchpad and limited project context (name, description, status and tags) to this provider. Review every action before applying it.</FieldDescription>
             <p class="text-sm">
-                {{ status.configured ? `Connected to ${status.provider} · ${status.model}` : 'No AI connection configured.' }}
+                {{ status.configured ? `Connected to ${providerLabels[status.provider ?? ''] ?? status.provider} · ${status.model}` : 'No AI connection configured.' }}
             </p>
             <Alert v-if="!native">
                 <AlertDescription>Open the desktop app to configure encrypted AI credentials.</AlertDescription>
@@ -71,7 +76,7 @@ onBeforeUnmount(() => { form.cancel(); clearKey(); });
                 </Button><Button
                     variant="outline"
                     :disabled="form.processing"
-                    @click="remove">
+                    @click="removing = true">
                     Remove
                 </Button>
             </div>
@@ -86,7 +91,7 @@ onBeforeUnmount(() => { form.cancel(); clearKey(); });
                         id="ai-provider"
                         :model-value="form.provider"
                         variant="filled"
-                        :options="status.providers"
+                        :options="status.providers.map(value => ({ value, label: providerLabels[value] ?? value }))"
                         :disabled="form.processing"
                         @update:model-value="selectProvider" /><FieldError v-if="form.errors.provider">
                             {{ form.errors.provider }}
@@ -103,7 +108,12 @@ onBeforeUnmount(() => { form.cancel(); clearKey(); });
                         aria-describedby="ai-model-description"
                         :disabled="form.processing"
                         placeholder="Enter the provider's model ID" /><FieldDescription id="ai-model-description">
-                            Each provider has a default model. You can enter a different model ID.
+                            The prefilled model is this provider's default. A custom value must be an exact model ID offered by the provider.
+                            <a
+                                :href="modelGuides[form.provider]"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="underline">{{ providerLabels[form.provider] }} model IDs</a>
                         </FieldDescription><FieldError v-if="form.errors.model">
                         {{ form.errors.model }}
                     </FieldError>
@@ -134,6 +144,29 @@ onBeforeUnmount(() => { form.cancel(); clearKey(); });
             </Alert><FieldError v-if="form.errors.revision">
                 {{ form.errors.revision }}
             </FieldError>
+            <Dialog v-model:open="removing">
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Remove AI connection?</DialogTitle><DialogDescription>Remove {{ providerLabels[status.provider ?? ''] ?? status.provider }} · {{ status.model }}. AI suggestions will require reconnection. Your notes and explicit conversion of bare URLs to links remain available.</DialogDescription></DialogHeader>
+                    <Alert
+                        v-if="error"
+                        variant="destructive">
+                        <AlertDescription>{{ error }}</AlertDescription>
+                    </Alert>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            :disabled="form.processing"
+                            @click="removing = false">
+                            Cancel
+                        </Button><Button
+                            variant="destructive"
+                            :disabled="form.processing"
+                            @click="remove">
+                            Remove AI connection
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </CardContent>
     </Card>
 </template>

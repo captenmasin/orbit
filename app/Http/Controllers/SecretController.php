@@ -182,7 +182,7 @@ class SecretController extends Controller
         $state = $this->destinationState($path);
         $request->session()->put('secret-export:'.$project->id, ['path' => $path, 'state' => $state, 'environment' => $environment, 'names' => $names]);
 
-        return response()->json(['preview' => ['destination' => basename($path), 'exists' => $state['exists']]]);
+        return response()->json(['preview' => ['destination' => $path, 'exists' => $state['exists']]]);
     }
 
     public function export(Request $request, Project $project, ProtectCredential $crypto, RecordAccessEvent $events, EnvFile $envFile): JsonResponse
@@ -318,7 +318,7 @@ class SecretController extends Controller
             'service' => ['sometimes', 'nullable', 'string', 'max:100'],
         ]);
         if (! array_key_exists('environment', $data) && ! array_key_exists('service', $data)) {
-            throw ValidationException::withMessages(['secrets' => 'Choose an environment or category to update.']);
+            throw ValidationException::withMessages(['secrets' => 'Choose an environment or service to update.']);
         }
         $changes = [];
         if (array_key_exists('environment', $data)) {

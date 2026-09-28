@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** sources
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Live + source — ShowProject.vue:150–160,236; InspectionController.php:52; ProjectProviderActivity.vue:79
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-264)
 
@@ -22,10 +22,10 @@ Local inspection and hosted-provider activity are separate existing operations. 
 
 ## Acceptance criteria
 
-- [ ] Refresh local folders is visibly limited to local inspection.
-- [ ] A repository-only project exposes remote refresh when connected.
-- [ ] Offline/token/retry restrictions match the existing provider activity controls.
-- [ ] Each repository action refreshes only its own saved hosted repository.
+- [x] Refresh local folders is visibly limited to local inspection.
+- [x] A repository-only project exposes remote refresh when connected.
+- [x] Offline/token/retry restrictions match the existing provider activity controls.
+- [x] Each repository action refreshes only its own saved hosted repository.
 
 ## Verification
 
@@ -36,3 +36,11 @@ Run `node --test tests/project-tab.test.mjs tests/provider-offline.test.mjs`. Ma
 - [PW08 — Connect provider is buried](pw08-connect-provider-is-buried.md)
 - [PW03 — Editing a remote URL disconnects its provider](pw03-editing-a-remote-url-disconnects-its-provider.md)
 - [PW20 — Attention findings vanish during scanning](pw20-attention-findings-vanish-during-scanning.md)
+
+## Completion — 28 September 2026
+
+Sources exposes Refresh local folders plus repository-specific activity refresh with the existing connection/retry restrictions.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProviderActivityTest.php; source/template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

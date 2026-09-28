@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ProjectForm.vue:166–177,275,445
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-13)
 
@@ -22,10 +22,10 @@ The race is inferred from separate clone and form requests; confirm it with a de
 
 ## Acceptance criteria
 
-- [ ] Create cannot dispatch while cloning is pending, including Enter submission.
-- [ ] A successful clone is linked in the subsequently created project.
-- [ ] Cancelled or failed cloning restores Create availability without losing entered details.
-- [ ] Existing inspection/save busy conditions continue to apply.
+- [x] Create cannot dispatch while cloning is pending, including Enter submission.
+- [x] A successful clone is linked in the subsequently created project.
+- [x] Cancelled or failed cloning restores Create availability without losing entered details.
+- [x] Existing inspection/save busy conditions continue to apply.
 
 ## Verification
 
@@ -35,3 +35,11 @@ Run `node --test tests/project-tab.test.mjs`. In Orbit desktop, clone a disposab
 
 - [PW01 — Project forms discard unsaved work](pw01-project-forms-discard-unsaved-work.md)
 
+
+## Completion — 28 September 2026
+
+Create is disabled and guarded while cloning; successful clone results join the subsequent project payload, while failure retains entered details.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProjectDetailsTest.php; tests/Feature/RepositoryCloneTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Live + source — Settings.vue:171; ProbeRuntimes.php:20–154
 
@@ -24,10 +24,10 @@ A single Current / Missing executable · No version · path · source string mix
 
 ## Acceptance criteria
 
-- [ ] Each result separates status, version, path and effective source.
-- [ ] Missing/rejected results name the runtime and offer a next step.
-- [ ] Workspace versus project precedence is understandable.
-- [ ] Existing executable restrictions and unsaved probe behavior remain intact.
+- [x] Each result separates status, version, path and effective source.
+- [x] Missing/rejected results name the runtime and offer a next step.
+- [x] Workspace versus project precedence is understandable.
+- [x] Existing executable restrictions and unsaved probe behavior remain intact.
 
 ## Verification
 
@@ -39,3 +39,11 @@ No new tests are required for presentation-only changes. Run `node --test tests/
 
 - [S09 — Validation is repeated or far from its field](s09-validation-is-repeated-or-far-from-its-field.md)
 
+
+## Completion — 28 September 2026
+
+Runtime probes separate status, version, executable path and effective source, with detection/override precedence and executable-selection guidance.
+
+Checks: tests/settings-preferences.test.mjs; tests/settings.test.mjs; tests/workspace-backups.test.mjs; tests/Feature/WorkspacePreferencesTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

@@ -114,7 +114,7 @@ function reloadProject() {
 const stopNavigationGuard = router.on('before', event => {
     if (event.detail.visit.method !== 'get' || (!dirty.value && !saving.value)) return;
     const destination = String(event.detail.visit.url);
-    const currentUrl = new URL(page.url ?? '/', 'http://orbit.local');
+    const currentUrl = new URL(page.url ?? '/', 'https://orbit.local');
     const targetUrl = new URL(destination, currentUrl);
     if (targetUrl.pathname === currentUrl.pathname && targetUrl.search === currentUrl.search) return;
     if (!props.native && dirty.value) {
@@ -151,6 +151,11 @@ onScopeDispose(() => {
 
 <template>
     <div class="space-y-2">
+        <p
+            role="status"
+            class="text-xs text-muted-foreground">
+            {{ saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved' }}
+        </p>
         <Textarea
             :id="inputId"
             v-model="draft"

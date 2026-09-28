@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** sources
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ShowProject.vue:133,141,209,301
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-295)
 
@@ -22,10 +22,10 @@ Reproduce the source-derived disappearance with one current confirmed finding an
 
 ## Acceptance criteria
 
-- [ ] A scan in one folder does not hide current findings from another.
-- [ ] Updating status is visible without replacing confirmed issue counts.
-- [ ] Invalidated findings are not mislabeled as current.
-- [ ] Attention links remain actionable throughout scanning and completion.
+- [x] A scan in one folder does not hide current findings from another.
+- [x] Updating status is visible without replacing confirmed issue counts.
+- [x] Invalidated findings are not mislabeled as current.
+- [x] Attention links remain actionable throughout scanning and completion.
 
 ## Verification
 
@@ -35,3 +35,9 @@ Run `node --test tests/project-tab.test.mjs tests/dependencies.test.mjs`. Manual
 
 - [PW12 — Sources Refresh refreshes only local folders](pw12-sources-refresh-refreshes-only-local-folders.md)
 
+
+## Completion — 28 September 2026
+
+Confirmed attention findings remain visible while other sources scan, with Updating sources feedback and existing stale-result checks.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProviderActivityTest.php; source/template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

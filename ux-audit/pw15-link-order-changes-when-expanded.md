@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ProjectForm.vue:142,396; ShowProject.vue:91–98,345
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-70)
 
@@ -22,10 +22,10 @@ Keep saved manual link order authoritative. This source-derived mismatch needs a
 
 ## Acceptance criteria
 
-- [ ] Expand/collapse never changes relative link order.
-- [ ] The editor's up/down result matches the full overview list.
-- [ ] Categories remain accessible without overriding manual order.
-- [ ] Deep-linked links still expand, highlight and scroll to the correct item.
+- [x] Expand/collapse never changes relative link order.
+- [x] The editor's up/down result matches the full overview list.
+- [x] Categories remain accessible without overriding manual order.
+- [x] Deep-linked links still expand, highlight and scroll to the correct item.
 
 ## Verification
 
@@ -36,3 +36,9 @@ Run `node --test tests/project-tab.test.mjs`. Manually move a link across differ
 - [PW09 — Shortcut rows imply a larger click target](pw09-shortcut-rows-imply-a-larger-click-target.md)
 - [PW13 — The same objects change names across screens](pw13-the-same-objects-change-names-across-screens.md)
 
+
+## Completion — 28 September 2026
+
+Overview preserves the saved link order in both collapsed and expanded views, displaying category metadata without regrouping.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProviderActivityTest.php; source/template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

@@ -2,15 +2,15 @@
 import TextTransition from '@/components/TextTransition.vue';
 import MarkdownContent from '@/components/MarkdownContent.vue';
 import { toast } from 'vue-sonner';
-import { computed, ref, watch } from 'vue';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { Project, ProjectDocument } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
-import { router, useForm, useHttp } from '@inertiajs/vue3';
 import { PencilIcon, PlusIcon, Trash2Icon } from '@lucide/vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { router, useForm, useHttp, usePage } from '@inertiajs/vue3';
+import { computed, onMounted, onScopeDispose, ref, watch } from 'vue';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -25,6 +25,14 @@ const previewOpen = ref(false);
 const previewHtml = ref('');
 const preview = useHttp<{ body: string }, { html: string }>({ body: '' });
 const form = useForm({ action: 'save', revision: props.project.revision, id: null as string | null, document_revision: null as number | null, title: '', body: '' });
+const page = usePage();
+const departureOpen = ref(false);
+const recovering = ref(false);
+let pendingNavigation: string | null = null;
+const draftKey = (id: string | null) => `document:${props.project.id}:${id ?? 'new'}`;
+const activeKey = `document:${props.project.id}:active`;
+const dirty = computed(() => editing.value && (form.isDirty || form.processing));
+defineExpose({ dirty, saving: computed(() => form.processing) });
 const change = useForm({ action: 'delete', revision: props.project.revision, id: '', document_revision: 1 });
 watch(() => props.targetDocumentId, id => { if (!editing.value) selectedId.value = id ?? documents.value[0]?.id ?? null; });
 watch(documents, list => { if (!selectedId.value && !editing.value) selectedId.value = list[0]?.id ?? null; });
@@ -39,9 +47,11 @@ function edit(document?: ProjectDocument) {
     editing.value = true;
 }
 function save() {
+    if (form.processing || recovering.value || (form.id && !documents.value.some(document => document.id === form.id))) return;
     form.put(`/projects/${props.project.id}/documents`, { preserveScroll: true, errorBag: 'document', onSuccess: () => {
-        editing.value = false;
         selectedId.value = form.id ?? documents.value.at(-1)?.id ?? null;
+        clearDraft();
+        resumeNavigation();
     } });
 }
 function deleteDocument(document: ProjectDocument) {
@@ -57,8 +67,85 @@ function reload() {
         form.document_revision = documents.value.find(document => document.id === form.id)?.revision ?? form.document_revision;
         form.clearErrors('revision');
         change.clearErrors();
-    } });
+        recovering.value = false;
+        if (form.id && !documents.value.some(document => document.id === form.id)) form.setError('id', 'This document was removed. Your draft is kept. Create a new document explicitly to recover it.');
+    }, onNetworkError: () => { form.setError('revision', 'Could not reload saved documents. Your draft is kept. Try again.'); } });
 }
+
+function clearDraft() {
+    router.remember(null, draftKey(form.id));
+    router.remember(null, activeKey);
+    editing.value = false;
+    form.reset();
+    form.clearErrors();
+    departureOpen.value = false;
+}
+function resumeNavigation() {
+    const destination = pendingNavigation;
+    pendingNavigation = null;
+    if (destination) router.visit(destination);
+}
+function discardDraft() { clearDraft(); resumeNavigation(); }
+function cancelEditing() {
+    if (dirty.value) departureOpen.value = true;
+    else clearDraft();
+}
+function keepEditing() { departureOpen.value = false; pendingNavigation = null; }
+function createFromDraft() {
+    router.remember(null, draftKey(form.id));
+    form.id = null;
+    form.document_revision = null;
+    form.revision = props.project.revision;
+    form.clearErrors();
+}
+const stopNavigationGuard = router.on('before', event => {
+    if (event.detail.visit.method !== 'get' || !dirty.value) return;
+    const current = new URL(page.url ?? '/', 'https://orbit.local');
+    const target = new URL(String(event.detail.visit.url), current);
+    if (target.pathname === current.pathname) return;
+    pendingNavigation = String(event.detail.visit.url);
+    departureOpen.value = true;
+    return false;
+});
+onScopeDispose(stopNavigationGuard);
+if (typeof window !== 'undefined') {
+    const warnUnsaved = (event: BeforeUnloadEvent) => {
+        if (dirty.value) { event.preventDefault(); event.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', warnUnsaved);
+    onScopeDispose(() => window.removeEventListener('beforeunload', warnUnsaved));
+}
+const rememberedId = router.restore(activeKey) as { id: string | null } | null;
+if (rememberedId) {
+    const recovered = router.restore(draftKey(rememberedId.id)) as { data: ReturnType<typeof form.data>; previewOpen: boolean; previewHtml: string } | null;
+    if (recovered) {
+        edit(documents.value.find(document => document.id === rememberedId.id));
+        Object.assign(form, recovered.data);
+        previewOpen.value = recovered.previewOpen;
+        previewHtml.value = recovered.previewHtml;
+        recovering.value = true;
+    }
+}
+function reconcileRecovery() {
+    recovering.value = false;
+    const target = documents.value.find(document => document.id === form.id);
+    if (form.id && !target) form.setError('id', 'This document was removed. Your draft is kept. Create a new document explicitly to recover it.');
+    else if (form.document_revision !== (target?.revision ?? null) || form.revision !== props.project.revision) form.setError('revision', 'This document or project changed. Reload saved documents and keep your draft before saving.');
+}
+onMounted(() => {
+    if (!recovering.value) return;
+    router.reload({
+        only: ['selectedProject'],
+        onSuccess: reconcileRecovery,
+        onNetworkError: () => { form.setError('revision', 'Could not check the saved document. Reload before saving; your draft is kept.'); },
+    });
+});
+watch(() => [form.title, form.body, form.id, form.revision, form.document_revision, editing.value, previewOpen.value, previewHtml.value], () => {
+    if (!dirty.value) return;
+    router.remember({ data: form.data(), previewOpen: previewOpen.value, previewHtml: previewHtml.value }, draftKey(form.id));
+    router.remember({ id: form.id }, activeKey);
+});
+
 async function togglePreview() {
     previewOpen.value = !previewOpen.value;
     if (!previewOpen.value) return;
@@ -121,6 +208,13 @@ async function togglePreview() {
                                 {{ error }}
                             </p>
                             <Button
+                                v-if="form.errors.id"
+                                variant="outline"
+                                size="sm"
+                                @click="createFromDraft">
+                                Create new document from draft
+                            </Button>
+                            <Button
                                 v-if="change.errors.revision || form.errors.revision"
                                 variant="outline"
                                 size="sm"
@@ -134,72 +228,81 @@ async function togglePreview() {
                         v-if="editing"
                         class="space-y-6"
                         @submit.prevent="save">
-                        <h3 class="text-xl font-normal tracking-[-0.025em]">
-                            {{ form.id ? 'Edit document' : 'New document' }}
-                        </h3>
-                        <FieldGroup class="gap-5">
-                            <Field>
-                                <FieldLabel for="document-title">
-                                    Document title
-                                </FieldLabel><Input
-                                    id="document-title"
-                                    v-model="form.title"
-                                    maxlength="255"
-                                    autofocus
-                                    class="h-11 rounded-xl"
-                                    :aria-invalid="!!form.errors.title" />
-                            </Field>
-                            <Field>
-                                <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <FieldLabel for="document-body">
-                                        Markdown
-                                    </FieldLabel><Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        :aria-pressed="previewOpen"
-                                        :disabled="preview.processing"
-                                        @click="togglePreview">
-                                        <TextTransition :text="previewOpen ? 'Write' : 'Preview'" />
-                                    </Button>
-                                </div>
-                                <template v-if="previewOpen">
-                                    <p
-                                        v-if="preview.processing"
-                                        role="status">
-                                        <TextTransition
-                                            text="Loading preview…"
-                                            shimmer />
-                                    </p><p
-                                        v-else-if="preview.errors.body"
-                                        role="alert">
-                                        {{ preview.errors.body }}
-                                    </p><MarkdownContent
+                        <fieldset
+                            :disabled="form.processing || recovering"
+                            class="space-y-6">
+                            <h3 class="text-xl font-normal tracking-[-0.025em]">
+                                {{ form.id ? 'Edit document' : 'New document' }}
+                            </h3>
+                            <FieldGroup class="gap-5">
+                                <Field>
+                                    <FieldLabel for="document-title">
+                                        Document title
+                                    </FieldLabel><Input
+                                        id="document-title"
+                                        v-model="form.title"
+                                        maxlength="255"
+                                        autofocus
+                                        class="h-11 rounded-xl"
+                                        :aria-invalid="!!form.errors.title" />
+                                </Field>
+                                <Field>
+                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                        <FieldLabel for="document-body">
+                                            Markdown
+                                        </FieldLabel><Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            :aria-pressed="previewOpen"
+                                            :disabled="preview.processing"
+                                            @click="togglePreview">
+                                            <TextTransition :text="previewOpen ? 'Write' : 'Preview'" />
+                                        </Button>
+                                    </div>
+                                    <template v-if="previewOpen">
+                                        <p
+                                            v-if="preview.processing"
+                                            role="status">
+                                            <TextTransition
+                                                text="Loading preview…"
+                                                shimmer />
+                                        </p><p
+                                            v-else-if="preview.errors.body"
+                                            role="alert">
+                                            {{ preview.errors.body }}
+                                        </p><MarkdownContent
+                                            v-else-if="previewHtml.trim()"
+                                            :html="previewHtml"
+                                            navigation />
+                                        <p
+                                            v-else
+                                            class="text-sm text-muted-foreground">
+                                            Nothing to preview.
+                                        </p>
+                                    </template>
+                                    <Textarea
                                         v-else
-                                        :html="previewHtml"
-                                        navigation />
-                                </template>
-                                <Textarea
-                                    v-else
-                                    id="document-body"
-                                    v-model="form.body"
-                                    :rows="18"
-                                    maxlength="50000"
-                                    class="rounded-xl font-mono"
-                                    :aria-invalid="!!form.errors.body" />
-                            </Field>
-                        </FieldGroup>
-                        <div class="flex flex-wrap gap-2">
-                            <Button :disabled="form.processing">
-                                Save document
-                            </Button><Button
-                                type="button"
-                                variant="outline"
-                                :disabled="form.processing"
-                                @click="editing = false">
-                                Cancel
-                            </Button>
-                        </div>
+                                        id="document-body"
+                                        v-model="form.body"
+                                        :rows="18"
+                                        maxlength="50000"
+                                        class="rounded-xl font-mono"
+                                        :aria-invalid="!!form.errors.body" />
+                                </Field>
+                            </FieldGroup>
+                            <div class="flex flex-wrap gap-2">
+                                <Button :disabled="form.processing">
+                                    Save document
+                                </Button><Button
+                                    type="button"
+                                    variant="outline"
+                                    :disabled="form.processing"
+                                    @click="cancelEditing">
+                                    Cancel
+                                </Button>
+                            </div>
+                        </fieldset>
                     </form>
                     <template v-else-if="selected">
                         <div class="flex flex-wrap items-start justify-between gap-3 border-b border-black/8 pb-5 dark:border-white/10">
@@ -260,21 +363,47 @@ async function togglePreview() {
                 </CardContent>
             </Card>
         </div>
+        <Dialog
+            :open="departureOpen"
+            @update:open="open => { if (!open) keepEditing(); }">
+            <DialogContent>
+                <DialogHeader><DialogTitle>Unsaved document</DialogTitle><DialogDescription>Save your document or discard the draft before leaving.</DialogDescription></DialogHeader>
+                <DialogFooter>
+                    <Button
+                        variant="outline"
+                        :disabled="form.processing"
+                        @click="keepEditing">
+                        Keep editing
+                    </Button>
+                    <Button
+                        variant="destructive"
+                        :disabled="form.processing"
+                        @click="discardDraft">
+                        Discard draft
+                    </Button>
+                    <Button
+                        :disabled="form.processing || recovering || !!form.errors.id"
+                        @click="save">
+                        Save document
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        <Dialog v-model:open="deleting">
+            <DialogContent>
+                <DialogHeader><DialogTitle>Delete document?</DialogTitle><DialogDescription>“{{ selected?.title }}” will be permanently removed.</DialogDescription></DialogHeader><DialogFooter>
+                    <Button
+                        variant="outline"
+                        @click="deleting = false">
+                        Cancel
+                    </Button><Button
+                        variant="destructive"
+                        :disabled="change.processing || !selected"
+                        @click="selected && deleteDocument(selected)">
+                        Delete document
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     </div>
-    <Dialog v-model:open="deleting">
-        <DialogContent>
-            <DialogHeader><DialogTitle>Delete document?</DialogTitle><DialogDescription>“{{ selected?.title }}” will be permanently removed.</DialogDescription></DialogHeader><DialogFooter>
-                <Button
-                    variant="outline"
-                    @click="deleting = false">
-                    Cancel
-                </Button><Button
-                    variant="destructive"
-                    :disabled="change.processing || !selected"
-                    @click="selected && deleteDocument(selected)">
-                    Delete document
-                </Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
 </template>

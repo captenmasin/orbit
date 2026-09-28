@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ProjectForm.vue:73,88–90,447; SaveProject.php:39
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-51)
 
@@ -22,10 +22,10 @@ Keep the current full-form save behavior and make its scope explicit instead of 
 
 ## Acceptance criteria
 
-- [ ] The dirty archive/restore action states that all pending edits are saved.
-- [ ] Clean archive wording describes the status change without promising hidden projects.
-- [ ] Validation failure preserves the draft and reveals the responsible section.
-- [ ] Successful archive/restore bypasses the navigation-discard prompt.
+- [x] The dirty archive/restore action states that all pending edits are saved.
+- [x] Clean archive wording describes the status change without promising hidden projects.
+- [x] Validation failure preserves the draft and reveals the responsible section.
+- [x] Successful archive/restore bypasses the navigation-discard prompt.
 
 ## Verification
 
@@ -36,3 +36,9 @@ Run `node --test tests/project-tab.test.mjs`. Manually archive clean and dirty f
 - [PW01 — Project forms discard unsaved work](pw01-project-forms-discard-unsaved-work.md)
 - [PW26 — Archive may not achieve expected decluttering](pw26-archive-may-not-achieve-expected-decluttering.md)
 
+
+## Completion — 28 September 2026
+
+Dirty archive/restore actions explicitly state that pending edits are saved; clean actions describe the status change.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProjectDetailsTest.php; tests/Feature/RepositoryCloneTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

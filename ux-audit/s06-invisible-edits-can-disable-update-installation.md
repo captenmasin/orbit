@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — Settings.vue:40,126,173; settings-preferences.test.mjs:258
 
@@ -24,10 +24,10 @@ Restart and install checks all settings drafts, but About gives no explanation o
 
 ## Acceptance criteria
 
-- [ ] Every dirty-preference blocker is named beside the disabled installation action.
-- [ ] A user can navigate directly to the responsible section.
-- [ ] Save or deliberate discard re-enables installation when no blocker remains.
-- [ ] Failed saves and active requests do not allow premature installation.
+- [x] Every dirty-preference blocker is named beside the disabled installation action.
+- [x] A user can navigate directly to the responsible section.
+- [x] Save or deliberate discard re-enables installation when no blocker remains.
+- [x] Failed saves and active requests do not allow premature installation.
 
 ## Verification
 
@@ -41,3 +41,11 @@ Run `node --test tests/settings-preferences.test.mjs`. Existing backend restart 
 - [S07 — Mid-save edits can be marked saved falsely](s07-mid-save-edits-can-be-marked-saved-falsely.md)
 - [S10 — Settings navigation has no URL or history](s10-settings-navigation-has-no-url-or-history.md)
 
+
+## Completion — 28 September 2026
+
+Update installation lists dirty/saving section blockers with direct navigation and save/discard recovery.
+
+Checks: tests/settings-preferences.test.mjs; tests/settings.test.mjs; tests/workspace-backups.test.mjs; tests/Feature/WorkspacePreferencesTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

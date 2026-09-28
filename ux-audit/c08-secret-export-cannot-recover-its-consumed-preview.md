@@ -2,7 +2,7 @@
 
 Priority: P2  
 Area: assets  
-Status: Planned  
+Status: Implemented
 Evidence: Source — SecretController.php:192–204; ProjectSecrets.vue:404,644–650  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-195)
 
@@ -19,10 +19,10 @@ The export endpoint consumes its staged preview before attempting the write. Fai
 
 ## Acceptance criteria
 
-- [ ] Failed export offers an explicit fresh-preview/destination step.
-- [ ] Environment and selected names survive recovery while plaintext is never retained.
-- [ ] A consumed preview cannot remain actionable as a valid final export.
-- [ ] A new destination requires its own overwrite confirmation.
+- [x] Failed export offers an explicit fresh-preview/destination step.
+- [x] Environment and selected names survive recovery while plaintext is never retained.
+- [x] A consumed preview cannot remain actionable as a valid final export.
+- [x] A new destination requires its own overwrite confirmation.
 
 ## Verification
 
@@ -34,3 +34,11 @@ After implementation, run `node --test tests/project-secrets.test.mjs` and `php 
 
 - [C09 — Secret overwrite identifies only a filename](c09-secret-overwrite-identifies-only-a-filename.md)
 - [S04 — Restore failure leaves an unusable retry form](s04-restore-failure-leaves-an-unusable-retry-form.md)
+
+## Completion — 28 September 2026
+
+Every export attempt invalidates its one-use preview; failed exports retain metadata choices and offer a fresh destination preview.
+
+Checks: tests/project-secrets.test.mjs; tests/Feature/ProjectSecretTest.php; tests/Feature/SecretVaultTest.php; tests/Feature/EnvFileTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

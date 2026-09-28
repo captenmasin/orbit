@@ -2,7 +2,7 @@
 
 Priority: P1  
 Area: assets  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectSecrets.vue:111–130,299–315,653; ProjectAssets.vue:107  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-189)
 
@@ -19,10 +19,10 @@ Secret selections survive changes to environment, service and search. Select all
 
 ## Acceptance criteria
 
-- [ ] Accepted environment, service and search changes clear previous selections.
-- [ ] Rejected filter changes preserve the current view and selection.
-- [ ] Bulk actions cannot include IDs selected in an earlier filter view.
-- [ ] Select all and selection counts match the current visible rows.
+- [x] Accepted environment, service and search changes clear previous selections.
+- [x] Rejected filter changes preserve the current view and selection.
+- [x] Bulk actions cannot include IDs selected in an earlier filter view.
+- [x] Select all and selection counts match the current visible rows.
 
 ## Verification
 
@@ -33,3 +33,9 @@ After implementation, run `node --test tests/project-secrets.test.mjs`.
 ## Related plans
 
 None.
+
+## Completion — 28 September 2026
+
+Accepted environment, service and query changes clear prior selections; failed description flushes preserve the current filter and selection.
+
+Checks: tests/project-secrets.test.mjs; tests/Feature/ProjectSecretTest.php; tests/Feature/SecretVaultTest.php; tests/Feature/EnvFileTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

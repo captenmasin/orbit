@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — Dashboard.vue:56,69; WorkspaceController.php:63
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-26)
 
@@ -22,10 +22,10 @@ The catalog deliberately uses simple pagination rather than a total-count query.
 
 ## Acceptance criteria
 
-- [ ] Displayed counts describe the current page rather than all matches.
-- [ ] A next page is announced without claiming an unknown total.
-- [ ] Search, status and tag filters persist through pagination.
-- [ ] Zero and single-project text are grammatically correct.
+- [x] Displayed counts describe the current page rather than all matches.
+- [x] A next page is announced without claiming an unknown total.
+- [x] Search, status and tag filters persist through pagination.
+- [x] Zero and single-project text are grammatically correct.
 
 ## Verification
 
@@ -35,3 +35,9 @@ Manually check 0, 1, 25, 26 and 51 matches and move through every page. Copy-onl
 
 None.
 
+
+## Completion — 28 September 2026
+
+Filtered dashboard counts say how many projects are shown and indicate when another page is available.
+
+Checks: tests/dashboard-filters.test.mjs; tests/Feature/ProjectCatalogTest.php; count wording review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

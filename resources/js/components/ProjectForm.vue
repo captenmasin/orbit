@@ -11,11 +11,11 @@ import { Input } from '@/components/ui/input';
 import { repositoryName } from '@/lib/project';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { computed, reactive, ref, watch } from 'vue';
 import { useObjectUrl, useSessionStorage } from '@vueuse/core';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Link, router, useForm, useHttp, usePage } from '@inertiajs/vue3';
+import { computed, onMounted, onScopeDispose, reactive, ref, watch } from 'vue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import type { FolderPreview, Project, ProjectFolder, ProjectLink, ProviderConnection, Repository } from '@/types';
@@ -46,6 +46,45 @@ function values() {
     };
 }
 const form = useForm(values());
+const draftKey = `project-form:${formId}`;
+const recovered = router.restore(draftKey) as { data: ReturnType<typeof values>; imageSelected: boolean } | undefined;
+const imageNeedsSelection = ref(!!recovered?.imageSelected);
+if (recovered) {
+    Object.assign(form, recovered.data, { icon_file: null });
+    if (props.project && recovered.data.revision !== props.project.revision) form.setError('revision', 'This project changed. Reload saved details and review your recovered draft.');
+}
+watch(() => form.data(), () => {
+    const { icon_file, ...data } = form.data();
+    router.remember(form.isDirty ? { data, imageSelected: !!icon_file || imageNeedsSelection.value } : null, draftKey);
+}, { deep: true, flush: 'post' });
+const departureOpen = ref(false);
+let destination: string | null = null;
+const stopDeparture = router.on('before', event => {
+    const visit = event.detail.visit;
+    if (!form.isDirty || visit.method.toLowerCase() !== 'get') return;
+    if (new URL(visit.url, 'https://orbit.local').pathname === new URL(usePage().url, 'https://orbit.local').pathname) return;
+    event.preventDefault(); destination = visit.url.toString(); departureOpen.value = true;
+});
+function discardDraft() {
+    form.reset(); form.defaults(); form.clearErrors(); imageNeedsSelection.value = false;
+    router.remember(null, draftKey); departureOpen.value = false;
+    const next = destination; destination = null;
+    if (next) router.visit(next);
+}
+function reviewDraft() {
+    router.reload({ only: ['selectedProject'], onSuccess: () => {
+        form.defaults(values()); form.revision = props.project?.revision;
+        form.clearErrors('revision');
+    } });
+}
+function warnBeforeUnload(event: BeforeUnloadEvent) {
+    if (form.isDirty) { event.preventDefault(); event.returnValue = ''; }
+}
+if (typeof window !== 'undefined') window.addEventListener('beforeunload', warnBeforeUnload);
+onMounted(() => { if (recovered && props.project) router.reload({ only: ['selectedProject'], onSuccess: () => {
+    if (form.revision !== props.project?.revision) form.setError('revision', 'This project changed. Reload saved details and review your recovered draft.');
+} }); });
+onScopeDispose(() => { stopDeparture(); if (typeof window !== 'undefined') window.removeEventListener('beforeunload', warnBeforeUnload); });
 const linkDetailsOpen = reactive<Record<string, boolean>>(Object.fromEntries((props.project?.links ?? []).map(link => [link.id, !!(link.category || link.description)])));
 watch(() => props.project?.revision, () => {
     if (!form.isDirty) {
@@ -70,10 +109,12 @@ const startedSource = computed(() => {
 const date = (value?: string | null) => value ? new Date(value).toLocaleString() : 'No known commit';
 
 function submit() {
+    if (form.processing || inspection.processing || cloning.processing || form.errors.revision) return;
     form.transform(data => ({ ...data, _method: props.project ? 'put' : 'post' })).post(props.project ? `/projects/${props.project.id}` : '/projects', {
         preserveScroll: true,
         errorBag: props.project ? 'editProject' : 'createProject',
         onSuccess: () => {
+            router.remember(null, draftKey);
             if (props.project) {
                 form.defaults(values());
                 form.reset();
@@ -86,6 +127,7 @@ function submit() {
     });
 }
 function archive() {
+    if (form.processing || inspection.processing || cloning.processing || form.errors.revision) return;
     form.status = props.project?.status === 'Archived' ? (props.project.previous_status ?? props.statuses[0]!) : 'Archived';
     submit();
 }
@@ -97,7 +139,24 @@ function removeProject() {
         onFinish: () => { removeOpen.value = false; },
     });
 }
+const relinking = ref<string | null>(null);
+const replacement = useHttp({ path: '' });
+function relinkFolder(folder: ProjectFolder) {
+    if (props.native) { void inspectFolder(folder.id, true); return; }
+    relinking.value = folder.id; replacement.path = folder.path; replacement.clearErrors();
+}
+async function replaceFolder() {
+    if (!relinking.value || replacement.processing) return;
+    try {
+        const result = await replacement.post('/folders/inspect') as { folder: FolderPreview | null } | undefined;
+        if (!result?.folder) return;
+        if (form.folders.some(folder => folder.path === result.folder!.path && folder.id !== relinking.value)) { replacement.setError('path', 'This folder is already linked.'); return; }
+        useFolder(result.folder, relinking.value); relinking.value = null;
+    } catch { if (!replacement.hasErrors) replacement.setError('path', 'The folder could not be inspected. Check the path and try again.'); }
+}
+onScopeDispose(() => { inspection.cancel(); cloning.cancel(); replacement.cancel(); });
 async function inspectFolder(id: string | null = null, picker = false) {
+    inspection.clearErrors();
     if (picker) inspection.path = '';
     try {
         const result = await inspection.post('/folders/inspect');
@@ -131,8 +190,7 @@ function useFolder(folder: FolderPreview, relinkingId: string | null = null, sel
         if (!form.name) form.name = folder.name;
         if (!form.description) form.description = folder.description ?? '';
     }
-    inspection.path = '';
-    inspection.clearErrors();
+    if (!relinkingId) { inspection.path = ''; inspection.clearErrors(); }
 }
 function removeRepository(id: string) {
     form.repositories = form.repositories.filter(repo => repo.id !== id);
@@ -195,12 +253,12 @@ function addLink() {
             <TabsTrigger
                 value="overview"
                 class="h-8 flex-none rounded-none px-3 text-[13px]">
-                {{ project ? 'Overview' : 'Details' }}
+                Details
             </TabsTrigger>
             <TabsTrigger
                 value="repositories"
                 class="h-8 flex-none rounded-none px-3 text-[13px]">
-                {{ project ? 'Repositories' : 'Sources' }}
+                Sources
             </TabsTrigger>
             <TabsTrigger
                 value="links"
@@ -209,10 +267,10 @@ function addLink() {
             </TabsTrigger>
         </TabsList>
         <form
-            :class="project ? 'w-full max-w-3xl' : 'w-full'"
+            class="w-full"
             novalidate
             @submit.prevent="submit">
-            <FieldGroup :class="!project ? 'gap-6' : undefined">
+            <FieldGroup class="gap-6">
                 <Alert
                     v-if="form.hasErrors"
                     variant="destructive"
@@ -230,16 +288,16 @@ function addLink() {
                             <Button
                                 type="button"
                                 variant="outline"
-                                @click="router.get(`/projects/${project!.id}/edit`)">
-                                Reload project
+                                @click="reviewDraft">
+                                Reload saved details and review draft
                             </Button>
                         </div>
                     </AlertDescription>
                 </Alert>
                 <TabsContent value="overview">
                     <div :class="!project ? 'grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-start' : undefined">
-                        <component :is="project ? 'div' : Card">
-                            <CardHeader v-if="!project">
+                        <component :is="Card">
+                            <CardHeader>
                                 <h2 class="text-sm font-normal tracking-[-0.025em]">
                                     Project details
                                 </h2>
@@ -248,9 +306,9 @@ function addLink() {
                                 </p>
                             </CardHeader>
                             <component
-                                :is="project ? 'div' : CardContent"
-                                :class="!project ? 'p-5 sm:p-7' : undefined">
-                                <FieldGroup :class="!project ? 'gap-6' : undefined">
+                                :is="CardContent"
+                                class="p-5 sm:p-7">
+                                <FieldGroup class="gap-6">
                                     <Field :data-invalid="!!form.errors.name">
                                         <FieldLabel :for="`${formId}-name`">
                                             Name
@@ -263,8 +321,7 @@ function addLink() {
                                             :autofocus="!project"
                                             :aria-invalid="!!form.errors.name"
                                             :aria-describedby="form.errors.name ? `${formId}-name-error` : undefined"
-                                            :placeholder="!project ? 'What are you working on?' : undefined"
-                                            :class="!project ? 'h-11 rounded-xl bg-background px-3.5' : undefined" />
+                                            :placeholder="!project ? 'What are you working on?' : undefined" />
                                     </Field>
                                     <Field :data-invalid="!!form.errors.description">
                                         <FieldLabel :for="`${formId}-description`">
@@ -278,10 +335,9 @@ function addLink() {
                                             :rows="4"
                                             :aria-invalid="!!form.errors.description"
                                             :aria-describedby="form.errors.description ? `${formId}-description-error` : undefined"
-                                            :placeholder="!project ? 'A short note about this project' : undefined"
-                                            :class="!project ? 'min-h-28 rounded-xl bg-background px-3.5 py-3' : undefined" />
+                                            :placeholder="!project ? 'A short note about this project' : undefined" />
                                     </Field>
-                                    <div :class="!project ? 'grid gap-6 sm:grid-cols-2' : 'flex flex-col gap-7'">
+                                    <div class="grid gap-6 sm:grid-cols-2">
                                         <Field :data-invalid="!!form.errors.status">
                                             <FieldLabel :for="`${formId}-status`">
                                                 Status
@@ -291,8 +347,7 @@ function addLink() {
                                                 v-model="form.status"
                                                 name="status"
                                                 :options="statuses"
-                                                :aria-invalid="!!form.errors.status"
-                                                :class="!project ? 'min-h-11 rounded-xl bg-background' : undefined" />
+                                                :aria-invalid="!!form.errors.status" />
                                         </Field>
                                         <FieldSet>
                                             <FieldLegend
@@ -310,8 +365,7 @@ function addLink() {
                                                 <ChoiceSelect
                                                     v-model="form.icon_type"
                                                     aria-label="Icon type"
-                                                    :options="[{ value: 'initials', label: 'Initials' }, { value: 'emoji', label: 'Emoji' }, { value: 'image', label: 'Image' }]"
-                                                    :class="!project ? 'min-h-11 flex-1 rounded-xl bg-background' : undefined" />
+                                                    :options="[{ value: 'initials', label: 'Initials' }, { value: 'emoji', label: 'Emoji' }, { value: 'image', label: 'Image' }]" />
                                             </div>
                                             <Field
                                                 v-if="form.icon_type === 'emoji'"
@@ -338,6 +392,9 @@ function addLink() {
                                                     accept="image/png,image/jpeg,image/gif,image/webp"
                                                     :aria-invalid="!!form.errors.icon_file"
                                                     @change="form.icon_file = ($event.target as HTMLInputElement).files?.[0] ?? null" />
+                                                <FieldDescription v-if="imageNeedsSelection">
+                                                    Reselect your image; selected files cannot be recovered from history.
+                                                </FieldDescription>
                                                 <FieldDescription>PNG, JPEG, GIF or WebP. Up to 2 MB and 2048 × 2048 pixels.</FieldDescription>
                                             </Field>
                                         </FieldSet>
@@ -461,9 +518,8 @@ function addLink() {
                     </div>
                 </TabsContent>
                 <TabsContent value="repositories">
-                    <component :is="project ? 'div' : Card">
+                    <component :is="Card">
                         <CardHeader
-                            v-if="!project"
                             class="px-5 pb-3 pt-3 sm:px-7">
                             <h2 class="text-sm font-normal tracking-[-0.025em]">
                                 Connect your work
@@ -473,11 +529,11 @@ function addLink() {
                             </p>
                         </CardHeader>
                         <div>
-                            <FieldGroup :class="!project ? 'grid gap-4 lg:grid-cols-2' : undefined">
+                            <FieldGroup class="grid gap-4 lg:grid-cols-2">
                                 <component
-                                    :is="project ? 'div' : CardContent"
-                                    :class="!project ? 'p-5 sm:p-6' : undefined">
-                                    <FieldSet :class="!project ? 'h-full gap-5' : undefined">
+                                    :is="CardContent"
+                                    class="p-5 sm:p-6">
+                                    <FieldSet>
                                         <FieldLegend :class="!project ? 'mb-0 flex items-center gap-3 font-normal' : undefined">
                                             <span
                                                 v-if="!project"
@@ -513,6 +569,9 @@ function addLink() {
                                                     <Trash2Icon aria-hidden="true" />
                                                 </Button>
                                             </div>
+                                            <FieldDescription v-if="project && repo.provider_connection_id">
+                                                Connected provider. Changing this URL disconnects its provider and clears cached activity. You can reconnect it from Sources.
+                                            </FieldDescription>
                                             <Field>
                                                 <FieldLabel :for="`${repo.id}-url`">
                                                     Remote URL
@@ -524,7 +583,6 @@ function addLink() {
                                                     maxlength="2048"
                                                     :readonly="!project && !!repo.provider_connection_id"
                                                     :aria-invalid="!!form.errors[`repositories.${index}.remote_url`]"
-                                                    :class="!project ? 'h-10 rounded-xl bg-white px-3 dark:bg-background' : undefined"
                                                     @update:model-value="updateRemote(repo, String($event))" />
                                             </Field>
                                             <FieldError
@@ -568,15 +626,15 @@ function addLink() {
                                     </FieldSet>
                                 </component>
                                 <component
-                                    :is="project ? 'div' : CardContent"
-                                    :class="!project ? 'p-5 sm:p-6' : undefined">
-                                    <FieldSet :class="!project ? 'h-full gap-5' : undefined">
+                                    :is="CardContent"
+                                    class="p-5 sm:p-6">
+                                    <FieldSet>
                                         <FieldLegend :class="!project ? 'mb-0 flex items-center gap-3 font-normal' : undefined">
                                             <span
                                                 v-if="!project"
                                                 class="flex size-9 items-center justify-center rounded-xl bg-muted text-muted-foreground dark:bg-[#303030]"><FolderOpenIcon
                                                     class="size-4"
-                                                    aria-hidden="true" /></span>{{ project ? 'Folders' : 'Local folders' }}
+                                                    aria-hidden="true" /></span>Local folders
                                         </FieldLegend>
                                         <p
                                             v-if="!project"
@@ -599,8 +657,7 @@ function addLink() {
                                                     v-model="inspection.path"
                                                     placeholder="/absolute/path/to/project"
                                                     :aria-invalid="!!inspection.errors.path"
-                                                    :aria-describedby="inspection.errors.path ? `${formId}-sources-folder-path-error` : undefined"
-                                                    :class="!project ? 'h-10 rounded-xl bg-white px-3 dark:bg-background' : undefined" />
+                                                    :aria-describedby="inspection.errors.path ? `${formId}-sources-folder-path-error` : undefined" />
                                                 <Button
                                                     type="button"
                                                     variant="outline"
@@ -723,7 +780,7 @@ function addLink() {
                                                         size="input"
                                                         :aria-label="`Relink folder ${folder.path}`"
                                                         :disabled="inspection.processing"
-                                                        @click="inspectFolder(folder.id, native)">
+                                                        @click="relinkFolder(folder)">
                                                         Relink
                                                     </Button>
                                                     <Button
@@ -744,9 +801,8 @@ function addLink() {
                     </component>
                 </TabsContent>
                 <TabsContent value="links">
-                    <component :is="project ? 'div' : Card">
+                    <component :is="Card">
                         <CardHeader
-                            v-if="!project"
                             class="px-5 pb-3 pt-3 sm:px-7">
                             <h2 class="text-sm font-normal tracking-[-0.025em]">
                                 Useful links
@@ -756,8 +812,8 @@ function addLink() {
                             </p>
                         </CardHeader>
                         <component
-                            :is="project ? 'div' : CardContent"
-                            :class="!project ? 'p-5 sm:p-7' : undefined">
+                            :is="CardContent"
+                            class="p-5 sm:p-7">
                             <FieldGroup :class="!project ? 'gap-4' : undefined">
                                 <FieldDescription v-if="!form.links.length">
                                     No links yet. Add a site, document, or other useful destination.
@@ -829,8 +885,7 @@ function addLink() {
                                                 maxlength="255"
                                                 placeholder="Project website"
                                                 :aria-invalid="!!form.errors[`links.${index}.label`]"
-                                                :aria-describedby="form.errors[`links.${index}.label`] ? `${formId}-links.${index}.label-error` : undefined"
-                                                :class="!project ? 'h-10 rounded-xl bg-background px-3' : undefined" />
+                                                :aria-describedby="form.errors[`links.${index}.label`] ? `${formId}-links.${index}.label-error` : undefined" />
                                         </Field>
                                         <Field
                                             class="gap-2"
@@ -844,8 +899,7 @@ function addLink() {
                                                 maxlength="2048"
                                                 placeholder="https://example.com"
                                                 :aria-invalid="!!form.errors[`links.${index}.url`]"
-                                                :aria-describedby="form.errors[`links.${index}.url`] ? `${formId}-links.${index}.url-error` : undefined"
-                                                :class="!project ? 'h-10 rounded-xl bg-background px-3' : undefined" />
+                                                :aria-describedby="form.errors[`links.${index}.url`] ? `${formId}-links.${index}.url-error` : undefined" />
                                         </Field>
                                     </div>
                                     <Collapsible
@@ -921,7 +975,6 @@ function addLink() {
                                                     :aria-invalid="!!form.errors[`links.${index}.description`]"
                                                     :aria-describedby="form.errors[`links.${index}.description`] ? `${formId}-links.${index}.description-error` : undefined"
                                                     placeholder="Access notes or setup steps"
-                                                    :class="!project ? 'rounded-xl bg-background px-3 py-2' : undefined"
                                                     @update:model-value="link.description = String($event)" />
                                             </Field>
                                         </CollapsibleContent>
@@ -939,6 +992,9 @@ function addLink() {
                         </component>
                     </component>
                 </TabsContent>
+                <FieldDescription v-if="project">
+                    {{ form.isDirty ? 'Archive or restore saves all entered project changes. ' : '' }}Archived projects remain visible in Dashboard and the Archived sidebar group. Use the Status filter to narrow the list.
+                </FieldDescription>
                 <Field
                     orientation="horizontal"
                     :class="!project ? 'flex-wrap justify-end gap-3 pt-1' : undefined">
@@ -952,7 +1008,7 @@ function addLink() {
                     </Button>
                     <Button
                         type="submit"
-                        :disabled="form.processing || inspection.processing">
+                        :disabled="form.processing || inspection.processing || cloning.processing || !!form.errors.revision">
                         {{ form.processing ? 'Saving…' : (project ? 'Save changes' : 'Create project') }}
                     </Button>
                     <Button
@@ -969,7 +1025,7 @@ function addLink() {
                         variant="outline"
                         :disabled="form.processing"
                         @click="archive">
-                        {{ project.status === 'Archived' ? 'Restore project' : 'Archive project' }}
+                        {{ form.isDirty ? (project.status === 'Archived' ? 'Save changes and restore' : 'Save changes and mark archived') : (project.status === 'Archived' ? 'Restore project' : 'Mark archived') }}
                     </Button>
                     <Button
                         v-if="project"
@@ -982,25 +1038,74 @@ function addLink() {
                 </Field>
             </FieldGroup>
         </form>
+        <Dialog v-model:open="departureOpen">
+            <DialogContent>
+                <DialogHeader><DialogTitle>Discard project changes?</DialogTitle><DialogDescription>Your unsaved details, sources and links will be discarded.</DialogDescription></DialogHeader><DialogFooter>
+                    <Button
+                        variant="outline"
+                        @click="departureOpen = false; destination = null">
+                        Stay
+                    </Button><Button
+                        variant="destructive"
+                        @click="discardDraft">
+                        Discard changes
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        <Dialog
+            :open="!!relinking"
+            @update:open="relinking = null">
+            <DialogContent>
+                <DialogHeader><DialogTitle>Relink local folder</DialogTitle><DialogDescription>This replaces the project's folder link. Files are not moved or deleted.</DialogDescription></DialogHeader><form
+                    class="grid gap-4"
+                    @submit.prevent="replaceFolder">
+                    <Field>
+                        <FieldLabel for="replacement-path">
+                            Replacement folder path
+                        </FieldLabel><Input
+                            id="replacement-path"
+                            v-model="replacement.path"
+                            :disabled="replacement.processing"
+                            :aria-invalid="!!replacement.errors.path"
+                            aria-describedby="replacement-error" /><FieldError
+                                v-if="replacement.errors.path"
+                                id="replacement-error">
+                                {{ replacement.errors.path }}
+                            </FieldError>
+                    </Field><DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            :disabled="replacement.processing"
+                            @click="relinking = null">
+                            Cancel
+                        </Button><Button :disabled="replacement.processing">
+                            {{ replacement.processing ? 'Reading folder…' : 'Relink folder' }}
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+        <Dialog v-model:open="removeOpen">
+            <DialogContent>
+                <DialogHeader><DialogTitle>Remove {{ project?.name }}?</DialogTitle><DialogDescription>This removes the project and its saved metadata from Orbit. Source folders and repositories stay on disk. This cannot be undone.</DialogDescription></DialogHeader>
+                <DialogFooter>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        :disabled="form.processing"
+                        @click="removeOpen = false">
+                        Cancel
+                    </Button><Button
+                        type="button"
+                        variant="destructive"
+                        :disabled="form.processing"
+                        @click="removeProject">
+                        Remove project
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     </Tabs>
-    <Dialog v-model:open="removeOpen">
-        <DialogContent>
-            <DialogHeader><DialogTitle>Remove {{ project?.name }}?</DialogTitle><DialogDescription>This removes the project and its saved metadata from Orbit. Source folders and repositories stay on disk. This cannot be undone.</DialogDescription></DialogHeader>
-            <DialogFooter>
-                <Button
-                    type="button"
-                    variant="outline"
-                    :disabled="form.processing"
-                    @click="removeOpen = false">
-                    Cancel
-                </Button><Button
-                    type="button"
-                    variant="destructive"
-                    :disabled="form.processing"
-                    @click="removeProject">
-                    Remove project
-                </Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
 </template>

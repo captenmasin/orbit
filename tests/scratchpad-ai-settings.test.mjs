@@ -75,11 +75,13 @@ test('failed removal preserves the saved AI and a later verified save sends the 
     });
     state.form.key = 'unused-private-key';
 
+    state.removing.value = true;
     await state.remove();
 
     assert.deepEqual(state.status.value, state.original);
     assert.deepEqual(state.toasts, []);
     assert.match(state.error.value, /Could not remove/);
+    assert.equal(state.removing.value, true);
     assert.deepEqual(state.events, []);
     assertKeyCleared(state.form);
     state.replacing.value = true;
@@ -127,7 +129,15 @@ test('successful AI removal clears the key and reports success only after confir
     });
     state.form.key = 'unused-private-key';
 
+    await state.remove();
+    assert.equal(requests.length, 0);
+    state.removing.value = true;
+    state.removing.value = false;
+    await state.remove();
+    assert.equal(requests.length, 0);
+    state.removing.value = true;
     const pending = state.remove();
+    await state.remove();
 
     assert.deepEqual(state.toasts, []);
     assert.deepEqual(state.events, []);

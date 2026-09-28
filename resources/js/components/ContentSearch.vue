@@ -111,7 +111,6 @@ function openResult(result?: SearchResult) {
     emit('navigate', result);
 }
 watch(query, () => {
-    if (!props.launcher) return;
     clearTimeout(searchTimer);
     request?.abort();
     results.value = [];
@@ -121,7 +120,7 @@ watch(query, () => {
     error.value = '';
     matchTerm.value = query.value.trim();
     filters.value = { type: null, project: null };
-    loading.value = Boolean(query.value.trim());
+    loading.value = props.launcher && Boolean(query.value.trim());
     if (loading.value) searchTimer = setTimeout(search, 200);
     void highlightFirstResult();
 }, { flush: 'sync' });
@@ -200,13 +199,16 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); request?.abort(); });
                     <Badge
                         v-if="filters.type"
                         variant="secondary">
-                        type:{{ filters.type }}
+                        {{ filters.type === 'task' ? 'Cards (type:task)' : `type:${filters.type}` }}
                     </Badge><Badge
                         v-if="filters.project"
                         variant="secondary">
                         project:{{ filters.project }}
                     </Badge>
                 </div>
+                <p class="px-6 pb-3 text-xs text-muted-foreground">
+                    Search projects, documents, cards, links and secret metadata. Scratchpad notes, assets and source folders are not included.
+                </p>
                 <ComboboxViewport class="max-h-[min(55vh,28rem)] scroll-py-2 overflow-y-auto px-2 pb-2">
                     <template
                         v-for="group in resultGroups"
@@ -246,7 +248,7 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); request?.abort(); });
                                                 v-if="index % 2"
                                                 class="rounded-sm bg-amber-200/70 text-inherit dark:bg-amber-400/25">{{ part }}</mark><template v-else>{{ part }}</template></template></span>
                                 </span>
-                                <span class="shrink-0 text-xs text-muted-foreground capitalize sm:text-sm">{{ result.type }}</span>
+                                <span class="shrink-0 text-xs text-muted-foreground capitalize sm:text-sm">{{ result.type === 'task' ? 'card' : result.type }}</span>
                             </ComboboxItem>
                         </ComboboxGroup>
                     </template>
@@ -344,7 +346,7 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); request?.abort(); });
                         :id="projectId ? 'project-content-search' : 'workspace-content-search'"
                         v-model="query"
                         maxlength="255"
-                        placeholder="Documents, tasks, links, secret names…" />
+                        placeholder="Documents, cards, links, secret metadata…" />
                 </Field>
                 <Button
                     type="submit"
@@ -355,9 +357,14 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); request?.abort(); });
                 </Button>
             </form>
             <div
-                v-if="searched || loading"
+                v-if="query.trim() || searched || loading"
                 class="gap-2"
                 :class="compact ? 'hidden group-focus-within/search:grid absolute top-full right-0 z-50 mt-2 max-h-[min(70vh,36rem)] w-[min(32rem,calc(100vw-3rem))] overflow-y-auto rounded-[1.25rem] border border-black/8 bg-popover p-4 shadow-xl dark:border-white/10' : 'grid'">
+                <p
+                    v-if="compact && query.trim() && !searched && !loading"
+                    class="text-sm text-muted-foreground">
+                    Press Enter to search.
+                </p>
                 <p
                     v-if="loading"
                     role="status"
@@ -388,7 +395,7 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); request?.abort(); });
                                 <Badge
                                     variant="secondary"
                                     class="capitalize">
-                                    {{ result.type }}
+                                    {{ result.type === 'task' ? 'card' : result.type }}
                                 </Badge><span class="break-all font-medium">{{ result.title }}</span>
                             </div>
                             <p class="text-xs text-muted-foreground">

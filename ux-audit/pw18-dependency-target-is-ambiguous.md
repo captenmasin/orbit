@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** sources
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Live + source — ProjectDependencies.vue:37,119,129
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-283)
 
@@ -22,10 +22,10 @@ A registry's newest stable version is not a promised advisory fix. Use distinct 
 
 ## Acceptance criteria
 
-- [ ] Latest available and advisory fixed versions are visually distinct.
-- [ ] Missing latest information never becomes a misleading target version.
-- [ ] All supplied fixed versions remain visible per advisory.
-- [ ] No text promises that a newest version is compatible or fixes every advisory.
+- [x] Latest available and advisory fixed versions are visually distinct.
+- [x] Missing latest information never becomes a misleading target version.
+- [x] All supplied fixed versions remain visible per advisory.
+- [x] No text promises that a newest version is compatible or fixes every advisory.
 
 ## Verification
 
@@ -36,3 +36,9 @@ No new tests are required for label/layout-only changes. Manually inspect update
 - [PW19 — View release destinations differ](pw19-view-release-destinations-differ.md)
 - [PW16 — Package location controls have several names](pw16-package-location-controls-have-several-names.md)
 
+
+## Completion — 28 September 2026
+
+Installed, Latest available and advisory fixed versions are distinct. Missing latest data stays empty instead of borrowing an advisory version.
+
+Checks: tests/dependencies.test.mjs; tests/Feature/RuntimeProbeTest.php; tests/Feature/DependencyUpdatesTest.php; template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

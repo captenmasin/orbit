@@ -142,7 +142,7 @@ class ProjectBoardTest extends TestCase
         $url = '/projects/'.$project->id.'/board';
         foreach ([null, $source->id, $foreign->id] as $invalidDestination) {
             $this->putJson($url, ['action' => 'column.delete', 'revision' => 1, 'id' => $source->id, 'destination_id' => $invalidDestination])
-                ->assertUnprocessable()->assertJsonValidationErrors(['destination_id' => 'Choose another column for the remaining tasks.']);
+                ->assertUnprocessable()->assertJsonValidationErrors(['destination_id' => 'Choose another list for the remaining cards.']);
             $this->assertSame(1, $project->fresh()->revision);
             $this->assertSame($tasks->modelKeys(), $source->tasks()->pluck('id')->all());
         }

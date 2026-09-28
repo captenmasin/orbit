@@ -106,7 +106,7 @@ class SaveBoard
         if ($tasks->isNotEmpty()) {
             $destination = $project->boardColumns()->whereKeyNot($column->id)->find($data['destination_id'] ?? '');
             if (! $destination) {
-                throw ValidationException::withMessages(['destination_id' => 'Choose another column for the remaining tasks.']);
+                throw ValidationException::withMessages(['destination_id' => 'Choose another list for the remaining cards.']);
             }
             $position = $destination->tasks()->count();
             foreach ($tasks as $task) {
@@ -127,11 +127,11 @@ class SaveBoard
         $files = collect($task->attachment_files ?? []);
         $removed = $data['removed_attachment_ids'] ?? [];
         if (array_diff($removed, $files->pluck('id')->all())) {
-            throw ValidationException::withMessages(['removed_attachment_ids' => 'Choose attachments belonging to this task.']);
+            throw ValidationException::withMessages(['removed_attachment_ids' => 'Choose attachments belonging to this card.']);
         }
         $retained = $files->whereNotIn('id', $removed)->values()->all();
         if (count($retained) + count($data['attachments'] ?? []) > 10) {
-            throw ValidationException::withMessages(['attachments' => 'A task can have up to 10 attachments.']);
+            throw ValidationException::withMessages(['attachments' => 'A card can have up to 10 attachments.']);
         }
         foreach ($data['attachments'] ?? [] as $file) {
             $path = $file->store('task-attachments/'.$project->id, 'local');
@@ -200,7 +200,7 @@ class SaveBoard
     private function insertAt(array &$ids, string $id, int $position): void
     {
         if ($position > count($ids)) {
-            throw ValidationException::withMessages(['position' => 'Choose a position within this column or board.']);
+            throw ValidationException::withMessages(['position' => 'Choose a position within this list or board.']);
         }
         array_splice($ids, $position, 0, [$id]);
     }

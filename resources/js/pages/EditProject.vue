@@ -7,10 +7,10 @@ defineProps<{ selectedProject: Project; statuses: string[]; native: boolean }>()
 </script>
 
 <template>
-    <div class="flex min-w-0 flex-col gap-6">
+    <div class="flex w-full max-w-[1200px] min-w-0 flex-col gap-8 pb-8">
         <Head :title="`Edit ${selectedProject.name}`" />
         <div class="flex flex-wrap items-center justify-between gap-3">
-            <h1 class="text-2xl font-normal tracking-tight">
+            <h1 class="text-[2rem] leading-tight font-semibold tracking-[-0.035em]">
                 Edit {{ selectedProject.name }}
             </h1>
             <Button

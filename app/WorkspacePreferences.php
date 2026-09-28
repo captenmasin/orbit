@@ -68,6 +68,7 @@ class WorkspacePreferences
                 $values[$section] = array_replace($values[$section], $fields);
             }
         }
+        $values['startup']['last_project_id'] = $record?->last_project_id;
         $values['project_statuses']['colors'] = Arr::only($values['project_statuses']['colors'], $values['project_statuses']['names']);
 
         return ['revision' => (int) ($record?->revision ?? 1), 'values' => $values];
@@ -83,8 +84,27 @@ class WorkspacePreferences
         return $this->write([$section => $values], $expectedRevision);
     }
 
+    public function lastProjectId(): ?string
+    {
+        return DB::table('workspace_preferences')->where('id', 1)->value('last_project_id');
+    }
+
+    public function rememberProject(?string $id): void
+    {
+        DB::table('workspace_preferences')->insertOrIgnore(['id' => 1, 'revision' => 1, 'values' => '{}']);
+        DB::table('workspace_preferences')->where('id', 1)->update(['last_project_id' => $id]);
+    }
+
     public function merge(array $values): array
     {
+        if (isset($values['startup'])) {
+            $this->rememberProject($values['startup']['last_project_id'] ?? null);
+            unset($values['startup']);
+        }
+        if ($values === []) {
+            return $this->snapshot();
+        }
+
         return $this->write($values, null);
     }
 
@@ -100,8 +120,10 @@ class WorkspacePreferences
                 abort_unless(isset($snapshot['values'][$section]) && is_array($fields), 422);
                 $snapshot['values'][$section] = array_replace($snapshot['values'][$section], $fields);
             }
+            $storedValues = $snapshot['values'];
+            unset($storedValues['startup']);
             if (! DB::table('workspace_preferences')->where('id', 1)->where('revision', $snapshot['revision'])->update([
-                'values' => json_encode($snapshot['values'], JSON_THROW_ON_ERROR), 'revision' => $snapshot['revision'] + 1,
+                'values' => json_encode($storedValues, JSON_THROW_ON_ERROR), 'revision' => $snapshot['revision'] + 1,
             ])) {
                 throw new ConflictHttpException('Settings changed. Reload before saving.');
             }

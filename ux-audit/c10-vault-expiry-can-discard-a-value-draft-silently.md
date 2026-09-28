@@ -2,7 +2,7 @@
 
 Priority: P2  
 Area: assets  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectSecrets.vue:143–170,505–515  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-208)
 
@@ -20,10 +20,10 @@ The vault locks at its deadline and clears secret-value/paste drafts, closing th
 
 ## Acceptance criteria
 
-- [ ] The unlocked screen shows when the vault will lock.
-- [ ] An advance warning reaches users editing or pasting values.
-- [ ] Expiry explains draft clearing without revealing entered content.
-- [ ] Lock still clears plaintext immediately and late responses cannot restore it.
+- [x] The unlocked screen shows when the vault will lock.
+- [x] An advance warning reaches users editing or pasting values.
+- [x] Expiry explains draft clearing without revealing entered content.
+- [x] Lock still clears plaintext immediately and late responses cannot restore it.
 
 ## Verification
 
@@ -35,3 +35,11 @@ After implementation, run `node --test tests/project-secrets.test.mjs` and `php 
 
 - [C03 — Failed .env paste clears the input](c03-failed-env-paste-clears-the-input.md)
 - [C07 — Autosave lacks persistent saved/failed status](c07-autosave-lacks-persistent-saved-failed-status.md)
+
+## Completion — 28 September 2026
+
+The vault displays its locking time, warns one minute before expiry and explains plaintext draft clearing afterward. Lock boundaries remain enforced.
+
+Checks: tests/project-secrets.test.mjs; tests/Feature/ProjectSecretTest.php; tests/Feature/SecretVaultTest.php; tests/Feature/EnvFileTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

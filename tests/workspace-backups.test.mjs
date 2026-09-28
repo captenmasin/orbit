@@ -9,16 +9,16 @@ import * as vue from 'vue';
 
 const { http } = inertia;
 
-function mount(t, events = []) {
+function mount(t, events = [], props = {}) {
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/WorkspaceBackups.vue', import.meta.url), 'utf8'));
     const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'backup-test' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
     const toast = Object.assign(() => {}, { success() {}, error() {} });
     const modules = { vue: { ...vue, onMounted() {}, onBeforeUnmount: vue.onScopeDispose }, '@inertiajs/vue3': inertia, 'vue-sonner': { toast } };
-    const context = { exports: {}, require: name => modules[name] ?? {} };
+    const context = { exports: {}, URL, require: name => modules[name] ?? {} };
     runInNewContext(outputText, context);
     const scope = vue.effectScope();
     t.after(() => scope.stop());
-    return scope.run(() => context.exports.default.setup({ native: true }, { expose() {}, emit(...args) { events.push(args); } }));
+    return scope.run(() => context.exports.default.setup({ native: true, pinSet: true, ...props }, { expose() {}, emit(...args) { events.push(args); } }));
 }
 
 test('backup export submits the entered password then clears it from state', async t => {
@@ -71,7 +71,35 @@ test('backup folder loads and saves with the preference revision contract', asyn
     assert.deepEqual(events, [['saved', 2], ['saved', 3]]);
 });
 
-test('rejected backup exports and restores retain the selection and do not reload', async t => {
+test('recovered folder drafts require reviewing fresh preferences before saving', async t => {
+    t.mock.method(inertia.router, 'restore', () => ({ folder: '/draft', baseline: '/old', revision: 2 }));
+    const remembered = [];
+    t.mock.method(inertia.router, 'remember', (data, key) => remembered.push({ data, key }));
+    const state = mount(t);
+    const requests = [];
+    t.mock.method(http.getClient(), 'request', async request => {
+        requests.push(request.url);
+        return { status: 200, data: JSON.stringify({ revision: 4, backups: { folder: '/current', last_export_at: null, last_export_path: null } }), headers: {} };
+    });
+    await state.loadPreferences();
+    assert.equal(state.folderForm.folder, '/draft');
+    assert.equal(state.folderForm.revision, 2);
+    assert.match(state.folderForm.errors.revision, /saved folder changed/);
+    await state.saveFolder();
+    assert.deepEqual(requests, ['/backups/preferences']);
+
+    await state.loadPreferences(true);
+    assert.equal(state.folderForm.folder, '/draft');
+    assert.equal(state.folderForm.revision, 4);
+    assert.equal(state.folderForm.isDirty, true);
+    assert.equal(state.folderForm.hasErrors, false);
+    state.discardFolder();
+    assert.equal(state.folderForm.folder, '/current');
+    assert.equal(state.folderForm.isDirty, false);
+    assert.equal(remembered.at(-1).data, null);
+});
+
+test('rejected restores clear consumed staging and do not reload', async t => {
     const state = mount(t);
     state.destination.value = { destination: 'workspace.orbitbackup', exists: false };
     state.restorePreview.value = { projects: 1 };
@@ -84,7 +112,8 @@ test('rejected backup exports and restores retain the selection and do not reloa
     await state.applyRestore();
 
     assert.equal(state.destination.value.destination, 'workspace.orbitbackup');
-    assert.equal(state.restorePreview.value.projects, 1);
+    assert.equal(state.restorePreview.value, null);
+    assert.equal(state.restoreApply.confirm, false);
     assert.match(state.form.errors.backup, /file changed/);
     assert.match(state.restoreApply.errors.backup, /file changed/);
     assert.equal(reloads, 0);
@@ -127,4 +156,55 @@ test('a wrong PIN stops a secret backup before export', async t => {
     assert.equal(state.pinForm.pin, '');
     assert.equal(state.pinForm.errors.pin, 'Incorrect PIN.');
     assert.notEqual(state.destination.value, null);
+});
+
+test('starting another preview immediately removes the old destructive candidate and consent', async t => {
+    const state = mount(t);
+    let finish;
+    t.mock.method(http.getClient(), 'request', () => new Promise(resolve => { finish = resolve; }));
+    state.restorePreview.value = { source: '/A.orbitbackup', projects: 1 };
+    state.restoreApply.confirm = true;
+    state.restoreApplyPassword.value = 'old-password';
+    state.restorePassword.value = 'new-password';
+    const pending = state.previewRestore();
+    assert.equal(state.restorePreview.value, null);
+    assert.equal(state.restoreApply.confirm, false);
+    assert.equal(state.restoreApplyPassword.value, '');
+    await vue.nextTick();
+    finish({ status: 422, data: JSON.stringify({ errors: { backup: 'Damaged backup.' } }), headers: {} });
+    await pending;
+    assert.equal(state.restorePreview.value, null);
+    assert.equal(state.restore.password, '');
+    t.mock.method(http.getClient(), 'request', async () => ({ status: 200, data: JSON.stringify({ preview: null }), headers: {} }));
+    await state.previewRestore();
+    assert.equal(state.restorePreview.value, null);
+});
+
+test('missing or unavailable PIN prevents inclusive exports before unlocking', async t => {
+    const requests = [];
+    t.mock.method(http.getClient(), 'request', async request => { requests.push(request.url); return { status: 200, data: '{}', headers: {} }; });
+    for (const pinSet of [false, null, undefined]) {
+        const state = mount(t, [], { pinSet });
+        state.destination.value = { destination: 'workspace.orbitbackup', exists: false };
+        state.form.include_secrets = true;
+        await state.exportBackup();
+        assert.equal(requests.length, 0);
+        state.form.include_secrets = false;
+        await state.exportBackup();
+        assert.equal(requests.pop(), '/backups/export');
+    }
+});
+
+test('successful replacement reports restore completion only after fresh props arrive', async t => {
+    const events = [];
+    const state = mount(t, events);
+    let reload;
+    t.mock.method(inertia.router, 'reload', options => { reload = options; });
+    t.mock.method(http.getClient(), 'request', async () => ({ status: 200, data: JSON.stringify({ restored: true }), headers: {} }));
+    state.restorePreview.value = { source: '/A.orbitbackup', projects: 1 };
+    await state.applyRestore();
+    assert.deepEqual(events, []);
+    assert.equal(state.restorePreview.value, null);
+    reload.onSuccess();
+    assert.deepEqual(events, [['restored']]);
 });

@@ -2,7 +2,7 @@
 
 Priority: P2  
 Area: content  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectBoard.vue:294–313,336–345  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-145)
 
@@ -20,10 +20,10 @@ Visual ordering requires dragging. Existing card context menus can move between 
 
 ## Acceptance criteria
 
-- [ ] Every list and card can be reordered without dragging.
-- [ ] Boundary and in-flight ordering actions are disabled appropriately.
-- [ ] Keyboard moves persist the same order as drag moves.
-- [ ] Focus and error feedback remain usable after success or failure.
+- [x] Every list and card can be reordered without dragging.
+- [x] Boundary and in-flight ordering actions are disabled appropriately.
+- [x] Keyboard moves persist the same order as drag moves.
+- [x] Focus and error feedback remain usable after success or failure.
 
 ## Verification
 
@@ -34,3 +34,9 @@ After implementation, run `node --test tests/project-board-drag.test.mjs` and `p
 ## Related plans
 
 - [C15 — Board vocabulary alternates mid-flow](c15-board-vocabulary-alternates-mid-flow.md)
+
+## Completion — 28 September 2026
+
+List and card menus expose keyboard ordering through the existing move endpoints, with boundary guards, focus restoration and announcements.
+
+Checks: tests/project-board-drag.test.mjs; tests/scratchpad-action-review.test.mjs; tests/Feature/ProjectBoardTest.php; tests/Feature/TaskContentTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

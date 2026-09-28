@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — WorkspaceController.php:44–60; HandleInertiaRequests.php:18
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-102)
 
@@ -22,10 +22,10 @@ Keep the current intentional browsing model: Archived is a status and remains di
 
 ## Acceptance criteria
 
-- [ ] Archive action wording describes a status change, not removal from browsing.
-- [ ] Users are told where archived projects remain visible and how to filter them.
-- [ ] Dirty form archive wording agrees with PW10.
-- [ ] Restore behavior, archived grouping and current dashboard data remain unchanged.
+- [x] Archive action wording describes a status change, not removal from browsing.
+- [x] Users are told where archived projects remain visible and how to filter them.
+- [x] Dirty form archive wording agrees with PW10.
+- [x] Restore behavior, archived grouping and current dashboard data remain unchanged.
 
 ## Verification
 
@@ -36,3 +36,9 @@ No new tests are needed for action/help copy. Manually mark a project archived f
 - [PW10 — Archive also commits every form edit](pw10-archive-also-commits-every-form-edit.md)
 - [PW25 — Duplicate is hidden and its scope is undisclosed](pw25-duplicate-is-hidden-and-its-scope-is-undisclosed.md)
 
+
+## Completion — 28 September 2026
+
+Mark archived wording describes the status change and explains Archived visibility/filtering; dirty-form wording includes saving edits.
+
+Checks: tests/project-sidebar.test.mjs; tests/project-context-menu.test.mjs; tests/Feature/ProjectDuplicationTest.php; dashboard menu/confirmation browser check. These checks passed in the full suites; production build and lint of changed Vue files also passed.

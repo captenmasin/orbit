@@ -69,6 +69,7 @@ async function check() {
 }
 watch(() => props.active && focused.value && online.value, () => { lastCheck = 0; void check(); }, { immediate: true });
 useIntervalFn(check, 2000);
+defineExpose({ edit, refresh, disabled });
 </script>
 
 <template>
@@ -93,7 +94,7 @@ useIntervalFn(check, 2000);
                     </h3><p
                         v-if="repository.provider_connection"
                         class="text-sm text-muted-foreground">
-                        {{ repository.provider_connection.label }} · {{ repository.provider_connection.login }} · {{ repository.provider_connection.state }}<template v-if="repository.provider_connection.retry_at">
+                        {{ repository.provider_connection.label }} · {{ repository.provider_connection.login }} · {{ repository.provider_connection.state === 'Current' ? 'Account verified' : repository.provider_connection.state }}<template v-if="repository.provider_connection.retry_at">
                             · Retry after {{ date(repository.provider_connection.retry_at) }}
                         </template>
                     </p>

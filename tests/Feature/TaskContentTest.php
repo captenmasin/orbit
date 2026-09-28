@@ -98,7 +98,7 @@ class TaskContentTest extends TestCase
         $this->putJson('/projects/'.$project->id.'/board', [
             'action' => 'task.save', 'revision' => 2, 'id' => $sibling->id, 'column_id' => $column->id,
             'title' => 'Wrong owner', 'removed_attachment_ids' => [$file['id']],
-        ])->assertUnprocessable()->assertJsonValidationErrors(['removed_attachment_ids' => 'Choose attachments belonging to this task.']);
+        ])->assertUnprocessable()->assertJsonValidationErrors(['removed_attachment_ids' => 'Choose attachments belonging to this card.']);
 
         Storage::disk('local')->assertExists($file['path']);
         $this->assertSame(2, $project->fresh()->revision);
@@ -122,7 +122,7 @@ class TaskContentTest extends TestCase
         $uploads = array_map(fn ($index) => UploadedFile::fake()->create('file-'.$index.'.txt'), range(1, 10));
         $this->post($url, [...$payload, 'attachments' => $uploads])->assertRedirect();
         $this->post($url, [...$payload, 'revision' => 2, 'attachments' => [UploadedFile::fake()->create('extra.txt')]], ['Accept' => 'application/json'])
-            ->assertUnprocessable()->assertJsonValidationErrors(['attachments' => 'A task can have up to 10 attachments.']);
+            ->assertUnprocessable()->assertJsonValidationErrors(['attachments' => 'A card can have up to 10 attachments.']);
         $this->assertCount(10, $task->fresh()->attachments);
         $this->assertCount(10, Storage::disk('local')->allFiles());
         $this->assertSame(2, $project->fresh()->revision);

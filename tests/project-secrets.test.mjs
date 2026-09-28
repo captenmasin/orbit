@@ -252,7 +252,7 @@ test('search changes reopen service groups to expose matching secrets', async t 
 
     assert.equal(state.collapsedServices.value.length, 0);
     assert.deepEqual(Array.from(state.serviceGroups.value, group => group.service), ['Stripe']);
-    assert.deepEqual(Array.from(state.selectedIds.value), ['b']);
+    assert.deepEqual(Array.from(state.selectedIds.value), []);
     state.toggleServiceGroup('Stripe', false);
     await state.filterSecrets('query', '');
     await vue.nextTick();
@@ -866,4 +866,80 @@ test('PIN recovery clears old unlock errors and staged files before refreshing s
     assert.equal(state.exportOpen.value, false);
     assert.equal(state.exportPreview.value, null);
     assert.deepEqual(Array.from(reloads[0].only), ['selectedProject']);
+});
+
+test('paste failures retain transient input until success, cancel or lock', async t => {
+    const state = mount(t);
+    let fails = true;
+    t.mock.method(http.getClient(), 'request', async () => fails
+        ? { status: 422, data: JSON.stringify({ errors: { entries: 'Duplicate name.' } }), headers: {} }
+        : { status: 200, data: JSON.stringify({ saved: true }), headers: {} });
+    t.mock.method(inertia.router, 'reload', () => {});
+    state.unlocked.value = true;
+    state.pasteOpen.value = true;
+    state.pasteForm.entries = 'TEST_KEY=disposable';
+    state.pasteForm.environment = 'Production';
+    await state.paste();
+    assert.equal(state.pasteForm.entries, 'TEST_KEY=disposable');
+    assert.equal(state.pasteForm.environment, 'Production');
+    fails = false;
+    await state.paste();
+    assert.equal(state.pasteForm.entries, '');
+    assert.equal(state.pasteOpen.value, false);
+    state.pasteForm.entries = 'TEST_KEY=disposable';
+    state.closePaste();
+    assert.equal(state.pasteForm.entries, '');
+    state.pasteForm.entries = 'TEST_KEY=disposable';
+    state.clearVault();
+    assert.equal(state.pasteForm.entries, '');
+});
+
+test('accepted filters clear hidden selections but same values and blocked filters retain them', async t => {
+    const state = mount(t);
+    for (const field of ['environment', 'service', 'query']) {
+        state.selectedIds.value = ['hidden'];
+        await state.filterSecrets(field, 'next');
+        assert.equal(state.selectedIds.value.length, 0);
+        state.selectedIds.value = ['visible'];
+        await state.filterSecrets(field, 'next');
+        assert.deepEqual(Array.from(state.selectedIds.value), ['visible']);
+        state.description.value = { flush: async () => false };
+        await state.filterSecrets(field, 'blocked');
+        assert.equal(state[field].value, 'next');
+        assert.deepEqual(Array.from(state.selectedIds.value), ['visible']);
+        state.description.value = null;
+    }
+});
+
+test('failed export invalidates its destination and overwrite consent while preserving selected names', async t => {
+    const state = mount(t);
+    t.mock.method(http.getClient(), 'request', async () => { throw new Error('Write failed'); });
+    state.exportOpen.value = true;
+    state.exportPreview.value = { destination: '/tmp/disposable/.env', exists: true };
+    state.exportNames.value = ['TEST_KEY'];
+    state.exportForm.overwrite = true;
+    await state.exportEntries();
+    assert.equal(state.exportPreview.value, null);
+    assert.equal(state.exportForm.overwrite, false);
+    assert.deepEqual(Array.from(state.exportNames.value), ['TEST_KEY']);
+    assert.equal(state.exportOpen.value, true);
+});
+
+test('vault deadline warns before expiry and explains cleared sensitive drafts', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100000 });
+    const state = mount(t);
+    state.resumeVault(220);
+    state.pasteForm.entries = 'TEST_KEY=disposable';
+    t.mock.timers.tick(60000);
+    assert.match(state.vaultNotice.value, /one minute/);
+    assert.equal(state.unlocked.value, true);
+    t.mock.timers.tick(60000);
+    assert.equal(state.unlocked.value, false);
+    assert.equal(state.pasteForm.entries, '');
+    assert.match(state.vaultNotice.value, /cleared/);
+    state.resumeVault(400);
+    assert.equal(state.vaultNotice.value, '');
+    state.clearVault();
+    t.mock.timers.tick(180000);
+    assert.equal(state.vaultNotice.value, '');
 });

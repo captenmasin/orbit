@@ -2,7 +2,7 @@
 
 Priority: P2  
 Area: content  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectScratchpad.vue:37–42,167; WorkspaceController.php:200  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-133)
 
@@ -19,10 +19,10 @@ Background generation currently displays configuration and no-action errors duri
 
 ## Acceptance criteria
 
-- [ ] Ordinary note-taking produces no AI setup or generation-error notification.
-- [ ] Explicit generation without a connection gives a useful Settings/Connections next step.
-- [ ] Explicit generation failure keeps notes and permits another attempt.
-- [ ] Explicit bare-URL conversion still works without an AI connection.
+- [x] Ordinary note-taking produces no AI setup or generation-error notification.
+- [x] Explicit generation without a connection gives a useful Settings/Connections next step.
+- [x] Explicit generation failure keeps notes and permits another attempt.
+- [x] Explicit bare-URL conversion still works without an AI connection.
 
 ## Verification
 
@@ -33,3 +33,9 @@ After implementation, run `node --test tests/project-tab.test.mjs` and `php arti
 ## Related plans
 
 - [C05 — Writing notes automatically runs AI](c05-writing-notes-automatically-runs-ai.md)
+
+## Completion — 28 September 2026
+
+AI failures are confined to explicit generation, with setup/retry guidance and retained notes. Bare-URL conversion remains available.
+
+Checks: tests/Feature/ProjectScratchpadTest.php; tests/scratchpad-action-review.test.mjs. These checks passed in the full suites; production build and lint of changed Vue files also passed.

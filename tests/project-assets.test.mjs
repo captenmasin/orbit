@@ -11,13 +11,13 @@ function mount(t, project) {
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ProjectAssets.vue', import.meta.url), 'utf8'));
     const script = compileScript(descriptor, { id: 'assets-test' });
     const { outputText } = ts.transpileModule(script.content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
-    const modules = { vue, '@inertiajs/vue3': inertia };
+    const modules = { vue, '@inertiajs/vue3': inertia, 'vue-sonner': { toast: { error() {} } } };
     const context = { exports: {}, require: name => modules[name] ?? {} };
     runInNewContext(outputText, context);
     const props = vue.reactive({ project });
     const scope = vue.effectScope();
     t.after(() => scope.stop());
-    return { props, state: scope.run(() => context.exports.default.setup(props, { expose() {} })) };
+    return { props, stop: () => scope.stop(), state: scope.run(() => context.exports.default.setup(props, { expose() {} })) };
 }
 
 test('asset filters use detected types, include every file, and update after uploads and removal', t => {
@@ -231,4 +231,33 @@ test('dragging from empty canvas selects intersecting cards', t => {
     assert.deepEqual(Array.from(state.selectedKeys.value), ['file:first']);
     state.canvasPointerDown({ button: 0, pointerType: 'mouse', target: { closest: () => ({}) }, currentTarget: canvas });
     assert.equal(state.marquee.value, null);
+});
+
+test('folder parent choices show paths and exclude the edited folder and its descendants independently of selection', t => {
+    const { state } = mount(t, { id: 'project', revision: 1, asset_folders: [
+        { id: 'brand', name: 'Brand', parent_id: null }, { id: 'brand-images', name: 'Images', parent_id: 'brand' },
+        { id: 'marketing', name: 'Marketing', parent_id: null }, { id: 'marketing-images', name: 'Images', parent_id: 'marketing' },
+    ], assets: [] });
+    state.selectedFolder.value = 'marketing';
+    state.editFolder({ id: 'brand', name: 'Brand', parent_id: null });
+    assert.deepEqual(Array.from(state.parentOptions.value, option => option.label), ['Assets', 'Marketing', 'Marketing / Images']);
+    state.editFolder();
+    assert.deepEqual(Array.from(state.parentOptions.value, option => option.label), ['Assets', 'Brand', 'Brand / Images', 'Marketing', 'Marketing / Images']);
+});
+
+test('folder preparation releases busy state after reading errors and cannot upload after unmount', async t => {
+    const { state, stop } = mount(t, { id: 'project', revision: 1, assets: [], asset_folders: [] });
+    let rejectRead;
+    const entry = { name: 'broken', isDirectory: true, createReader: () => ({ readEntries(resolve, reject) { rejectRead = reject; } }) };
+    const transfer = { getData: () => '', items: [{ kind: 'file', webkitGetAsEntry: () => entry }], files: [] };
+    let uploads = 0;
+    t.mock.method(state.upload, 'post', () => uploads++);
+    const pending = state.dropOn({ dataTransfer: transfer }, '');
+    assert.equal(state.readingDrop.value, true); assert.equal(state.busy.value, true);
+    rejectRead(new Error('Unreadable'));
+    await pending;
+    assert.equal(state.readingDrop.value, false); assert.equal(state.busy.value, false); assert.equal(uploads, 0);
+    const reading = state.dropOn({ dataTransfer: transfer }, '');
+    stop(); rejectRead(new Error('Cancelled')); await reading;
+    assert.equal(state.readingDrop.value, false); assert.equal(uploads, 0);
 });

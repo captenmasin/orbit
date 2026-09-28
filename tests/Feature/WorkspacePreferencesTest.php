@@ -199,6 +199,34 @@ class WorkspacePreferencesTest extends TestCase
         $this->assertDatabaseCount('board_columns', 0);
     }
 
+    public function test_project_visits_preserve_pending_settings_revision_and_latest_startup_history(): void
+    {
+        $preferences = app(WorkspacePreferences::class);
+        $first = Project::factory()->create();
+        $second = Project::factory()->create();
+        $revision = $preferences->snapshot()['revision'];
+        $this->get('/projects/'.$first->id)->assertOk();
+        $this->get('/projects/'.$second->id)->assertOk();
+        $this->assertSame($revision, $preferences->snapshot()['revision']);
+        $this->putJson('/settings/general', ['revision' => $revision, 'startup_destination' => 'last_project'])->assertOk();
+        $this->assertSame($second->id, $preferences->lastProjectId());
+        $this->putJson('/settings/general', ['revision' => $revision, 'startup_destination' => 'dashboard'])->assertConflict();
+        $this->get('/startup')->assertRedirect('/projects/'.$second->id);
+    }
+
+    public function test_upgrade_backfills_startup_history_without_changing_editable_preferences(): void
+    {
+        $migration = require database_path('migrations/2026_09_28_120051_add_last_project_id_to_workspace_preferences_table.php');
+        $migration->down();
+        $values = json_encode(['startup' => ['last_project_id' => 'previous-project'], 'appearance' => ['theme' => 'dark']]);
+        DB::table('workspace_preferences')->insert(['id' => 1, 'revision' => 8, 'values' => $values]);
+        $migration->up();
+        $record = DB::table('workspace_preferences')->where('id', 1)->first();
+        $this->assertSame('previous-project', app(WorkspacePreferences::class)->lastProjectId());
+        $this->assertSame(8, $record->revision);
+        $this->assertSame($values, $record->values);
+    }
+
     public function test_last_project_resumes_its_overview_and_utility_pages_do_not_replace_it(): void
     {
         $project = Project::factory()->create();

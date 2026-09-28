@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Live + source — ProjectCard.vue:28; Project.php:73
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-89)
 
@@ -22,10 +22,10 @@ The card's timestamp is the latest known local or remote commit, not Orbit's upd
 
 ## Acceptance criteria
 
-- [ ] A dated card explicitly identifies its timestamp as Last commit.
-- [ ] Cards without commit data show readable text rather than an unexplained dash.
-- [ ] Project edits do not imply a newer commit.
-- [ ] Footer text wraps without obscuring source counts or Edit.
+- [x] A dated card explicitly identifies its timestamp as Last commit.
+- [x] Cards without commit data show readable text rather than an unexplained dash.
+- [x] Project edits do not imply a newer commit.
+- [x] Footer text wraps without obscuring source counts or Edit.
 
 ## Verification
 
@@ -35,3 +35,9 @@ No new tests are needed for this copy/display change. Manually inspect local-com
 
 None.
 
+
+## Completion — 28 September 2026
+
+Project cards identify timestamps as Last commit and show No commit data when no commit is available.
+
+Checks: tests/project-sidebar.test.mjs; tests/project-context-menu.test.mjs; tests/Feature/ProjectDuplicationTest.php; dashboard menu/confirmation browser check. These checks passed in the full suites; production build and lint of changed Vue files also passed.

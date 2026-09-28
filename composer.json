@@ -48,11 +48,14 @@
             "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
             "@php artisan migrate --force",
             "@php artisan native:install --no-interaction",
+            "node bootstrap/compile-macos-icon.mjs",
             "pnpm install --frozen-lockfile",
             "pnpm run build"
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
+            "@php bootstrap/patch-nativephp.php",
+            "node bootstrap/compile-macos-icon.mjs",
             "@php artisan native:migrate --no-interaction",
             "pnpm exec concurrently --kill-others --names vite,native \"pnpm run dev\" \"php artisan native:run --no-dependencies --no-interaction\""
         ],

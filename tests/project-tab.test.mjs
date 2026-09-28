@@ -21,7 +21,7 @@ const dependencyHelpers = script(readFileSync(new URL('../resources/js/lib/depen
 function harness(t, inertiaOverrides = {}, notifications = []) {
     const stored = new Map();
     const storage = { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) };
-    const modules = { vue, '@inertiajs/vue3': { ...inertia, usePage: () => ({ url: '/' }), ...inertiaOverrides }, '@/lib/project': projectHelpers, '@/lib/dependencies': dependencyHelpers,
+    const modules = { vue: { ...vue, onMounted() {} }, '@inertiajs/vue3': { ...inertia, usePage: () => ({ url: '/' }), ...inertiaOverrides }, '@/lib/project': projectHelpers, '@/lib/dependencies': dependencyHelpers,
         'vue-sonner': { toast: { error: message => notifications.push(message), success: message => notifications.push(message) } },
         '@vueuse/core': { ...vueuse, useSessionStorage: (key, value, options) => vueuse.useStorage(key, value, storage, options) } };
     return function mount(file, input) {
@@ -79,7 +79,7 @@ test('leaving the Secrets tab waits for a successful description flush', async t
     assert.equal(current.state.tab.value, 'board');
 });
 
-test('project overview previews up to three unfinished tasks from the latest columns', async t => {
+test('project overview previews saved card order independently of list names', async t => {
     const mount = harness(t);
     const current = mount('pages/ShowProject', {
         selectedProject: { id: 'project-a', tags: [], revision: 1, board_columns: [
@@ -91,7 +91,7 @@ test('project overview previews up to three unfinished tasks from the latest col
     });
 
     assert.equal(current.state.taskCount.value, 5);
-    assert.deepEqual(Array.from(current.state.previewTasks.value, task => [task.id, task.column]), [['three', 'In Progress'], ['four', 'In Progress'], ['one', 'Backlog']]);
+    assert.deepEqual(Array.from(current.state.previewTasks.value, task => [task.id, task.column]), [['one', 'Backlog'], ['two', 'Backlog'], ['three', 'In Progress']]);
     current.props.selectedProject.board_columns = [{ tasks: [] }];
     await vue.nextTick();
     assert.equal(current.state.taskCount.value, 0);
@@ -111,8 +111,7 @@ test('project overview prefers the latest repo commit and counts queued tasks', 
 
     assert.equal(current.state.lastUpdateAt.value, '2026-09-19T12:00:00Z');
     assert.equal(current.state.lastUpdateFromGit.value, true);
-    assert.equal(current.state.todoCount.value, 2);
-    assert.equal(current.state.backlogCount.value, 1);
+    assert.equal(current.state.taskCount.value, 4);
 
     current.props.activity[0].remote_commit_at = '2026-09-21T12:00:00Z';
     assert.equal(current.state.lastUpdateAt.value, '2026-09-21T12:00:00Z');
@@ -126,18 +125,18 @@ test('project overview prefers the latest repo commit and counts queued tasks', 
     assert.equal(current.state.lastUpdateFromGit.value, false);
 });
 
-test('project overview hides attention during source scans and shows remaining issues afterward', t => {
+test('project overview retains confirmed attention during unrelated scans and hides invalidated findings', t => {
     const current = harness(t)('pages/ShowProject', {
         selectedProject: { id: 'project-a', tags: [], revision: 1 },
         inspection: [{ availability: 'Missing', scan_state: 'Queued', package_roots: [{ scan_state: 'Current' }] }],
         activity: [], connections: [], native: false,
     });
 
-    assert.equal(current.state.needsAttention.value, false);
+    assert.equal(current.state.needsAttention.value, true);
     current.props.inspection[0].scan_state = 'Current';
     assert.equal(current.state.needsAttention.value, true);
     current.props.inspection[0].package_roots[0].scan_state = 'Scanning';
-    assert.equal(current.state.needsAttention.value, false);
+    assert.equal(current.state.needsAttention.value, true);
     current.props.inspection[0].package_roots[0].scan_state = 'Current';
     current.props.inspection[0].availability = 'Available';
     assert.equal(current.state.needsAttention.value, false);
@@ -222,7 +221,7 @@ test('work surface shows recent documents and keeps all linked resources reachab
     assert.equal(current.state.visibleFolders.value.length, 3);
 });
 
-test('project shortcuts keep saved order before expanded links group by category', t => {
+test('project links keep saved order through expansion and category changes', t => {
     const mount = harness(t);
     const current = mount('pages/ShowProject', {
         selectedProject: { id: 'project-a', tags: [], revision: 1, links: [
@@ -234,18 +233,19 @@ test('project shortcuts keep saved order before expanded links group by category
         ] },
         inspection: [], activity: [], connections: [], native: false,
     });
-    const groups = () => Array.from(current.state.linkGroups.value, group => [group.category, Array.from(group.links, link => link.id)]);
-
-    assert.deepEqual(groups(), [['Social', ['social-a']], ['Uncategorized', ['uncategorized']], ['Documentation', ['docs']]]);
+    const ids = () => Array.from(current.state.visibleLinks.value, link => link.id);
+    assert.deepEqual(ids(), ['social-a', 'uncategorized', 'docs']);
     current.state.linksOpen.value = true;
-    assert.deepEqual(groups(), [['Documentation', ['docs']], ['Hosting', ['hosting']], ['Social', ['social-a', 'social-b']], ['Uncategorized', ['uncategorized']]]);
+    assert.deepEqual(ids(), ['social-a', 'uncategorized', 'docs', 'social-b', 'hosting']);
+    current.props.selectedProject.links[0].category = 'ZZZ';
+    assert.deepEqual(ids(), ['social-a', 'uncategorized', 'docs', 'social-b', 'hosting']);
 });
 
 test('scratchpad suggestions include project actions and saved notes clear without losing new drafts', async t => {
     const requests = [];
     const actions = [{ type: 'link', label: 'Buff', url: 'https://usebuff.app/', description: '' }];
     const http = {
-        revision: 0, processing: false, errors: {}, clearErrors() {},
+        revision: 0, processing: false, errors: {}, cancel() {}, clearErrors() {},
         async post(url) {
             requests.push({ url, revision: this.revision });
             return { actions, statuses: ['Idea', 'In Progress'] };
@@ -274,7 +274,7 @@ test('scratchpad suggestions include project actions and saved notes clear witho
     assert.equal(current.state.scratchpadForm.scratchpad, 'New unsaved note');
 });
 
-test('scratchpad autosaves settled notes and prepares actions without losing edits made during a save', async t => {
+test('scratchpad autosaves settled notes and generates actions only on request without losing edits made during a save', async t => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const actions = [{ type: 'task', title: 'Ship release', column_id: null }];
     const previews = [];
@@ -302,7 +302,7 @@ test('scratchpad autosaves settled notes and prepares actions without losing edi
         },
     };
     const http = {
-        revision: 0, processing: false, errors: {}, clearErrors() {},
+        revision: 0, processing: false, errors: {}, cancel() {}, clearErrors() {},
         async post(url) { previews.push({ url, revision: this.revision }); return { actions, statuses: ['Idea'] }; },
     };
     const router = { on() { return () => {}; }, replaceProp(name, value) { current.props.project = value(current.props.project); } };
@@ -338,11 +338,12 @@ test('scratchpad autosaves settled notes and prepares actions without losing edi
     await finishSave();
     t.mock.timers.tick(4000);
     await new Promise(setImmediate);
-    assert.deepEqual(previews, [{ url: '/projects/project-a/scratchpad/actions/preview', revision: 4 }]);
-    assert.deepEqual(Array.from(current.state.suggestedActions.value), actions);
+    assert.equal(previews.length, 0);
     assert.equal(reviewed.length, 0);
 
     await current.state.generateActions();
+    assert.deepEqual(previews, [{ url: '/projects/project-a/scratchpad/actions/preview', revision: 4 }]);
+    assert.deepEqual(Array.from(current.state.suggestedActions.value), actions);
     assert.deepEqual(reviewed, actions);
     assert.equal(previews.length, 1);
 
@@ -361,7 +362,7 @@ test('scratchpad autosaves settled notes and prepares actions without losing edi
     t.mock.timers.tick(800);
     assert.equal(saves.length, failedSaveCount);
     assert.equal(form.errors.scratchpad, undefined);
-    assert.equal(notifications.at(-1), 'Could not save notes. Try again.');
+    assert.equal(current.state.saveError.value, 'Could not save notes. Try again.');
     assert.equal(form.scratchpad, 'Network failure');
 
     form.scratchpad = 'Stale note';
@@ -488,7 +489,7 @@ test('folder inspection applies the selection immediately and leaves folders int
     let folder = selected;
     let rejected = false;
     const inspection = vue.reactive({
-        path: '', processing: false, errors: {}, hasErrors: false,
+        path: '', processing: false, errors: {}, hasErrors: false, cancel() {},
         async post() {
             if (rejected) throw new Error('Inspection failed');
             return { folder };
@@ -555,9 +556,9 @@ test('starting from a connected repo clones before adding the repository and che
     const notifications = [];
     const folder = { name: 'repo', path: '/projects/repo', remote_url: 'https://gitlab.com/team/repo.git', description: null, git_state: 'Git repository' };
     let outcome = 'failure';
-    const inspection = vue.reactive({ path: '', errors: {}, clearErrors() {}, setError() {} });
+    const inspection = vue.reactive({ path: '', errors: {}, clearErrors() {}, setError() {}, cancel() {} });
     const cloning = vue.reactive({
-        connection_id: '', full_name: '', processing: false, errors: {}, hasErrors: false,
+        connection_id: '', full_name: '', processing: false, errors: {}, hasErrors: false, cancel() {},
         clearErrors() { this.errors = {}; this.hasErrors = false; },
         async post(url) {
             assert.equal(url, '/repositories/clone');
@@ -602,4 +603,87 @@ test('starting from a connected repo clones before adding the repository and che
     cloned.repository_id = connected.id;
     current.state.removeRepository(connected.id);
     assert.equal(current.state.startedSource.value, null);
+});
+
+test('project form departures retain drafts, recover per project, reject stale saves and clear on discard', async t => {
+    const remembered = new Map(); const visits = []; const callbacks = []; let before;
+    const router = {
+        on(event, callback) { before = callback; return () => { before = null; }; },
+        remember(value, key) { remembered.set(key, value ? JSON.parse(JSON.stringify(value)) : null); },
+        restore(key) { return remembered.get(key); },
+        visit(url) { visits.push(url); }, reload() {},
+        post(url, data, options) { callbacks.push({ url, data, options }); },
+    };
+    t.mock.method(inertia.router, 'post', router.post);
+    const mount = harness(t, { router, usePage: () => ({ url: '/projects/one/edit' }) });
+    const project = { id: 'one', name: 'Saved', tags: [], revision: 1 };
+    let current = mount('components/ProjectForm', { project, statuses: ['Idea'], native: false });
+    current.state.form.name = 'Draft'; current.state.addLink(); current.state.form.icon_file = new File(['dummy'], 'selected.png');
+    await vue.nextTick(); await vue.nextTick();
+    let prevented = false;
+    before({ detail: { visit: { method: 'get', url: new URL('https://orbit.test/') } }, preventDefault() { prevented = true; } });
+    assert.equal(prevented, true); assert.equal(current.state.departureOpen.value, true); assert.equal(visits.length, 0);
+    current.state.departureOpen.value = false;
+    current.state.submit(); callbacks[0].options.onError({ 'links.0.url': 'Enter a URL' });
+    assert.equal(current.state.form.name, 'Draft'); assert.equal(current.state.tab.value, 'links');
+    current.unmount(); assert.equal(before, null);
+    current = mount('components/ProjectForm', { project: { ...project, revision: 2 }, statuses: ['Idea'], native: false });
+    assert.equal(current.state.form.name, 'Draft'); assert.equal(current.state.form.links.length, 1);
+    assert.equal(current.state.form.icon_file, null); assert.equal(current.state.imageNeedsSelection.value, true);
+    assert.match(current.state.form.errors.revision, /changed/);
+    current.state.submit(); assert.equal(callbacks.length, 1);
+    const other = mount('components/ProjectForm', { project: { ...project, id: 'two' }, statuses: ['Idea'], native: false });
+    assert.equal(other.state.form.name, 'Saved'); other.unmount();
+    current.state.discardDraft(); await vue.nextTick();
+    assert.equal(remembered.get('project-form:one'), null);
+});
+
+test('discarded project drafts allow the resumed visit immediately', async t => {
+    let before;
+    const accepted = [];
+    const destination = new URL('https://orbit.test/');
+    const visit = () => {
+        let prevented = false;
+        before({ detail: { visit: { method: 'get', url: destination } }, preventDefault() { prevented = true; } });
+        if (!prevented) accepted.push(destination.href);
+    };
+    const mount = harness(t, { router: { on(event, callback) { before = callback; return () => {}; }, restore() {}, remember() {}, visit }, usePage: () => ({ url: '/projects/create' }) });
+    const current = mount('components/ProjectForm', { statuses: ['Idea'], native: false });
+    current.state.form.name = 'Draft'; await vue.nextTick();
+    visit();
+    assert.equal(current.state.departureOpen.value, true);
+    current.state.discardDraft();
+    assert.deepEqual(accepted, ['https://orbit.test/']);
+    assert.equal(current.state.departureOpen.value, false);
+    assert.equal(current.state.form.name, '');
+});
+
+test('project submission waits for cloning and browser relink preserves the separate Add folder input', async t => {
+    const requests = []; let finish;
+    t.mock.method(inertia.router, 'post', (...args) => requests.push(args));
+    const mount = harness(t, { router: { on: () => () => {}, restore() {}, remember() {}, post: (...args) => requests.push(args) } });
+    const current = mount('components/ProjectForm', { statuses: ['Idea'], native: true });
+    t.mock.method(current.state.cloning, 'post', () => { current.state.cloning.processing = true; return new Promise(resolve => { finish = result => { current.state.cloning.processing = false; resolve(result); }; }); });
+    const pending = current.state.cloneRepository({ connection_id: 'work', full_name: 'team/repo', name: 'repo', remote_url: 'https://github.com/team/repo.git', description: null });
+    current.state.submit(); assert.equal(requests.length, 0);
+    finish({ folder: { name: 'repo', path: '/checkout', git_state: 'Git repository' } }); await pending;
+    current.state.submit(); assert.equal(requests[0][1].folders[0].path, '/checkout'); assert.equal(requests[0][1].repositories[0].provider_connection_id, 'work');
+    current.props.native = false; current.state.inspection.path = '/independent-add-draft';
+    const folder = current.state.form.folders[0]; current.state.relinkFolder(folder);
+    assert.equal(current.state.replacement.path, '/checkout');
+    t.mock.method(current.state.replacement, 'post', async () => { throw new Error('Offline'); });
+    current.state.replacement.path = '/new-checkout'; await current.state.replaceFolder();
+    assert.equal(current.state.form.folders[0].path, '/checkout'); assert.equal(current.state.replacement.path, '/new-checkout');
+    t.mock.method(current.state.replacement, 'post', async () => ({ folder: { name: 'repo', path: '/new-checkout', git_state: 'Git repository' } }));
+    await current.state.replaceFolder(); assert.equal(current.state.form.folders[0].id, folder.id); assert.equal(current.state.form.folders[0].path, '/new-checkout');
+    assert.equal(current.state.inspection.path, '/independent-add-draft'); assert.equal(current.state.relinking.value, null);
+});
+
+test('Sources delegates connection and refresh to the correct activity record', async t => {
+    const repository = { id: 'second' }; const activity = { id: 'second', provider_revision: 4 };
+    const current = harness(t)('pages/ShowProject', { selectedProject: { id: 'one', tags: [], revision: 1 }, inspection: [], activity: [{ id: 'first' }, activity], connections: [], native: false });
+    const calls = []; current.state.providerActivity.value = { edit: item => calls.push(['edit', item]), refresh: item => calls.push(['refresh', item]) };
+    await current.state.connectProvider(repository); await current.state.refreshActivity(repository);
+    assert.equal(current.state.providerActivityOpen.value, true);
+    assert.deepEqual(calls.map(([action, item]) => [action, item.id, item.provider_revision]), [['edit', 'second', 4], ['refresh', 'second', 4]]);
 });

@@ -335,3 +335,25 @@ test('compact project search stays manual, scoped, and resets when the project c
     await failedSearch;
     assert.deepEqual(state.toasts, ['Search could not be completed. Try again.']);
 });
+
+test('compact search invalidates old results and aborted responses without submitting new text', async t => {
+    const state = mount(t, { compact: true, projectId: 'project' });
+    state.query.value = 'first';
+    const first = state.search();
+    respond(state.requests[0], [{ id: 'first', title: 'First' }]);
+    await first;
+    state.query.value = 'second';
+    assert.equal(state.results.value.length, 0);
+    assert.equal(state.searched.value, false);
+    assert.equal(state.requests.length, 1);
+    const pending = state.search();
+    state.query.value = 'third';
+    assert.equal(state.requests[1].signal.aborted, true);
+    respond(state.requests[1], [{ id: 'late', title: 'Late' }]);
+    await pending;
+    assert.equal(state.results.value.length, 0);
+    assert.equal(state.loading.value, false);
+    assert.equal(state.timers.size, 0);
+    state.query.value = '';
+    assert.equal(state.searched.value, false);
+});

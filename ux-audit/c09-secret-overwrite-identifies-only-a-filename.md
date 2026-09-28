@@ -2,7 +2,7 @@
 
 Priority: P2  
 Area: assets  
-Status: Planned  
+Status: Implemented
 Evidence: Source — SecretController.php:185; ProjectSecrets.vue:648  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-202)
 
@@ -19,10 +19,10 @@ The final export preview returns only basename, commonly .env. At the overwrite 
 
 ## Acceptance criteria
 
-- [ ] Final confirmation identifies the destination directory and filename.
-- [ ] Two selected paths ending in .env remain distinguishable.
-- [ ] Long paths remain readable without pushing confirmation controls off screen.
-- [ ] Existing-file replacement still requires explicit consent and server validation.
+- [x] Final confirmation identifies the destination directory and filename.
+- [x] Two selected paths ending in .env remain distinguishable.
+- [x] Long paths remain readable without pushing confirmation controls off screen.
+- [x] Existing-file replacement still requires explicit consent and server validation.
 
 ## Verification
 
@@ -33,3 +33,11 @@ After implementation, run `node --test tests/project-secrets.test.mjs` and `php 
 ## Related plans
 
 - [C08 — Secret export cannot recover its consumed preview](c08-secret-export-cannot-recover-its-consumed-preview.md)
+
+## Completion — 28 September 2026
+
+Secret export previews return and display the complete destination path, with wrapping and explicit overwrite consent.
+
+Checks: tests/project-secrets.test.mjs; tests/Feature/ProjectSecretTest.php; tests/Feature/SecretVaultTest.php; tests/Feature/EnvFileTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

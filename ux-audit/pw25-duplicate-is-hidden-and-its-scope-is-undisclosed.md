@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — WorkspaceSidebar.vue:112; DuplicateProject.php:20–93
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-95)
 
@@ -22,10 +22,10 @@ The original audit cited a sidebar-only menu. Current source has `ProjectContext
 
 ## Acceptance criteria
 
-- [ ] Duplicate is available through a visible keyboard-accessible action.
-- [ ] The summary accurately distinguishes copied Orbit content from shared source paths.
-- [ ] The existing right-click menu and other project actions remain available.
-- [ ] One activation creates one duplicate; cancellation creates none.
+- [x] Duplicate is available through a visible keyboard-accessible action.
+- [x] The summary accurately distinguishes copied Orbit content from shared source paths.
+- [x] The existing right-click menu and other project actions remain available.
+- [x] One activation creates one duplicate; cancellation creates none.
 
 ## Verification
 
@@ -34,3 +34,9 @@ Run `php artisan test --compact tests/Feature/ProjectDuplicationTest.php` if dup
 ## Related plans
 
 - [PW26 — Archive may not achieve expected decluttering](pw26-archive-may-not-achieve-expected-decluttering.md)
+
+## Completion — 28 September 2026
+
+Project cards expose a visible keyboard-accessible action menu. Duplicate confirmation explains copied content/shared source paths and prevents repeated requests.
+
+Checks: tests/project-sidebar.test.mjs; tests/project-context-menu.test.mjs; tests/Feature/ProjectDuplicationTest.php; dashboard menu/confirmation browser check. These checks passed in the full suites; production build and lint of changed Vue files also passed.

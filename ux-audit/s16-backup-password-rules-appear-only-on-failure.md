@@ -4,7 +4,7 @@ Priority: P3
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Live + source — WorkspaceBackups.vue:171–188; BackupController.php:169
 
@@ -24,10 +24,10 @@ The 12-character minimum is enforced without visible help or a reminder that the
 
 ## Acceptance criteria
 
-- [ ] The minimum length is visible before export submission.
-- [ ] Users are told to retain the password for restoring this backup.
-- [ ] Restore instructions distinguish backup password from Secrets PIN.
-- [ ] Existing validation, confirmation and password clearing remain unchanged.
+- [x] The minimum length is visible before export submission.
+- [x] Users are told to retain the password for restoring this backup.
+- [x] Restore instructions distinguish backup password from Secrets PIN.
+- [x] Existing validation, confirmation and password clearing remain unchanged.
 
 ## Verification
 
@@ -39,3 +39,11 @@ No automated tests are required for this copy-only change. Preserve the existing
 
 - [S01 — Restore can leave the previous backup actionable](s01-restore-can-leave-the-previous-backup-actionable.md)
 
+
+## Completion — 28 September 2026
+
+Export and restore explain the 12-character backup password requirement, retention and distinction from Secrets PIN before submission.
+
+Checks: tests/workspace-backups.test.mjs; tests/settings-preferences.test.mjs; tests/Feature/BackupExportTest.php; tests/Feature/WorkspaceRestoreTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

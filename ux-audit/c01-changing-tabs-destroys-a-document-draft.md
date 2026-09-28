@@ -2,7 +2,7 @@
 
 Priority: P1  
 Area: content  
-Status: Planned  
+Status: Implemented
 Evidence: Live + source — ShowProject.vue:80,390; ProjectDocuments.vue:21,26; Reka TabsRoot.vue:67  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-114)
 
@@ -21,11 +21,11 @@ The live audit lost an unsaved document's title/body when changing tabs because 
 
 ## Acceptance criteria
 
-- [ ] Switching among Documents, Board and Overview preserves the complete document draft.
-- [ ] Controllable in-app departures offer save, discard and stay choices.
-- [ ] A failed save preserves the draft and does not navigate.
-- [ ] Saved or explicitly discarded documents do not prompt again.
-- [ ] Native history recovers drafts only for their project/document and exposes stale or removed targets safely.
+- [x] Switching among Documents, Board and Overview preserves the complete document draft.
+- [x] Controllable in-app departures offer save, discard and stay choices.
+- [x] A failed save preserves the draft and does not navigate.
+- [x] Saved or explicitly discarded documents do not prompt again.
+- [x] Native history recovers drafts only for their project/document and exposes stale or removed targets safely.
 
 ## Verification
 
@@ -38,3 +38,11 @@ After implementation, run `node --test tests/project-documents.test.mjs tests/pr
 - [C02 — Board conflict recovery closes the draft](c02-board-conflict-recovery-closes-the-draft.md)
 - [PW01 — Project forms discard unsaved work](pw01-project-forms-discard-unsaved-work.md)
 - [S05 — Settings sections handle drafts differently](s05-settings-sections-handle-drafts-differently.md)
+
+## Completion — 28 September 2026
+
+Document editors stay mounted across tabs; project/document-scoped nonsecret drafts survive history recovery and expose stale or removed targets. Departure offers save, discard or keep editing.
+
+Checks: tests/project-documents.test.mjs; tests/Feature/ProjectDocumentTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

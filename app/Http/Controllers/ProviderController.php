@@ -19,6 +19,16 @@ use Throwable;
 
 class ProviderController extends Controller
 {
+    public function rename(Request $request, ProviderConnection $connection): JsonResponse
+    {
+        $data = $request->validate(['label' => ['required', 'string', 'max:100'], 'revision' => ['required', 'integer', 'min:1']]);
+        if (! ProviderConnection::whereKey($connection->id)->where('revision', $data['revision'])->update(['label' => $data['label'], 'revision' => $data['revision'] + 1])) {
+            return response()->json(['message' => 'Connection changed. Reload connections, then review your label and try again.'], 409);
+        }
+
+        return response()->json(['saved' => true]);
+    }
+
     public function save(Request $request, ProtectCredential $crypto, ReadProvider $reader, ?ProviderConnection $connection = null): JsonResponse
     {
         // Tokens leave the request before validation/exception rendering can serialize it.

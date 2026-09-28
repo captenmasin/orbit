@@ -4,10 +4,10 @@ import FilterSelect from '@/components/FilterSelect.vue';
 import TextTransition from '@/components/TextTransition.vue';
 import { toast } from 'vue-sonner';
 import type { Project } from '@/types';
-import { computed, ref, watch } from 'vue';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { router, useForm } from '@inertiajs/vue3';
+import { computed, onScopeDispose, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
@@ -44,6 +44,8 @@ const marquee = ref<{ x: number; y: number; width: number; height: number } | nu
 let marqueeStart: { x: number; y: number; clientX: number; clientY: number; base: string[] } | null = null;
 const dropTarget = ref<string | null>(null);
 const readingDrop = ref(false);
+let mounted = true;
+onScopeDispose(() => { mounted = false; readingDrop.value = false; upload.cancel(); });
 const folders = computed(() => [...(props.project.asset_folders ?? [])].sort((a, b) => a.name.localeCompare(b.name)));
 const folderTree = computed(() => {
     const children = new Map<string, AssetFolder[]>();
@@ -102,6 +104,16 @@ const moveDestinations = computed(() => {
         return true;
     });
 });
+const parentOptions = computed(() => [{ value: '', label: 'Assets' }, ...folderTree.value.filter(node => {
+    let id: string | null = node.folder.id;
+    while (id) {
+        if (id === editingFolder.value?.id) return false;
+        id = folders.value.find(folder => folder.id === id)?.parent_id ?? null;
+    }
+    return true;
+}).map(node => ({ value: node.folder.id, label: node.path }))]);
+const removalLabel = computed(() => selectedItems.value.every(item => item.type === 'file') ? 'Delete files' : selectedItems.value.every(item => item.type === 'folder') ? 'Remove folders, keep contents' : 'Delete files and remove folders');
+const removalNames = computed(() => selectedItems.value.map(item => ({ ...item, name: item.type === 'folder' ? folderTree.value.find(node => node.folder.id === item.id)?.path : assets.value.find(file => file.id === item.id)?.name })));
 const menuItemClass = 'flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50';
 const busy = computed(() => readingDrop.value || upload.processing || bulkRemoval.processing || bulkMovement.processing || movement.processing || folderForm.processing);
 const errors = computed(() => ({ ...upload.errors, ...bulkRemoval.errors, ...bulkMovement.errors, ...movement.errors, ...folderForm.errors }));
@@ -287,38 +299,46 @@ async function dropOn(event: DragEvent, folderId: string) {
     if (!transfer || busy.value) return;
     const internal = transfer.getData('application/x-orbit-asset');
     if (internal) {
-        try {
-            const payload = JSON.parse(internal) as { projectId: string; items?: AssetSelection[]; kind?: string; id?: string };
-            if (payload.projectId !== props.project.id) return;
-            const items = payload.items ?? (payload.kind && payload.id ? [{ type: payload.kind as AssetSelection['type'], id: payload.id }] : []);
-            if (folderId === selectedFolder.value || items.some(item => item.type === 'folder' && item.id === folderId)) return;
-            if (items.length > 1) {
-                bulkMovement.revision = props.project.revision;
-                bulkMovement.folder_id = folderId || null;
-                bulkMovement.items = items;
-                bulkMovement.put(`/projects/${props.project.id}/assets/move`, { preserveScroll: true, errorBag: 'assets', onSuccess: clearSelection });
-            } else if (items[0]?.type === 'file') {
-                const file = assets.value.find(asset => asset.id === items[0].id);
-                if (file && (file.folder_id ?? '') !== folderId) move(file, folderId);
-            } else if (items[0]?.type === 'folder') {
-                const folder = folders.value.find(candidate => candidate.id === items[0].id);
-                if (folder && (folder.parent_id ?? '') !== folderId) {
-                    let ancestor = folderId;
-                    while (ancestor) {
-                        if (ancestor === folder.id) return;
-                        ancestor = folders.value.find(candidate => candidate.id === ancestor)?.parent_id ?? '';
-                    }
-                    folderForm.revision = props.project.revision;
-                    folderForm.name = folder.name;
-                    folderForm.parent_id = folderId || null;
-                    folderForm.put(`/projects/${props.project.id}/asset-folders/${folder.id}`, { preserveScroll: true, errorBag: 'assets', onSuccess: clearSelection });
-                }
-            }
-        } catch {
-            toast.error('This asset could not be moved.');
-        }
+        try { moveDroppedItems(internal, folderId); }
+        catch { toast.error('This asset could not be moved.'); }
         return;
     }
+    await uploadDroppedFiles(transfer, folderId);
+}
+function moveDroppedItems(internal: string, folderId: string) {
+
+    const payload = JSON.parse(internal) as { projectId: string; items?: AssetSelection[]; kind?: string; id?: string };
+    if (payload.projectId !== props.project.id) return;
+    const items = payload.items ?? (payload.kind && payload.id ? [{ type: payload.kind as AssetSelection['type'], id: payload.id }] : []);
+    if (folderId === selectedFolder.value || items.some(item => item.type === 'folder' && item.id === folderId)) return;
+    if (items.length > 1) {
+        bulkMovement.revision = props.project.revision;
+        bulkMovement.folder_id = folderId || null;
+        bulkMovement.items = items;
+        bulkMovement.put(`/projects/${props.project.id}/assets/move`, { preserveScroll: true, errorBag: 'assets', onSuccess: clearSelection });
+    } else if (items[0]?.type === 'file') {
+        const file = assets.value.find(asset => asset.id === items[0].id);
+        if (file && (file.folder_id ?? '') !== folderId) move(file, folderId);
+    } else if (items[0]?.type === 'folder') {
+        const folder = folders.value.find(candidate => candidate.id === items[0].id);
+        if (folder && (folder.parent_id ?? '') !== folderId) {
+            moveDroppedFolder(folder, folderId);
+        }
+    }
+
+}
+function moveDroppedFolder(folder: AssetFolder, folderId: string) {
+    let ancestor = folderId;
+    while (ancestor) {
+        if (ancestor === folder.id) return;
+        ancestor = folders.value.find(candidate => candidate.id === ancestor)?.parent_id ?? '';
+    }
+    folderForm.revision = props.project.revision;
+    folderForm.name = folder.name;
+    folderForm.parent_id = folderId || null;
+    folderForm.put(`/projects/${props.project.id}/asset-folders/${folder.id}`, { preserveScroll: true, errorBag: 'assets', onSuccess: clearSelection });
+}
+async function uploadDroppedFiles(transfer: DataTransfer, folderId: string) {
     const items = Array.from(transfer.items).filter(item => item.kind === 'file');
     const entries = items.map(item => item.webkitGetAsEntry()).filter((entry): entry is FileSystemEntry => entry !== null);
     const fallbackFiles = Array.from(transfer.files);
@@ -337,6 +357,7 @@ async function dropOn(event: DragEvent, folderId: string) {
             toast.error('A project can store up to 100 files and 100 folders.');
             return;
         }
+        if (!mounted) return;
         upload.files = files;
         upload.paths = paths;
         upload.directories = directories;
@@ -442,12 +463,21 @@ function renameFile() {
                     </Button><Button
                         :disabled="busy"
                         @click="uploadPicker?.click()">
-                        <UploadIcon aria-hidden="true" /><TextTransition :text="upload.processing ? 'Uploading' : 'Upload files'" /><span
+                        <UploadIcon aria-hidden="true" /><TextTransition :text="readingDrop ? 'Reading folder…' : upload.processing ? 'Uploading' : 'Upload files'" /><span
                             v-if="upload.processing"
                             class="tabular-nums">{{ upload.progress?.percentage ?? 0 }}%</span>
                     </Button>
                 </div>
             </div>
+            <p class="text-xs text-muted-foreground">
+                Up to 10 MB per file; 100 files and 100 folders per project.
+            </p>
+            <p
+                v-if="readingDrop"
+                role="status"
+                class="text-sm text-muted-foreground">
+                Reading folder…
+            </p>
             <Alert
                 v-if="Object.keys(errors).length"
                 variant="destructive">
@@ -603,7 +633,7 @@ function renameFile() {
                         variant="outline"
                         size="sm"
                         @click="showRemove()">
-                        <Trash2Icon aria-hidden="true" />Remove
+                        <Trash2Icon aria-hidden="true" />{{ removalLabel }}
                     </Button>
                     <Button
                         variant="ghost"
@@ -688,7 +718,7 @@ function renameFile() {
                                             </DropdownMenuItem><DropdownMenuItem
                                                 :class="menuItemClass"
                                                 @select="showRemove(selectionKey('folder', folder.id))">
-                                                Remove
+                                                {{ removalLabel }}
                                             </DropdownMenuItem>
                                         </DropdownMenuContent>
                                     </DropdownMenuPortal>
@@ -707,7 +737,7 @@ function renameFile() {
                             </ContextMenuItem><ContextMenuItem
                                 variant="destructive"
                                 @select="showRemove(selectionKey('folder', folder.id))">
-                                Remove
+                                {{ removalLabel }}
                             </ContextMenuItem>
                         </ContextMenuContent>
                     </ContextMenu>
@@ -800,7 +830,7 @@ function renameFile() {
                                             </DropdownMenuItem><DropdownMenuItem
                                                 :class="menuItemClass"
                                                 @select="showRemove(selectionKey('file', file.id))">
-                                                Remove
+                                                {{ removalLabel }}
                                             </DropdownMenuItem>
                                         </DropdownMenuContent>
                                     </DropdownMenuPortal>
@@ -825,7 +855,7 @@ function renameFile() {
                             </ContextMenuItem><ContextMenuItem
                                 variant="destructive"
                                 @select="showRemove(selectionKey('file', file.id))">
-                                Remove
+                                {{ removalLabel }}
                             </ContextMenuItem>
                         </ContextMenuContent>
                     </ContextMenu>
@@ -890,7 +920,7 @@ function renameFile() {
                         </FieldLabel><ChoiceSelect
                             id="asset-folder-parent"
                             :model-value="folderForm.parent_id ?? ''"
-                            :options="[{ value: '', label: 'Assets' }, ...folders.filter(item => item.id !== editingFolder?.id).map(folder => ({ value: folder.id, label: folder.name }))]"
+                            :options="parentOptions"
                             @update:model-value="folderForm.parent_id = $event || null" /><FieldError v-if="folderForm.errors.parent_id">
                                 {{ folderForm.errors.parent_id }}
                             </FieldError>
@@ -1015,7 +1045,14 @@ function renameFile() {
             :open="removeOpen"
             @update:open="value => { if (!bulkRemoval.processing) removeOpen = value; }">
             <DialogContent>
-                <DialogHeader><DialogTitle>Remove {{ selectedItems.length }} {{ selectedItems.length === 1 ? 'item' : 'items' }}?</DialogTitle><DialogDescription>Selected files will be deleted from Orbit. Contents of removed folders will move to the nearest remaining parent folder.</DialogDescription></DialogHeader>
+                <DialogHeader><DialogTitle>{{ removalLabel }}?</DialogTitle><DialogDescription>Selected files are deleted, including files explicitly selected inside a selected folder. Other contents survive and move to the nearest remaining parent.</DialogDescription></DialogHeader><ul class="max-h-56 overflow-y-auto space-y-1 text-sm">
+                    <li
+                        v-for="item in removalNames"
+                        :key="`${item.type}:${item.id}`"
+                        class="break-all">
+                        {{ item.type === 'file' ? 'File' : 'Folder' }}: {{ item.name }}
+                    </li>
+                </ul>
                 <FieldError
                     v-for="(error, key) in bulkRemoval.errors"
                     :key="key">
@@ -1031,7 +1068,7 @@ function renameFile() {
                         variant="destructive"
                         :disabled="bulkRemoval.processing"
                         @click="removeSelection">
-                        Remove
+                        {{ bulkRemoval.processing ? 'Working…' : removalLabel }}
                     </Button>
                 </DialogFooter>
             </DialogContent>

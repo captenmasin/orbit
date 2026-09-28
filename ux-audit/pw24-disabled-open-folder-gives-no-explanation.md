@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** sources
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — OpenTargetButton.vue:23; ConnectedRepositoryPicker.vue:77
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-302)
 
@@ -22,10 +22,10 @@ Keep the browser restriction intact and explain it at the shared opening boundar
 
 ## Acceptance criteria
 
-- [ ] Browser users can read why folder opening is unavailable.
-- [ ] The reason is accessible without focusing a disabled element.
-- [ ] Native folder opening and browser external-link behavior remain unchanged.
-- [ ] No unsupported desktop-launch URL is introduced.
+- [x] Browser users can read why folder opening is unavailable.
+- [x] The reason is accessible without focusing a disabled element.
+- [x] Native folder opening and browser external-link behavior remain unchanged.
+- [x] No unsupported desktop-launch URL is introduced.
 
 ## Verification
 
@@ -36,3 +36,11 @@ Manually compare folder actions in Edit and Overview using browser and desktop; 
 - [PW09 — Shortcut rows imply a larger click target](pw09-shortcut-rows-imply-a-larger-click-target.md)
 - [PW11 — Browser Relink uses a detached input](pw11-browser-relink-uses-a-detached-input.md)
 
+
+## Completion — 28 September 2026
+
+Browser folder-opening controls have visible desktop-only guidance and an associated accessible description.
+
+Checks: tests/project-tab.test.mjs; shared opening-target template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

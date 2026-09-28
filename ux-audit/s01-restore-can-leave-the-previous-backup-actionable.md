@@ -4,7 +4,7 @@ Priority: P1
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — WorkspaceBackups.vue:121–127,184–191; BackupController.php:120
 
@@ -23,10 +23,10 @@ After previewing A, trying B unsuccessfully keeps A’s preview and Replace work
 
 ## Acceptance criteria
 
-- [ ] A validated preview visibly identifies its source file.
-- [ ] Starting another preview immediately removes the earlier replacement action.
-- [ ] Cancellation, incorrect passwords and invalid files cannot restore an earlier candidate.
-- [ ] Consent is specific to the current validated preview; sensitive response boundaries remain intact.
+- [x] A validated preview visibly identifies its source file.
+- [x] Starting another preview immediately removes the earlier replacement action.
+- [x] Cancellation, incorrect passwords and invalid files cannot restore an earlier candidate.
+- [x] Consent is specific to the current validated preview; sensitive response boundaries remain intact.
 
 ## Verification
 
@@ -40,3 +40,11 @@ After PHP edits, run `vendor/bin/pint --dirty --format agent`.
 
 - [S04 — Restore failure leaves an unusable retry form](s04-restore-failure-leaves-an-unusable-retry-form.md)
 - [S03 — Restore wording understates removed credentials](s03-restore-wording-understates-removed-credentials.md)
+
+## Completion — 28 September 2026
+
+Starting restore preview clears the old candidate, consent and application password immediately, including server staging before password validation. Previews identify their source path.
+
+Checks: tests/workspace-backups.test.mjs; tests/settings-preferences.test.mjs; tests/Feature/BackupExportTest.php; tests/Feature/WorkspaceRestoreTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

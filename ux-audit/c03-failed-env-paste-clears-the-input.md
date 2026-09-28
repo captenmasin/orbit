@@ -2,7 +2,7 @@
 
 Priority: P1  
 Area: assets  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectSecrets.vue:343–356  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-183)
 
@@ -19,10 +19,10 @@ The .env paste handler clears `pasteForm.entries` in finally regardless of the r
 
 ## Acceptance criteria
 
-- [ ] Rejected paste submissions preserve their original text while unlocked.
-- [ ] Correcting the entries and retrying creates the intended secrets once.
-- [ ] Successful save, Cancel, lock and unmount clear plaintext input.
-- [ ] Late responses after lock cannot restore sensitive text.
+- [x] Rejected paste submissions preserve their original text while unlocked.
+- [x] Correcting the entries and retrying creates the intended secrets once.
+- [x] Successful save, Cancel, lock and unmount clear plaintext input.
+- [x] Late responses after lock cannot restore sensitive text.
 
 ## Verification
 
@@ -33,3 +33,9 @@ After implementation, run `node --test tests/project-secrets.test.mjs` and `php 
 ## Related plans
 
 - [C10 — Vault expiry can discard a value draft silently](c10-vault-expiry-can-discard-a-value-draft-silently.md)
+
+## Completion — 28 September 2026
+
+Failed .env paste retains the entered text while unlocked. Success, cancellation, lock and unmount clear plaintext.
+
+Checks: tests/project-secrets.test.mjs; tests/Feature/ProjectSecretTest.php; tests/Feature/SecretVaultTest.php; tests/Feature/EnvFileTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

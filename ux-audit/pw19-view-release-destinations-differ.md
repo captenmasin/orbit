@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** sources
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Live + source — ProjectDependencies.vue:119,129; lib/dependencies.ts:128
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-289)
 
@@ -22,10 +22,10 @@ Use truthful action wording for the links already available. Avoid guessing Comp
 
 ## Acceptance criteria
 
-- [ ] Composer links are named View package wherever they appear.
-- [ ] npm version links remain named as release actions.
-- [ ] Accessible names identify the destination package and correct scope.
-- [ ] Existing safe-link rules and tab behavior are preserved.
+- [x] Composer links are named View package wherever they appear.
+- [x] npm version links remain named as release actions.
+- [x] Accessible names identify the destination package and correct scope.
+- [x] Existing safe-link rules and tab behavior are preserved.
 
 ## Verification
 
@@ -35,3 +35,9 @@ No new automated tests are needed for copy-only changes. Manually open a Compose
 
 - [PW18 — Dependency “target” is ambiguous](pw18-dependency-target-is-ambiguous.md)
 
+
+## Completion — 28 September 2026
+
+Composer actions read View package; npm actions read View release, matching their existing destinations.
+
+Checks: tests/dependencies.test.mjs; tests/Feature/RuntimeProbeTest.php; tests/Feature/DependencyUpdatesTest.php; template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

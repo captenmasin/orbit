@@ -2,7 +2,7 @@
 
 Priority: P2  
 Area: assets  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectAssets.vue:93–103,477,490; ProjectAssetController.php:330  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-214)
 
@@ -19,10 +19,10 @@ Folder editing shows parent options by bare names and permits descendants. Equal
 
 ## Acceptance criteria
 
-- [ ] Parent options show paths that distinguish equal leaf names.
-- [ ] A folder and its descendants cannot be selected as its parent.
-- [ ] Valid ancestors, siblings and Assets remain available.
-- [ ] Backend checks still reject invalid or conflicting concurrent changes.
+- [x] Parent options show paths that distinguish equal leaf names.
+- [x] A folder and its descendants cannot be selected as its parent.
+- [x] Valid ancestors, siblings and Assets remain available.
+- [x] Backend checks still reject invalid or conflicting concurrent changes.
 
 ## Verification
 
@@ -33,3 +33,9 @@ After implementation, run `node --test tests/project-assets.test.mjs` and `php a
 ## Related plans
 
 None.
+
+## Completion — 28 September 2026
+
+Asset parent options display full paths and exclude the edited folder and its descendants while keeping valid parents available.
+
+Checks: tests/project-assets.test.mjs; tests/Feature/ProjectAssetSelectionTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

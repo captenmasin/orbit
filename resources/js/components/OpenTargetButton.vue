@@ -3,7 +3,7 @@ import { toast } from 'vue-sonner';
 import { useHttp } from '@inertiajs/vue3';
 import { ExternalLinkIcon } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
-const props = defineProps<{ projectId: string; kind: 'folders' | 'repositories' | 'links' | 'secrets'; id: string; native: boolean; href?: string; label?: string; compact?: boolean; size?: 'sm' | 'input' }>();
+const props = defineProps<{ projectId: string; kind: 'folders' | 'repositories' | 'links' | 'secrets'; id: string; native: boolean; href?: string; label?: string; compact?: boolean; size?: 'sm' | 'input'; text?: boolean }>();
 const request = useHttp({ target: '' });
 async function open() {
     try {
@@ -20,23 +20,34 @@ async function open() {
         <Button
             v-if="!native && href"
             as-child
-            variant="outline"
+            :variant="text ? 'ghost' : 'outline'"
+            :class="text ? 'h-auto w-full min-w-0 justify-start whitespace-normal px-0 text-left' : undefined"
             :size="compact ? (size === 'input' ? 'icon' : 'icon-sm') : (size ?? 'sm')">
             <a
                 :href="href"
                 target="_blank"
                 rel="noopener noreferrer"
-                :aria-label="compact ? (label ?? 'Open') : undefined"><ExternalLinkIcon aria-hidden="true" /><span v-if="!compact">{{ label ?? 'Open' }}</span></a>
+                :aria-label="compact || text ? (label ?? 'Open') : undefined"><slot v-if="text" /><template v-else><ExternalLinkIcon aria-hidden="true" /><span v-if="!compact">{{ label ?? 'Open' }}</span></template></a>
         </Button>
         <Button
             v-else
             type="button"
-            variant="outline"
+            :variant="text ? 'ghost' : 'outline'"
+            :class="text ? 'h-auto w-full min-w-0 justify-start whitespace-normal px-0 text-left' : undefined"
             :size="compact ? (size === 'input' ? 'icon' : 'icon-sm') : (size ?? 'sm')"
-            :aria-label="compact ? (label ?? 'Open') : undefined"
+            :aria-label="compact || text ? (label ?? 'Open') : undefined"
             :disabled="request.processing || !native"
+            :aria-describedby="!native && kind === 'folders' ? `folder-open-${id}` : undefined"
             @click="open">
-            <ExternalLinkIcon aria-hidden="true" /><span v-if="!compact">{{ label ?? 'Open' }}</span>
+            <slot v-if="text" /><template v-else>
+                <ExternalLinkIcon aria-hidden="true" /><span v-if="!compact">{{ label ?? 'Open' }}</span>
+            </template>
         </Button>
+        <p
+            v-if="!native && kind === 'folders'"
+            :id="`folder-open-${id}`"
+            class="mt-1 text-xs text-muted-foreground">
+            Open folders in the Orbit desktop app.
+        </p>
     </div>
 </template>

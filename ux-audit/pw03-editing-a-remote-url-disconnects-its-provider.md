@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** sources
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ProjectForm.vue:300; Repository.php:28–50; ProviderActivityTest.php:164
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-245)
 
@@ -22,10 +22,10 @@ The disconnect is an existing model behavior, not a proposed data change. Reprod
 
 ## Acceptance criteria
 
-- [ ] Connected repositories are distinguishable in the editor.
-- [ ] The disconnect/cache consequence is explained before saving a URL change.
-- [ ] The reconnect destination reaches the existing repository connection flow.
-- [ ] Cancelling or rejected saves do not disconnect a provider.
+- [x] Connected repositories are distinguishable in the editor.
+- [x] The disconnect/cache consequence is explained before saving a URL change.
+- [x] The reconnect destination reaches the existing repository connection flow.
+- [x] Cancelling or rejected saves do not disconnect a provider.
 
 ## Verification
 
@@ -36,3 +36,9 @@ Run `php artisan test --compact tests/Feature/ProviderActivityTest.php --filter=
 - [PW08 — Connect provider is buried](pw08-connect-provider-is-buried.md)
 - [PW12 — Sources Refresh refreshes only local folders](pw12-sources-refresh-refreshes-only-local-folders.md)
 
+
+## Completion — 28 September 2026
+
+Connected repository rows identify their provider and explain URL-edit disconnection/cache consequences before saving, with a Sources reconnect destination.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProjectDetailsTest.php; tests/Feature/RepositoryCloneTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

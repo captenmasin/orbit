@@ -1,8 +1,17 @@
 # Orbit UX audit — implementation plans
 
-Status: planned. These files turn all **65 findings** from the [Figma audit](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=4-2) into separate implementation plans. The audit is in Mason Day’s team, dated 27 September 2026.
+Status: implemented (65/65 findings). These files turn all **65 findings** from the [Figma audit](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=4-2) into separate implementation plans. The audit is in Mason Day’s team, dated 27 September 2026.
 
-Each plan preserves its audit ID and priority, links to the exact Figma finding, identifies the current source, and includes implementation steps, acceptance criteria and focused verification. No fixes are implemented by these documents.
+Each plan preserves its audit ID and priority, links to the exact Figma finding, identifies the current source, and includes implementation steps, acceptance criteria and focused verification. The fixes are implemented in the application; each plan records its completion and verification limits.
+
+## Completed verification
+
+- PHP: `php artisan test --compact` — 500 passed, 4,024 assertions.
+- Frontend: `pnpm test` — 218 passed.
+- `pnpm run build`, lint of all changed Vue files and `vendor/bin/pint --dirty --format agent` passed.
+- Browser checks covered project draft Stay/Discard, visible duplicate confirmation/cancellation, Settings section URLs, and rendered project/backup controls. Destructive restore/deletion and credential failures used disposable automated fixtures.
+- The startup-history migration was applied locally. Existing installations must run migrations when updating.
+- Native pickers/history/keychain/clipboard, desktop-only integrations and external-client connection setup still need an installed desktop smoke test; they were not exercised against user credentials or workspace backups.
 
 ## Priorities
 
@@ -12,7 +21,7 @@ Each plan preserves its audit ID and priority, links to the exact Figma finding,
 | P2 | 35 | Fix confusing workflows, state, recovery and interaction. |
 | P3 | 24 | Make wording, presentation and discoverability consistent. |
 
-## Suggested implementation order
+## Original implementation order
 
 1. Address the P1 findings: [C01](c01-changing-tabs-destroys-a-document-draft.md), [C02](c02-board-conflict-recovery-closes-the-draft.md), [C03](c03-failed-env-paste-clears-the-input.md), [C04](c04-secret-bulk-actions-include-hidden-selections.md), [S01](s01-restore-can-leave-the-previous-backup-actionable.md), [S02](s02-restored-defaults-can-display-stale-values.md).
 2. Coordinate related state changes: [S01](s01-restore-can-leave-the-previous-backup-actionable.md), [S02](s02-restored-defaults-can-display-stale-values.md), [S03](s03-restore-wording-understates-removed-credentials.md), [S04](s04-restore-failure-leaves-an-unusable-retry-form.md) for restore; [S02](s02-restored-defaults-can-display-stale-values.md), [S05](s05-settings-sections-handle-drafts-differently.md), [S06](s06-invisible-edits-can-disable-update-installation.md), [S07](s07-mid-save-edits-can-be-marked-saved-falsely.md) for Settings drafts and saved defaults; [S10](s10-settings-navigation-has-no-url-or-history.md), [S08](s08-set-pin-recovery-link-lands-on-general.md), [S11](s11-backup-secrets-flow-can-request-a-nonexistent-pin.md) for Settings navigation and Security setup.

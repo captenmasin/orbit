@@ -18,7 +18,7 @@ class DependencyScheduleTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_queues_new_and_daily_due_locations_across_projects_and_folders(): void
+    public function test_queues_new_and_three_hour_due_locations_across_projects_and_folders(): void
     {
         $this->travelTo(Carbon::parse('2026-09-26 12:00:00'));
         $project = Project::factory()->create();
@@ -26,11 +26,11 @@ class DependencyScheduleTest extends TestCase
         $second = ProjectFolder::factory()->for($project)->create();
         $other = ProjectFolder::factory()->create();
         $new = $first->packageRoots()->sole();
-        $boundary = PackageRoot::factory()->for($first, 'folder')->create(['dependency_check_attempted_at' => '2026-09-25 12:00:00']);
+        $boundary = PackageRoot::factory()->for($first, 'folder')->create(['dependency_check_attempted_at' => '2026-09-26 09:00:00']);
         $old = $second->packageRoots()->sole();
         $old->forceFill(['dependency_check_attempted_at' => '2026-09-24 12:00:00'])->save();
         $otherProject = $other->packageRoots()->sole();
-        $recent = PackageRoot::factory()->for($other, 'folder')->create(['dependency_check_attempted_at' => '2026-09-25 12:00:01']);
+        $recent = PackageRoot::factory()->for($other, 'folder')->create(['dependency_check_attempted_at' => '2026-09-26 09:00:01']);
         Queue::fake([CheckDependenciesForRoot::class]);
 
         app(QueueDependencyChecks::class)->handle();
@@ -43,7 +43,7 @@ class DependencyScheduleTest extends TestCase
         foreach ($expectedIds as $id) {
             $this->assertDatabaseHas('package_roots', ['id' => $id, 'dependency_check_attempted_at' => '2026-09-26 12:00:00']);
         }
-        $this->assertDatabaseHas('package_roots', ['id' => $recent->id, 'dependency_check_attempted_at' => '2026-09-25 12:00:01']);
+        $this->assertDatabaseHas('package_roots', ['id' => $recent->id, 'dependency_check_attempted_at' => '2026-09-26 09:00:01']);
     }
 
     public function test_repeated_scheduler_ticks_do_not_duplicate_pending_checks(): void

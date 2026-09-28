@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — ContentSearch.vue:98; WorkspaceLayout.vue:112; SearchController.php:26–32
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-83)
 
@@ -22,10 +22,10 @@ Clarify the search that exists instead of broadening its data scope. In particul
 
 ## Acceptance criteria
 
-- [ ] The supported search types are visible before a query is entered.
-- [ ] Secret metadata is clearly distinguished from secret values.
-- [ ] The omitted scratchpad/assets/source scope is not implied as searchable.
-- [ ] Screen-reader and visible descriptions communicate the same coverage.
+- [x] The supported search types are visible before a query is entered.
+- [x] Secret metadata is clearly distinguished from secret values.
+- [x] The omitted scratchpad/assets/source scope is not implied as searchable.
+- [x] Screen-reader and visible descriptions communicate the same coverage.
 
 ## Verification
 
@@ -36,3 +36,9 @@ No new tests are required for this copy-only change. Manually compare searches f
 - [PW21 — Global search omits visible match context](pw21-global-search-omits-visible-match-context.md)
 - [PW06 — Project search can show stale results](pw06-project-search-can-show-stale-results.md)
 - [C15 — Board vocabulary alternates mid-flow](c15-board-vocabulary-alternates-mid-flow.md)
+
+## Completion — 28 September 2026
+
+Visible launcher guidance and the accessible description identify supported types, secret metadata and excluded notes/assets/sources.
+
+Checks: tests/content-search.test.mjs; tests/Feature/ContentSearchTest.php; launcher template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

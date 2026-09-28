@@ -31,6 +31,8 @@ const form = useForm(() => ({action: '', revision: props.project.revision, id: n
 const quickAdd = useForm({action: 'task.save', revision: props.project.revision, column_id: '', title: ''});
 const quickAddColumnId = ref<string | null>(null);
 const query = ref('');
+const announcement = ref('');
+let moveControl: string | null = null;
 const busy = computed(() => form.processing || quickAdd.processing);
 const taskCount = computed(() => columns.value.reduce((count, column) => count + column.tasks.length, 0));
 const matchingTaskIds = computed(() => new Set(columns.value.flatMap(column => column.tasks)
@@ -90,7 +92,7 @@ function attachFiles(event: Event) {
     attachmentPickerKey.value++;
     form.clearErrors('attachments');
     if (retainedAttachments.value.length + form.attachments.length + files.length > 10) {
-        form.setError('attachments', 'A task can have up to 10 attachments.');
+        form.setError('attachments', 'A card can have up to 10 attachments.');
     } else if (files.some(file => file.size > 10 * 1024 * 1024)) {
         form.setError('attachments', 'Each attachment must be 10 MB or smaller.');
     } else {
@@ -202,23 +204,42 @@ function moveTask(column: BoardColumn, task: BoardTask, destination: BoardColumn
     submit();
 }
 
+function reorderList(column: BoardColumn, direction: number) {
+    const position = columns.value.findIndex(item => item.id === column.id) + direction;
+    if (busy.value || editor.value || position < 0 || position >= columns.value.length) return;
+    reset('column.move'); form.id = column.id; form.position = position;
+    moveControl = `list-menu-${column.id}`; announcement.value = ''; submit();
+}
+function reorderCard(column: BoardColumn, task: BoardTask, direction: number) {
+    const position = column.tasks.findIndex(item => item.id === task.id) + direction;
+    if (busy.value || editor.value || position < 0 || position >= column.tasks.length) return;
+    reset('task.move'); form.id = task.id; form.column_id = column.id; form.position = position;
+    moveControl = `card-${task.id}`; announcement.value = ''; submit();
+}
 function submit() {
-    if (busy.value) return;
+    if (busy.value || form.errors.id || form.errors.column_id) return;
     form.transform(data => ({...data, _method: 'put'})).post(`/projects/${props.project.id}/board`, {
         preserveScroll: true, errorBag: 'board',
         onSuccess: () => {
+            if (moveControl) announcement.value = `Order saved. Position ${form.position + 1}.`;
             form.attachments = [];
             form.removed_attachment_ids = [];
             editor.value = null;
             cardMenuTaskId.value = null;
         },
         onError: errors => {
+            if (moveControl) announcement.value = String(Object.values(errors)[0] ?? 'Order could not be saved. Try again.');
             if (!editor.value && !errors.revision) {
                 toast.error(String(Object.values(errors)[0] ?? 'The board could not be updated. Try again.'));
                 form.clearErrors();
             }
         },
-        onFinish: syncColumns,
+        onNetworkError: () => { if (moveControl) announcement.value = 'Order could not be saved. Try again.'; },
+        onFinish: async () => {
+            syncColumns(); await nextTick();
+            if (moveControl && typeof document !== 'undefined') document.getElementById(moveControl)?.focus();
+            moveControl = null;
+        },
     });
 }
 
@@ -248,7 +269,7 @@ watch(() => [props.targetTaskId, props.project.id], () => {
     const task = column?.tasks.find(task => task.id === props.targetTaskId);
     if (column && task) {
         editTask(column, task);
-        const url = new URL(page.url, 'http://orbit.local');
+        const url = new URL(page.url, 'https://orbit.local');
         url.searchParams.delete('task');
         router.replace({url: `${url.pathname}${url.search}${url.hash}`, preserveState: true, preserveScroll: true});
     }
@@ -256,10 +277,13 @@ watch(() => [props.targetTaskId, props.project.id], () => {
 
 function reload() {
     router.reload({
+        onNetworkError: () => { form.setError('revision', 'Could not reload the board. Your draft is kept. Try again.'); },
         only: ['selectedProject'], onSuccess: () => {
-            editor.value = null;
-            form.clearErrors();
-            quickAdd.clearErrors();
+            form.revision = props.project.revision;
+            form.clearErrors('revision', 'id', 'column_id');
+            quickAdd.clearErrors('revision');
+            if (form.id && ((editor.value === 'task' && !selectedTask.value) || (editor.value === 'column' && !selectedColumn.value))) form.setError('id', 'This item was removed. Your draft is kept; copy it before closing.');
+            else if (editor.value === 'task' && !columns.value.some(column => column.id === form.column_id)) form.setError('column_id', 'This list was removed. Your draft is kept; choose another list.');
         }
     });
 }
@@ -271,6 +295,12 @@ function reload() {
         :aria-busy="busy">
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div>
+                <p
+                    role="status"
+                    aria-live="polite"
+                    class="sr-only">
+                    {{ announcement }}
+                </p>
                 <h2
                     id="board-title"
                     class="text-xl font-normal tracking-[-0.025em]">
@@ -352,9 +382,9 @@ function reload() {
                 ghost-class="opacity-50"
                 class="flex shrink-0 items-start gap-4"
                 @start="startDrag($event, 'column')"
-@end="finishDrag">
+                @end="finishDrag">
                 <section
-                    v-for="column in columns"
+                    v-for="(column, columnIndex) in columns"
                     :key="column.id"
                     class="flex w-[min(15rem,82vw)] shrink-0 flex-col gap-1.5 rounded-[10px] bg-neutral-100 p-2 dark:bg-neutral-800"
                     :aria-labelledby="`column-${column.id}`">
@@ -372,10 +402,13 @@ function reload() {
                                 class="block truncate"
                                 :title="column.name">{{ column.name }}</span>
                         </h3>
-                        <span class="text-xs tabular-nums text-muted-foreground"><NumberTransition :value="column.tasks.length" /></span>
+                        <span
+                            class="text-xs tabular-nums text-muted-foreground"
+                            :aria-label="query.trim() ? `${column.tasks.filter(task => matchingTaskIds.has(task.id)).length} matching cards of ${column.tasks.length}` : `${column.tasks.length} cards`"><template v-if="query.trim()">{{ column.tasks.filter(task => matchingTaskIds.has(task.id)).length }} / </template><NumberTransition :value="column.tasks.length" /></span>
                         <DropdownMenuRoot>
                             <DropdownMenuTrigger as-child>
                                 <Button
+                                    :id="`list-menu-${column.id}`"
                                     type="button"
                                     variant="ghost"
                                     size="icon-sm"
@@ -393,6 +426,18 @@ function reload() {
                                     :side-offset="4"
                                     :class="contextMenuContentClass"
                                     @close-auto-focus="event => { if (editor) event.preventDefault(); }">
+                                    <DropdownMenuItem
+                                        :class="contextMenuItemClass"
+                                        :disabled="busy || columnIndex === 0"
+                                        @select="reorderList(column, -1)">
+                                        Move list left
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        :class="contextMenuItemClass"
+                                        :disabled="busy || columnIndex === columns.length - 1"
+                                        @select="reorderList(column, 1)">
+                                        Move list right
+                                    </DropdownMenuItem>
                                     <DropdownMenuItem
                                         :class="contextMenuItemClass"
                                         @select="editColumn(column)">
@@ -424,9 +469,10 @@ function reload() {
                         ghost-class="opacity-50"
                         class="grid min-h-4 content-start gap-1.5"
                         :aria-label="`${column.name} cards`"
-@start="startDrag($event, 'task')" @end="finishDrag">
+                        @start="startDrag($event, 'task')"
+                        @end="finishDrag">
                         <li
-                            v-for="task in column.tasks"
+                            v-for="(task, taskIndex) in column.tasks"
                             v-show="!query.trim() || matchingTaskIds.has(task.id)"
                             :key="task.id">
                             <ContextMenu @update:open="value => { if (value) cardMenuTaskId = task.id; else if (cardMenuTaskId === task.id) cardMenuTaskId = null; }">
@@ -434,6 +480,7 @@ function reload() {
                                     as-child
                                     :disabled="busy || !!editor || !!dragged">
                                     <div
+                                        :id="`card-${task.id}`"
                                         data-task-handle
                                         role="button"
                                         tabindex="0"
@@ -444,7 +491,8 @@ function reload() {
                                         class="cursor-grab rounded-lg bg-white p-3 transition-colors hover:bg-white/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:cursor-grabbing dark:bg-neutral-900 dark:hover:bg-neutral-900/70"
                                         @click="openTaskCard($event, column, task)"
                                         @keydown="openCardMenu"
-@keydown.enter.prevent="editTask(column, task)" @keydown.space.prevent="editTask(column, task)">
+                                        @keydown.enter.prevent="editTask(column, task)"
+                                        @keydown.space.prevent="editTask(column, task)">
                                         <p class="break-words text-[13px] leading-[19px] font-medium">
                                             {{ task.title }}
                                         </p>
@@ -473,6 +521,18 @@ function reload() {
                                         @select="editTask(column, task)">
                                         <AlignLeftIcon aria-hidden="true" />
                                         Open details
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                        :class="contextMenuItemClass"
+                                        :disabled="busy || taskIndex === 0"
+                                        @select="reorderCard(column, task, -1)">
+                                        Move card up
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                        :class="contextMenuItemClass"
+                                        :disabled="busy || taskIndex === column.tasks.length - 1"
+                                        @select="reorderCard(column, task, 1)">
+                                        Move card down
                                     </ContextMenuItem>
                                     <ContextMenuSub>
                                         <ContextMenuSubTrigger
@@ -531,7 +591,8 @@ function reload() {
                             :aria-describedby="quickAdd.hasErrors ? `quick-add-errors-${column.id}` : undefined"
                             :disabled="busy || !!editor"
                             class="min-h-21 resize-none bg-background"
-@keydown.enter.exact.prevent="saveQuickAdd" @keydown.esc.stop.prevent="cancelQuickAdd" />
+                            @keydown.enter.exact.prevent="saveQuickAdd"
+                            @keydown.esc.stop.prevent="cancelQuickAdd" />
                         <div
                             v-if="quickAdd.hasErrors"
                             :id="`quick-add-errors-${column.id}`"
@@ -639,6 +700,15 @@ function reload() {
                             </Button>
                         </AlertDescription>
                     </Alert>
+                    <Field v-if="editor === 'task' && form.errors.column_id">
+                        <FieldLabel for="recovery-list">
+                            Choose another list
+                        </FieldLabel><ChoiceSelect
+                            id="recovery-list"
+                            :model-value="form.column_id"
+                            :options="columns.map(column => ({ value: column.id, label: column.name }))"
+                            @update:model-value="form.column_id = $event; form.clearErrors('column_id')" />
+                    </Field>
                     <FieldGroup
                         v-if="editor === 'task'"
                         class="gap-4">
@@ -838,14 +908,14 @@ function reload() {
                     </template>
                     <Field v-if="editor === 'delete-column' && selectedColumn?.tasks.length">
                         <FieldLabel for="column-destination">
-                            Move remaining tasks to
+                            Move remaining cards to
                         </FieldLabel>
                         <ChoiceSelect
                             id="column-destination"
                             v-model="form.destination_id"
                             :aria-invalid="!!form.errors.destination_id"
                             :disabled="form.processing"
-                            :options="[{ value: '', label: 'Choose a column', disabled: true }, ...destinations.map(column => ({ value: column.id, label: column.name }))]" />
+                            :options="[{ value: '', label: 'Choose a list', disabled: true }, ...destinations.map(column => ({ value: column.id, label: column.name }))]" />
                         <p
                             v-if="!destinations.length"
                             class="text-sm text-muted-foreground">
@@ -874,7 +944,7 @@ function reload() {
                             type="submit"
                             :variant="deleting ? 'destructive' : 'default'"
                             :disabled="form.processing || cannotDeleteColumn">
-                            {{ form.processing ? 'Saving…' : deleting ? (editor === 'delete-task' ? 'Delete card' : 'Delete list') : editor === 'task' || form.id ? 'Save changes' : 'Add list' }}
+                            {{ form.processing ? 'Saving…' : deleting ? (editor === 'delete-task' ? 'Delete card' : 'Delete list') : form.id ? 'Save changes' : editor === 'task' ? 'Create card' : 'Add list' }}
                         </Button>
                     </DialogFooter>
                 </form>

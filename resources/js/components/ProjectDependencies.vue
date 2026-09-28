@@ -7,13 +7,13 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Link, useHttp } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
-import type { DependencyIssue } from '@/lib/dependencies';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { FolderSearchIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue';
 import type { FolderPreview, PackageRoot, Project, ProjectFolder } from '@/types';
-import { dependencyHealth, dependencyReleaseUrl, dependencySeverities, folderName } from '@/lib/dependencies';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { dependencyHealth, dependencyReleaseUrl, dependencySeverities, folderName, type DependencyIssue } from '@/lib/dependencies';
 
 const props = defineProps<{ project: Project; folders: ProjectFolder[]; native: boolean; busy: boolean }>();
 const emit = defineEmits<{ refresh: [kind: 'all' | 'folder' | 'root', id?: string | null]; changed: [] }>();
@@ -35,7 +35,6 @@ const checkedAt = computed(() => health.value.locations.flatMap(location => [loc
 const date = (value?: string | null) => value ? new Date(value).toLocaleString() : 'Not checked';
 const folderLabel = (folder: ProjectFolder) => props.folders.filter(item => folderName(item) === folderName(folder)).length > 1 ? folder.path : folderName(folder);
 const locationLabel = (root: PackageRoot, folder: ProjectFolder) => `${folderLabel(folder)} / ${root.relative_path === '.' ? 'root' : root.relative_path}`;
-const targetVersion = (issue: DependencyIssue) => issue.latest ?? (new Set(issue.advisories.flatMap(advisory => advisory.fixed_versions)).size === 1 ? issue.advisories.flatMap(advisory => advisory.fixed_versions)[0] : 'Review fixes');
 const updateLabel = (issue: DependencyIssue) => {
     const current = issue.current.replace(/^v/, '').split('.');
     const latest = issue.latest?.replace(/^v/, '').split('.');
@@ -67,16 +66,21 @@ async function checkLocations(rootId?: string) {
 }
 const tools = ['php', 'node', 'composer', 'npm', 'pnpm', 'yarn'];
 const editorOpen = ref(false);
+const advancedOpen = ref(false);
 const edit = useHttp({ action: 'save', id: null as string | null, folder_id: '', revision: null as number | null, path: '', executable_overrides: {} as Record<string, string> });
 const picker = useHttp<{ path: string }, { folder: FolderPreview | null }>({ path: '' });
 function editRoot(root?: PackageRoot, targetFolder?: ProjectFolder) {
     const folder = targetFolder ?? props.folders.find(folder => folder.id === root?.project_folder_id) ?? props.folders[0];
-    Object.assign(edit, { action: 'save', id: root?.id ?? null, folder_id: folder?.id ?? '', revision: root?.revision ?? null,
-        path: root && folder ? `${folder.path}${root.relative_path === '.' ? '' : `/${root.relative_path}`}` : '',
+    Object.assign(edit, {
+        action: 'save', id: root?.id ?? null, folder_id: folder?.id ?? '', revision: root?.revision ?? null,
+        path: root && folder ? folder.path + (root.relative_path === '.' ? '' : '/' + root.relative_path) : '',
         executable_overrides: Object.fromEntries(tools.map(tool => [tool, root?.executable_overrides?.[tool] ?? ''])) });
+    advancedOpen.value = !!root && Object.values(root.executable_overrides ?? {}).some(Boolean);
     edit.clearErrors();
     editorOpen.value = true;
 }
+const selectedLocation = computed(() => props.folders.flatMap(folder => folder.package_roots ?? []).find(root => root.id === edit.id));
+watch(() => edit.errors, errors => { if (Object.keys(errors).some(key => key.startsWith('executable_overrides'))) advancedOpen.value = true; }, { deep: true });
 async function pickRoot() {
     try {
         const result = await picker.post('/folders/inspect');
@@ -90,7 +94,7 @@ async function saveRoot(action = 'save') {
         if (!result) return;
         editorOpen.value = false;
         emit('changed');
-    } catch { if (!edit.hasErrors) toast.error('The package root could not be saved. Try again.'); }
+    } catch { if (!edit.hasErrors) toast.error('The package location could not be saved. Try again.'); }
 }
 </script>
 
@@ -216,7 +220,7 @@ async function saveRoot(action = 'save') {
                                     </th><th
                                         scope="col"
                                         class="px-4 py-3 font-normal">
-                                        Installed → target
+                                        Versions
                                     </th><th
                                         scope="col"
                                         class="px-5 py-3">
@@ -242,7 +246,7 @@ async function saveRoot(action = 'save') {
                                             {{ issue.severity ? `${issue.severity} severity` : updateLabel(issue) }}
                                         </Badge>
                                     </td><td class="whitespace-nowrap px-4 py-3">
-                                        {{ issue.current }} → {{ targetVersion(issue) }}
+                                        <span class="block">Installed: {{ issue.current }}</span><span class="block text-muted-foreground">Latest available: {{ issue.latest ?? 'Not reported' }}</span>
                                     </td><td class="px-5 py-3 text-right">
                                         <Button
                                             v-if="issue.advisories.length"
@@ -259,7 +263,7 @@ async function saveRoot(action = 'save') {
                                                 :href="dependencyReleaseUrl(issue)"
                                                 target="_blank"
                                                 rel="noopener noreferrer"
-                                                :aria-label="`View ${issue.name} ${issue.latest} release`">View release</a>
+                                                :aria-label="issue.manager === 'composer' ? `View ${issue.name} package` : `View ${issue.name} ${issue.latest} release`">{{ issue.manager === 'composer' ? 'View package' : 'View release' }}</a>
                                         </Button>
                                     </td>
                                 </tr>
@@ -340,14 +344,14 @@ async function saveRoot(action = 'save') {
                         size="sm"
                         variant="ghost"
                         @click="managementOpen = true">
-                        Manage folders
+                        Manage package locations
                     </Button>
                 </div>
             </template>
         </div>
         <Dialog v-model:open="managementOpen">
             <DialogContent class="max-h-[85vh] overflow-y-auto">
-                <DialogHeader><DialogTitle>Dependency locations</DialogTitle><DialogDescription>Each linked folder can contain several package locations. Check them together or configure each one.</DialogDescription></DialogHeader><ul class="divide-y">
+                <DialogHeader><DialogTitle>Package locations</DialogTitle><DialogDescription>Each linked folder can contain several package locations. Check them together or configure each one.</DialogDescription></DialogHeader><ul class="divide-y">
                     <li
                         v-for="location in allHealth.locations"
                         :key="location.root.id"
@@ -359,7 +363,7 @@ async function saveRoot(action = 'save') {
                                 size="sm"
                                 variant="outline"
                                 @click="editRoot(location.root)">
-                                Root settings
+                                Location settings
                             </Button>
                         </div><p class="break-all text-xs text-muted-foreground">
                             {{ location.folder.path }}{{ location.root.relative_path === '.' ? '' : `/${location.root.relative_path}` }}
@@ -404,7 +408,7 @@ async function saveRoot(action = 'save') {
                                 {{ advisory.severity }}
                             </Badge>
                         </div><p class="text-sm text-muted-foreground">
-                            {{ advisory.fixed_versions.length ? `Fixed versions: ${advisory.fixed_versions.join(', ')}` : 'No fixed version is listed in this advisory.' }}
+                            {{ advisory.fixed_versions.length ? `Advisory fixed versions: ${advisory.fixed_versions.join(', ')}` : 'No fixed version is listed in this advisory.' }}
                         </p><a
                             v-if="/^https:\/\/osv\.dev\/vulnerability\/[A-Za-z0-9._-]+$/.test(advisory.url)"
                             :href="advisory.url"
@@ -424,7 +428,8 @@ async function saveRoot(action = 'save') {
                         <a
                             :href="dependencyReleaseUrl(review)"
                             target="_blank"
-                            rel="noopener noreferrer">View {{ review.latest }} release</a>
+                            rel="noopener noreferrer"
+                            :aria-label="review.manager === 'composer' ? `View ${review.name} package` : `View ${review.name} ${review.latest} release`">{{ review.manager === 'composer' ? 'View package' : `View ${review.latest} release` }}</a>
                     </Button><Button @click="review = null">
                         Done
                     </Button>
@@ -433,7 +438,7 @@ async function saveRoot(action = 'save') {
         </Dialog>
         <Dialog v-model:open="editorOpen">
             <DialogContent class="max-h-[85vh] overflow-y-auto">
-                <DialogHeader><DialogTitle>{{ edit.id ? 'Root settings' : 'Add package root' }}</DialogTitle><DialogDescription>Choose a folder inside a linked folder. Executable paths are optional and apply to this root.</DialogDescription></DialogHeader>
+                <DialogHeader><DialogTitle>{{ edit.id ? 'Location settings' : 'Add package location' }}</DialogTitle><DialogDescription>Choose the linked folder itself or a directory inside it containing composer.json or package.json. Optional executable overrides apply to this location.</DialogDescription></DialogHeader>
                 <form
                     class="space-y-4"
                     @submit.prevent="saveRoot()">
@@ -462,7 +467,7 @@ async function saveRoot(action = 'save') {
                         </Field>
                         <Field>
                             <FieldLabel for="root-path">
-                                Package root path
+                                Package location path
                             </FieldLabel><Input
                                 id="root-path"
                                 v-model="edit.path"
@@ -477,16 +482,50 @@ async function saveRoot(action = 'save') {
                                     </Button>
                                 </div>
                         </Field>
-                        <Field
-                            v-for="tool in tools"
-                            :key="tool">
-                            <FieldLabel :for="`runtime-${tool}`">
-                                {{ tool }} executable
-                            </FieldLabel><Input
-                                :id="`runtime-${tool}`"
-                                v-model="edit.executable_overrides[tool]"
-                                placeholder="Use app environment" />
-                        </Field>
+                        <Collapsible v-model:open="advancedOpen">
+                            <CollapsibleTrigger as-child>
+                                <Button
+                                    type="button"
+                                    variant="outline">
+                                    Advanced: executable overrides
+                                </Button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent class="grid gap-4 pt-4">
+                                <p class="text-sm text-muted-foreground">
+                                    Blank fields inherit automatic detection and <Link
+                                        href="/settings?section=tools"
+                                        class="underline">
+                                        workspace runtime settings
+                                    </Link>. Entered values override them, even when Advanced is closed.
+                                </p>
+                                <div
+                                    v-if="selectedLocation?.snapshot?.runtimes"
+                                    class="grid gap-2 text-xs text-muted-foreground">
+                                    <p>Last checked runtimes; changed override drafts have not been checked yet.</p>
+                                    <p
+                                        v-for="(runtime, tool) in selectedLocation.snapshot.runtimes"
+                                        :key="tool"
+                                        class="break-all">
+                                        {{ tool }} · {{ runtime.state }} · {{ runtime.version ?? 'No version' }} · {{ runtime.path ?? 'No executable' }} · {{ ({ automatic: 'Automatic detection', global: 'Workspace default', root: 'Project override' })[runtime.source] }}<span v-if="edit.executable_overrides[tool]"> · Manual override: {{ edit.executable_overrides[tool] }}</span>
+                                    </p>
+                                </div><p
+                                    v-else
+                                    class="text-xs text-muted-foreground">
+                                    Detected runtimes are not available yet. Save and check this location.
+                                </p>
+                                <Field
+                                    v-for="tool in tools"
+                                    :key="tool">
+                                    <FieldLabel :for="`runtime-${tool}`">
+                                        {{ tool }} executable
+                                    </FieldLabel><Input
+                                        :id="`runtime-${tool}`"
+                                        v-model="edit.executable_overrides[tool]"
+                                        placeholder="Automatic detection / workspace default"
+                                        :aria-invalid="!!edit.errors[`executable_overrides.${tool}`]" />
+                                </Field>
+                            </CollapsibleContent>
+                        </Collapsible>
                     </FieldGroup>
                     <DialogFooter>
                         <Button
@@ -495,7 +534,7 @@ async function saveRoot(action = 'save') {
                             variant="destructive"
                             :disabled="edit.processing"
                             @click="saveRoot('delete')">
-                            Remove root
+                            Remove location
                         </Button><Button
                             type="button"
                             variant="outline"
@@ -504,7 +543,7 @@ async function saveRoot(action = 'save') {
                         </Button><Button
                             type="submit"
                             :disabled="edit.processing">
-                            Save root
+                            Save location
                         </Button>
                     </DialogFooter>
                 </form>

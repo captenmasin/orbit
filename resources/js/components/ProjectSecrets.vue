@@ -59,6 +59,8 @@ const unlockedUntil = ref(0);
 const vaultRequests = new AbortController();
 let vaultTimer: ReturnType<typeof setTimeout> | undefined;
 let vaultVersion = 0;
+let vaultWarningTimer: ReturnType<typeof setTimeout> | undefined;
+const vaultNotice = ref('');
 const visible = useDocumentVisibility();
 const focused = useWindowFocus();
 const form = useHttp({ environment: 'Default', name: '', value: '', service: '', description: '', management_url: '', project_revision: 1, revision: 1 });
@@ -111,7 +113,9 @@ async function selectSecret(id: string) {
     activeSecretId.value = id;
 }
 async function filterSecrets(field: 'environment' | 'service' | 'query', value: string) {
-    if (!await flushDescription()) return;
+    const current = field === 'environment' ? environment.value : field === 'service' ? service.value : query.value;
+    if (current === value || !await flushDescription()) return;
+    selectedIds.value = [];
     if (field === 'environment') environment.value = value;
     else if (field === 'service') service.value = value;
     else query.value = value;
@@ -148,12 +152,16 @@ async function loadValues() {
     const sessionUntil = unlockedUntil.value;
     const version = vaultVersion;
     const response = await fetch(`/projects/${props.project.id}/secrets/values`, { headers: { Accept: 'application/json' }, credentials: 'same-origin', signal: vaultRequests.signal });
-    if (!response.ok) { if (version === vaultVersion) throw new Error('Secret values could not be loaded.'); return; }
+    if (!response.ok) {
+        if (version === vaultVersion) throw new Error('Secret values could not be loaded.');
+        return;
+    }
     const body = await response.json() as { values: Record<string, string> };
     if (!vaultRequests.signal.aborted && vaultVersion === version && unlockedUntil.value === sessionUntil) values.value = body.values;
 }
 function clearVault() {
     vaultVersion++;
+    clearTimeout(vaultWarningTimer);
     if (vaultTimer) clearTimeout(vaultTimer);
     vaultTimer = undefined;
     values.value = {};
@@ -168,6 +176,10 @@ function clearVault() {
     pasteForm.entries = '';
     pasteOpen.value = false;
 }
+function expireVault() {
+    lockVault();
+    vaultNotice.value = 'Secrets locked. Unsaved secret values and pasted entries were cleared. Unlock to continue.';
+}
 function lockVault() {
     const wasUnlocked = unlocked.value;
     clearVault();
@@ -179,7 +191,10 @@ function resumeVault(until: number) {
     unlockedUntil.value = until * 1000;
     if (unlockedUntil.value <= Date.now()) { clearVault(); return; }
     unlocked.value = true;
-    vaultTimer = setTimeout(lockVault, unlockedUntil.value - Date.now());
+    vaultNotice.value = '';
+    clearTimeout(vaultWarningTimer);
+    vaultWarningTimer = setTimeout(() => { vaultNotice.value = 'Secrets lock in one minute. Save any value edits or pasted entries before then.'; }, Math.max(0, unlockedUntil.value - Date.now() - 60000));
+    vaultTimer = setTimeout(expireVault, unlockedUntil.value - Date.now());
 }
 function focusPin() {
     void nextTick(() => { if (!unlocked.value && !vaultRequests.signal.aborted) document.getElementById('secret-pin')?.focus(); });
@@ -363,7 +378,6 @@ async function paste() {
     } catch {
         if (!pasteForm.hasErrors) error.value = 'The entries could not be saved. Try again.';
     } finally {
-        pasteForm.entries = '';
         pasteForm.defaults('entries', '');
     }
 }
@@ -424,6 +438,9 @@ async function exportEntries() {
         toast.success('Secrets exported.');
     } catch {
         if (!exportForm.hasErrors) error.value = 'The .env file could not be exported. Choose the destination again and retry.';
+    } finally {
+        exportPreview.value = null;
+        exportForm.overwrite = false;
     }
 }
 async function remove() {
@@ -478,7 +495,7 @@ watch(() => props.targetSecretId, id => {
 }, { immediate: true });
 watch([visible, focused], () => {
     if (unlocked.value && visible.value === 'visible' && focused.value) {
-        if (unlockedUntil.value <= Date.now()) lockVault();
+        if (unlockedUntil.value <= Date.now()) expireVault();
         else void refreshVaultStatus();
     }
 });
@@ -514,6 +531,12 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="space-y-4">
+        <p
+            v-if="vaultNotice"
+            role="status"
+            class="text-sm text-muted-foreground">
+            {{ vaultNotice }}
+        </p>
         <div
             v-if="unlocked"
             class="flex flex-wrap items-start justify-between gap-4">
@@ -521,6 +544,7 @@ onBeforeUnmount(() => {
                 Secrets
             </h2>
             <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs text-muted-foreground">Locks at {{ new Date(unlockedUntil).toLocaleTimeString() }}</span>
                 <Button
                     variant="ghost"
                     size="sm"
@@ -906,7 +930,7 @@ onBeforeUnmount(() => {
                             <dt class="text-xs text-muted-foreground">
                                 Service
                             </dt><dd class="mt-2 wrap-anywhere">
-                                {{ activeSecret.service || 'Uncategorized' }}
+                                {{ activeSecret.service || 'Unassigned' }}
                             </dd>
                         </div>
                         <div class="min-w-0">
@@ -1024,7 +1048,7 @@ onBeforeUnmount(() => {
                         </Field>
                         <Field :data-invalid="!!form.errors.service">
                             <FieldLabel for="secret-editor-service">
-                                Service / category
+                                Service
                             </FieldLabel>
                             <Input
                                 id="secret-editor-service"
@@ -1095,7 +1119,7 @@ onBeforeUnmount(() => {
                     </Field>
                     <Field :data-invalid="!!pasteForm.errors.service">
                         <FieldLabel for="secret-paste-service">
-                            Service / category
+                            Service
                         </FieldLabel><Input
                             id="secret-paste-service"
                             v-model="pasteForm.service"
@@ -1167,13 +1191,13 @@ onBeforeUnmount(() => {
                             </FieldError>
                     </Field><Field v-else>
                         <FieldLabel for="secret-bulk-service">
-                            Service / category
+                            Service
                         </FieldLabel><Input
                             id="secret-bulk-service"
                             v-model="bulkService"
                             list="secret-categories"
                             maxlength="100"
-                            placeholder="Leave empty to clear category" /><FieldError v-if="bulkForm.errors.service">
+                            placeholder="Leave empty to clear service" /><FieldError v-if="bulkForm.errors.service">
                                 {{ bulkForm.errors.service }}
                             </FieldError>
                     </Field><FieldError v-if="bulkForm.errors.secrets">
@@ -1310,7 +1334,7 @@ onBeforeUnmount(() => {
                     <template v-if="exportPreview">
                         <Alert>
                             <AlertDescription>
-                                Destination: {{ exportPreview.destination }}<template v-if="exportPreview.exists">
+                                <span class="break-all">Destination: {{ exportPreview.destination }}</span><template v-if="exportPreview.exists">
                                     already exists.
                                 </template>
                             </AlertDescription>
@@ -1337,7 +1361,7 @@ onBeforeUnmount(() => {
                         </Button><Button
                             type="submit"
                             :disabled="exportPreviewForm.processing || exportForm.processing || !exportNames.length || (!!exportPreview && exportPreview.exists && !exportForm.overwrite)">
-                            <TextTransition :text="exportPreview ? (exportForm.processing ? 'Exporting…' : 'Export plaintext .env') : (exportPreviewForm.processing ? 'Opening…' : 'Choose destination')" />
+                            <TextTransition :text="exportPreview ? (exportForm.processing ? 'Exporting…' : 'Export plaintext .env') : (exportPreviewForm.processing ? 'Opening…' : (error ? 'Preview again / change destination' : 'Choose destination'))" />
                         </Button>
                     </DialogFooter>
                 </form>

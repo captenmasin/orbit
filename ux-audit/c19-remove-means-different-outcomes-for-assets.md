@@ -2,7 +2,7 @@
 
 Priority: P3  
 Area: assets  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectAssets.vue:439,450,496; ProjectAssetController.php:258–271  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-233)
 
@@ -19,10 +19,10 @@ Assets' Remove action has two outcomes: selected files are deleted, while remove
 
 ## Acceptance criteria
 
-- [ ] Confirmation identifies every selected file/folder by name.
-- [ ] File deletion and folder removal are clearly distinguished.
-- [ ] Mixed-selection copy describes deleted files and surviving contents accurately.
-- [ ] Cancel changes nothing; confirmation preserves existing server behavior.
+- [x] Confirmation identifies every selected file/folder by name.
+- [x] File deletion and folder removal are clearly distinguished.
+- [x] Mixed-selection copy describes deleted files and surviving contents accurately.
+- [x] Cancel changes nothing; confirmation preserves existing server behavior.
 
 ## Verification
 
@@ -33,3 +33,9 @@ No new automated tests are needed for confirmation copy/layout. Existing deletio
 ## Related plans
 
 None.
+
+## Completion — 28 September 2026
+
+Asset confirmations identify selected files and folder paths and distinguish file deletion, folder removal and surviving contents.
+
+Checks: tests/project-assets.test.mjs; tests/Feature/ProjectAssetSelectionTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

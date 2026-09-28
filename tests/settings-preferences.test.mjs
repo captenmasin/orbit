@@ -36,9 +36,9 @@ function mount(t, overrides = {}) {
         '@/lib/appearance': { applyAppearance: theme => themes.push(theme), applyMotionPreference: motion => motions.push(motion) },
         'vue-sonner': { toast: { error() {}, success: message => successes.push(message) } },
     };
-    const browserWindow = { confirm: message => { confirmations.push(message); return true; } };
+    const browserWindow = { addEventListener() {}, removeEventListener() {}, confirm: message => { confirmations.push(message); return true; } };
     const context = { exports: {}, require: name => modules[name] ?? {}, structuredClone,
-        setInterval, clearInterval, window: browserWindow };
+        URL, setInterval, clearInterval, window: browserWindow };
     runInNewContext(outputText, context);
     const scope = vue.effectScope();
     t.after(() => scope.stop());
@@ -128,12 +128,12 @@ test('leaving appearance restores the saved theme and motion after an unsaved pr
     assert.deepEqual(state.themes, ['dark']);
     assert.deepEqual(state.motions, ['on']);
 
-    state.section.value = 'general';
+    state.activeSection.value = 'general';
     await vue.nextTick();
 
-    assert.equal(state.appearance.theme, 'system');
+    assert.equal(state.appearance.theme, 'dark');
     assert.deepEqual(state.themes, ['dark', 'system']);
-    assert.equal(state.appearance.reduce_motion, 'system');
+    assert.equal(state.appearance.reduce_motion, 'on');
     assert.deepEqual(state.motions, ['on', 'system']);
 });
 
@@ -160,7 +160,7 @@ test('saving appearance keeps the confirmed motion preference when leaving or un
     await vue.nextTick();
 
     await state.save('appearance');
-    state.section.value = 'general';
+    state.activeSection.value = 'general';
     await vue.nextTick();
     state.scope.stop();
 
@@ -296,4 +296,116 @@ test('installing an update refuses unsaved sections and an unconfirmed restart',
     assert.equal(requests.length, 1);
     assert.equal(requests[0].url, '/settings/updates/install');
     assert.deepEqual(JSON.parse(requests[0].data), { confirmed: true });
+});
+
+test('successful saves use normalized server values and preserve edits made after submission', async t => {
+    const state = mount(t);
+    let complete;
+    t.mock.method(http.getClient(), 'request', () => new Promise(resolve => { complete = resolve; }));
+    state.board.columns = [{ name: '  Review  ', color: null }];
+    const save = state.save('project_defaults');
+    await vue.nextTick();
+    assert.equal(state.board.processing, true);
+    await state.save('project_defaults');
+    state.restoreDefaultColumns();
+    assert.equal(state.board.columns[0].name, '  Review  ');
+    complete(response({ preferences: { revision: 8, values: { ...values, project_defaults: { columns: [{ name: 'Review', color: null }] } } } }));
+    await save;
+    await vue.nextTick();
+    assert.equal(state.board.columns[0].name, 'Review');
+    assert.equal(state.board.isDirty, false);
+
+    state.general.startup_destination = 'last_project';
+    const pending = state.save('general');
+    await vue.nextTick();
+    state.general.startup_destination = 'dashboard';
+    complete(response({ preferences: { revision: 9, values: { ...values, general: { startup_destination: 'last_project' } } } }));
+    await pending;
+    await vue.nextTick();
+    assert.equal(state.general.startup_destination, 'dashboard');
+    assert.equal(state.general.isDirty, true);
+});
+
+test('confirmed restore replaces only board defaults and resets their saved baseline', async t => {
+    const state = mount(t);
+    state.board.columns[0].name = 'Old draft';
+    state.tools.paths.php = '/draft/php';
+    state.props.preferences = { revision: 9, values: { ...structuredClone(values), project_defaults: { columns: [{ name: 'Restored', color: 'Green' }] } } };
+    await vue.nextTick();
+    assert.equal(state.board.columns[0].name, 'Old draft', 'Ordinary props keep drafts');
+
+    state.restoredDefaults();
+    await vue.nextTick();
+    assert.equal(state.board.columns[0].name, 'Restored');
+    assert.equal(state.board.isDirty, false);
+    assert.equal(state.tools.paths.php, '/draft/php');
+    assert.equal(state.tools.isDirty, true);
+    state.board.columns[0].name = 'New draft';
+    state.discardSection('project_defaults');
+    await vue.nextTick();
+    assert.equal(state.board.columns[0].name, 'Restored');
+});
+
+test('restore staging waits for an explicit board draft decision', async t => {
+    const state = mount(t);
+    state.board.columns[0].name = 'Draft';
+    await vue.nextTick();
+    const cancelled = state.prepareRestore();
+    assert.equal(state.departureOpen.value, true);
+    state.finishDeparture(false);
+    assert.equal(await cancelled, false);
+    assert.equal(state.board.columns[0].name, 'Draft');
+    const approved = state.prepareRestore();
+    state.discardDeparture();
+    assert.equal(await approved, true);
+    await vue.nextTick();
+    assert.equal(state.board.isDirty, false);
+});
+
+test('discarded settings allow the resumed visit immediately', async t => {
+    let before;
+    const accepted = [];
+    const event = { detail: { visit: { method: 'get', url: new URL('https://orbit.test/') } } };
+    t.mock.method(inertia.router, 'on', (name, callback) => { before = callback; return () => {}; });
+    t.mock.method(inertia.router, 'visit', url => { if (before(event) !== false) accepted.push(url); });
+    const state = mount(t);
+    state.general.startup_destination = 'last_project'; await vue.nextTick();
+    assert.equal(before(event), false);
+    state.discardDeparture();
+    assert.deepEqual(accepted, ['https://orbit.test/']);
+    assert.equal(state.departureOpen.value, false);
+    assert.equal(state.general.isDirty, false);
+});
+
+test('recovered settings compare fresh saved values and require review for stale drafts', async t => {
+    const memory = { data: { revision: 7, startup_destination: 'last_project' }, baseline: { revision: 7, startup_destination: 'dashboard' } };
+    t.mock.method(inertia.router, 'restore', key => key === 'settings:general:draft' ? memory : undefined);
+    const state = mount(t);
+    state.props.preferences = { revision: 9, values: { ...structuredClone(values), general: { startup_destination: 'last_project' } } };
+    await vue.nextTick();
+    state.reconcileDrafts();
+    assert.match(state.general.errors.revision, /Saved settings changed/);
+    assert.equal(state.general.revision, 7);
+    assert.equal(state.general.startup_destination, 'last_project');
+    state.discardSection('general');
+    await vue.nextTick();
+    assert.equal(state.general.isDirty, false);
+});
+
+test('Settings sections follow server navigation and preserve appearance drafts', async t => {
+    const state = mount(t, { section: 'appearance' });
+    const visits = [];
+    t.mock.method(inertia.router, 'get', (...args) => visits.push(args));
+    state.appearance.theme = 'dark';
+    await vue.nextTick();
+    state.selectSection('tools');
+    assert.equal(visits[0][0], '/settings?section=tools');
+    assert.equal(visits[0][2].preserveState, true);
+    state.props.section = 'tools';
+    await vue.nextTick();
+    assert.equal(state.appearance.theme, 'dark');
+    assert.equal(state.activeSection.value, 'tools');
+    state.props.section = 'unsupported';
+    await vue.nextTick();
+    assert.equal(state.activeSection.value, 'general');
 });

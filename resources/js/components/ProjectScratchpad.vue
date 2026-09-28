@@ -5,10 +5,10 @@ import { toast } from 'vue-sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { Project, ScratchpadAction } from '@/types';
-import { LoaderCircleIcon, SparklesIcon } from '@lucide/vue';
 import { router, useForm, useHttp, usePage } from '@inertiajs/vue3';
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { LineSquiggleIcon, LoaderCircleIcon, SparklesIcon } from '@lucide/vue';
 
 const props = defineProps<{ project: Project }>();
 const project = computed(() => props.project);
@@ -19,6 +19,7 @@ const scratchpadSave = useHttp<{ revision: number; scratchpad: string }, { revis
 const actionPreview = useHttp<{ revision: number }, { actions: ScratchpadAction[]; statuses: string[] }>({ revision: project.value.revision });
 const actionStatuses = ref<string[]>([]);
 const actionNotice = ref('');
+const saveError = ref('');
 const actionNeedsReload = ref(false);
 const actionReview = ref<{ begin: (actions: ScratchpadAction[]) => void } | null>(null);
 const suggestedActions = ref<ScratchpadAction[]>([]);
@@ -26,26 +27,16 @@ const actionButtonLabel = computed(() => actionPreview.processing ? 'Generating 
 defineExpose({ saving: computed(() => scratchpadSave.processing) });
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
-let previewTimer: ReturnType<typeof setTimeout> | undefined;
 let previewAfterSave = false;
 let pendingNavigation: string | null = null;
-let lastPreviewedNote = '';
-let lastPreviewAt = 0;
 function queueScratchpadSave() {
     clearTimeout(saveTimer);
     if (scratchpadForm.isDirty && !scratchpadForm.hasErrors) saveTimer = setTimeout(saveScratchpad, 800);
 }
-function queueActionPreview() {
-    clearTimeout(previewTimer);
-    if (!scratchpadForm.scratchpad.trim() || scratchpadForm.scratchpad === lastPreviewedNote || scratchpadForm.hasErrors || actionPreview.processing) return;
-    previewTimer = setTimeout(() => {
-        if (!scratchpadSave.processing && !scratchpadForm.isDirty) void generateActions(false);
-    }, Math.max(4000, lastPreviewAt ? lastPreviewAt + 10000 - Date.now() : 0));
-}
 const stopNavigationGuard = router.on('before', event => {
     if (event.detail.visit.method !== 'get' || !scratchpadForm.isDirty) return;
     const destination = String(event.detail.visit.url);
-    const currentUrl = new URL(page.url ?? '/', 'http://orbit.local');
+    const currentUrl = new URL(page.url ?? '/', 'https://orbit.local');
     const targetUrl = new URL(destination, currentUrl);
     if (targetUrl.pathname === currentUrl.pathname && targetUrl.search === currentUrl.search) return;
     pendingNavigation = destination;
@@ -59,12 +50,13 @@ if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', warnUnsaved);
     onScopeDispose(() => window.removeEventListener('beforeunload', warnUnsaved));
 }
-onScopeDispose(() => { clearTimeout(saveTimer); clearTimeout(previewTimer); stopNavigationGuard(); });
+onScopeDispose(() => { clearTimeout(saveTimer); stopNavigationGuard(); });
 watch(() => scratchpadForm.scratchpad, () => {
     suggestedActions.value = [];
     actionNotice.value = '';
+    saveError.value = '';
     scratchpadForm.clearErrors('scratchpad');
-    if (scratchpadForm.isDirty) { queueScratchpadSave(); queueActionPreview(); }
+    if (scratchpadForm.isDirty) { queueScratchpadSave(); }
 });
 watch(() => project.value.revision, () => {
     if (scratchpadForm.isDirty || scratchpadSave.processing) {
@@ -77,10 +69,9 @@ watch(() => project.value.revision, () => {
 });
 watch(() => project.value.id, () => {
     clearTimeout(saveTimer);
-    clearTimeout(previewTimer);
+
     previewAfterSave = false;
     pendingNavigation = null;
-    lastPreviewedNote = '';
     scratchpadForm.defaults(scratchpadValues());
     scratchpadForm.reset();
     scratchpadForm.clearErrors();
@@ -93,6 +84,7 @@ watch(() => project.value.id, () => {
 async function saveScratchpad() {
     clearTimeout(saveTimer);
     if (!scratchpadForm.isDirty || scratchpadSave.processing || scratchpadForm.errors.revision) return;
+    saveError.value = '';
     scratchpadForm.clearErrors('scratchpad');
     const note = scratchpadForm.scratchpad;
     const projectId = project.value.id;
@@ -102,7 +94,7 @@ async function saveScratchpad() {
         if (project.value.id !== projectId) return;
         if (!result) {
             scratchpadForm.setError(scratchpadSave.errors);
-            if (!scratchpadForm.hasErrors) toast.error('Could not save notes. Try again.');
+            if (!scratchpadForm.hasErrors) saveError.value = 'Could not save notes. Try again.';
             pendingNavigation = null;
             previewAfterSave = false;
             return;
@@ -112,22 +104,24 @@ async function saveScratchpad() {
         if (scratchpadForm.scratchpad === note) scratchpadForm.reset();
         router.replaceProp('selectedProject', (current: Project) => current.id === projectId ? { ...current, revision: result.revision, scratchpad: note, updated_at: result.updated_at } : current);
         await nextTick();
-        if (scratchpadForm.isDirty) {
-            if (pendingNavigation) void saveScratchpad();
-            else queueScratchpadSave();
-        } else if (pendingNavigation) {
-            const destination = pendingNavigation;
-            pendingNavigation = null;
-            router.visit(destination);
-        } else if (previewAfterSave) { previewAfterSave = false; void generateActions(); }
-        else queueActionPreview();
+        finishScratchpadSave();
     } catch (error) {
         if (project.value.id !== projectId) return;
         if ((error as { response?: { status?: number } })?.response?.status === 409) scratchpadForm.setError('revision', 'This project changed. Reload the scratchpad before trying again.');
-        else if (!scratchpadForm.hasErrors) toast.error('Could not save notes. Try again.');
+        else if (!scratchpadForm.hasErrors) saveError.value = 'Could not save notes. Try again.';
         pendingNavigation = null;
         previewAfterSave = false;
     }
+}
+function finishScratchpadSave() {
+    if (scratchpadForm.isDirty) {
+        if (pendingNavigation) void saveScratchpad();
+        else queueScratchpadSave();
+    } else if (pendingNavigation) {
+        const destination = pendingNavigation;
+        pendingNavigation = null;
+        router.visit(destination);
+    } else if (previewAfterSave) { previewAfterSave = false; void generateActions(); }
 }
 function reloadProject() {
     router.reload({ only: ['selectedProject'], onSuccess: () => {
@@ -136,15 +130,15 @@ function reloadProject() {
         actionNeedsReload.value = false;
     } });
 }
-async function generateActions(openReview = true) {
-    clearTimeout(previewTimer);
+async function generateActions() {
+
     actionNotice.value = '';
-    if (openReview && suggestedActions.value.length && !scratchpadForm.isDirty) {
+    if (suggestedActions.value.length && !scratchpadForm.isDirty) {
         actionReview.value?.begin(suggestedActions.value);
         return;
     }
     if (scratchpadForm.isDirty) {
-        previewAfterSave = openReview;
+        previewAfterSave = true;
         saveScratchpad();
         return;
     }
@@ -152,8 +146,6 @@ async function generateActions(openReview = true) {
     const projectId = project.value.id;
     const note = scratchpadForm.scratchpad;
     const revision = project.value.revision;
-    lastPreviewedNote = note;
-    lastPreviewAt = Date.now();
     actionPreview.revision = project.value.revision;
     actionPreview.clearErrors();
     actionNeedsReload.value = false;
@@ -163,7 +155,7 @@ async function generateActions(openReview = true) {
         if (result?.actions.length) {
             actionStatuses.value = result.statuses;
             suggestedActions.value = result.actions;
-            if (openReview) actionReview.value?.begin(result.actions);
+            actionReview.value?.begin(result.actions);
         }
         else toast.error(Object.values(actionPreview.errors)[0] ?? 'No project actions found in these notes.');
     } catch (error) {
@@ -171,8 +163,6 @@ async function generateActions(openReview = true) {
         actionNeedsReload.value = (error as { response?: { status?: number } })?.response?.status === 409;
         if (actionNeedsReload.value) actionNotice.value = 'This project changed. Reload it before generating actions.';
         else toast.error('Could not suggest actions. Try again.');
-    } finally {
-        if ((project.value.id !== projectId || scratchpadForm.scratchpad !== note) && !scratchpadForm.isDirty) queueActionPreview();
     }
 }
 function actionsSaved() {
@@ -184,10 +174,13 @@ function actionsSaved() {
     <Card
         as="section"
         aria-labelledby="scratchpad-title">
-        <CardHeader>
+        <CardHeader class="px-2 sm:px-3">
             <h2
                 id="scratchpad-title"
-                class="text-sm font-normal">
+                class="flex items-center gap-2 text-sm font-normal">
+                <LineSquiggleIcon
+                    class="size-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true" />
                 Scratchpad
             </h2>
         </CardHeader>
@@ -210,11 +203,10 @@ function actionsSaved() {
                     :aria-invalid="!!scratchpadForm.errors.scratchpad"
                     :aria-describedby="scratchpadForm.errors.scratchpad ? 'scratchpad-error' : undefined" />
                 <div class="flex items-center gap-2">
-                    <!--                    <Button type="submit" size="sm" :disabled="scratchpadSave.processing || !scratchpadForm.isDirty || !!scratchpadForm.errors.revision">Save notes</Button>-->
                     <span
                         role="status"
                         class="text-xs text-muted-foreground"><TextTransition
-                            :text="scratchpadSave.processing ? 'Saving…' : ''"
+                            :text="scratchpadSave.processing ? 'Saving…' : scratchpadForm.isDirty ? 'Unsaved' : 'Saved'"
                             shimmer /></span>
                     <Button
                         type="button"
@@ -233,6 +225,19 @@ function actionsSaved() {
                                 data-icon="a"><SparklesIcon /></span><span
                                     class="t-icon"
                                     data-icon="b"><LoaderCircleIcon :class="actionPreview.processing ? 'animate-spin motion-reduce:animate-none' : undefined" /></span></span>
+                    </Button>
+                </div>
+                <div
+                    v-if="saveError"
+                    role="alert"
+                    class="flex flex-wrap items-center gap-2 text-sm text-destructive">
+                    <span>{{ saveError }}</span><Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        :disabled="scratchpadSave.processing"
+                        @click="saveScratchpad">
+                        Retry save
                     </Button>
                 </div>
                 <p

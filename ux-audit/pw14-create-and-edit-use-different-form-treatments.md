@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Live + source — CreateProject.vue:9; EditProject.vue:11; ProjectForm.vue:194–224
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-64)
 
@@ -22,10 +22,10 @@ Use Orbit's existing shared controls as the baseline. Unify the presentation in 
 
 ## Acceptance criteria
 
-- [ ] Identical fields have matching control height, radius and spacing in Create and Edit.
-- [ ] Both pages use consistent heading/container and section framing.
-- [ ] Create-specific starting actions remain distinct without changing shared fields.
-- [ ] Labels, errors, focus states and narrow-screen wrapping remain accessible.
+- [x] Identical fields have matching control height, radius and spacing in Create and Edit.
+- [x] Both pages use consistent heading/container and section framing.
+- [x] Create-specific starting actions remain distinct without changing shared fields.
+- [x] Labels, errors, focus states and narrow-screen wrapping remain accessible.
 
 ## Verification
 
@@ -36,3 +36,9 @@ No new tests are required for this styling/layout change. Manually compare empty
 - [PW13 — The same objects change names across screens](pw13-the-same-objects-change-names-across-screens.md)
 - [PW04 — Full project descriptions are hidden](pw04-full-project-descriptions-are-hidden.md)
 
+
+## Completion — 28 September 2026
+
+Create/Edit reuse the same section framing, page heading treatment and shared field/button styles.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProjectDetailsTest.php; tests/Feature/RepositoryCloneTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

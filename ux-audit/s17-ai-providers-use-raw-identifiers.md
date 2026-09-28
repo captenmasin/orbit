@@ -4,7 +4,7 @@ Priority: P3
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — ScratchpadAiSettings.vue:49–54; ScratchpadAi.php:13
 
@@ -24,10 +24,10 @@ Setup displays openai / anthropic / gemini and asks for Model ID, unlike branded
 
 ## Acceptance criteria
 
-- [ ] Provider labels consistently use recognizable branding.
-- [ ] Display changes do not alter stored or submitted provider identifiers.
-- [ ] The default model and requirements for a custom identifier are clear.
-- [ ] Existing configured models and verification behavior are preserved.
+- [x] Provider labels consistently use recognizable branding.
+- [x] Display changes do not alter stored or submitted provider identifiers.
+- [x] The default model and requirements for a custom identifier are clear.
+- [x] Existing configured models and verification behavior are preserved.
 
 ## Verification
 
@@ -39,3 +39,9 @@ No new automated tests are required for wording/label changes. Run `node --test 
 
 None.
 
+
+## Completion — 28 September 2026
+
+AI provider labels use OpenAI, Anthropic and Google Gemini while preserving submitted identifiers/custom models; exact-model documentation links are supplied.
+
+Checks: tests/scratchpad-ai-settings.test.mjs; tests/Feature/ScratchpadAiSettingsTest.php; branding/template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

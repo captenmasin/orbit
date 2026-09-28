@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — ScratchpadAiSettings.vue:31–51; ProviderConnections.vue:87
 
@@ -24,10 +24,10 @@ AI Remove immediately discards its saved credential, while provider removal has 
 
 ## Acceptance criteria
 
-- [ ] Opening Remove never deletes the credential immediately.
-- [ ] Confirmation distinguishes AI suggestions from retained notes and non-AI URL conversion.
-- [ ] Cancel performs no removal request.
-- [ ] Failed removal preserves the working connection and permits recovery.
+- [x] Opening Remove never deletes the credential immediately.
+- [x] Confirmation distinguishes AI suggestions from retained notes and non-AI URL conversion.
+- [x] Cancel performs no removal request.
+- [x] Failed removal preserves the working connection and permits recovery.
 
 ## Verification
 
@@ -38,3 +38,11 @@ Run `node --test tests/scratchpad-ai-settings.test.mjs`. The existing removal en
 ## Related plans
 
 None.
+
+## Completion — 28 September 2026
+
+AI credential removal requires confirmation, explains retained notes/non-AI conversion and preserves the dialog on failure.
+
+Checks: tests/scratchpad-ai-settings.test.mjs; tests/Feature/ScratchpadAiSettingsTest.php; branding/template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

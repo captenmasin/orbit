@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — ProviderConnections.vue:25,69,76–81
 
@@ -24,10 +24,10 @@ The Label field is available only through Replace token, where token is mandator
 
 ## Acceptance criteria
 
-- [ ] A connection can be renamed without retrieving its token.
-- [ ] Token replacement remains a distinct explicit action.
-- [ ] Renaming preserves credentials, associations and cached activity.
-- [ ] Stale or invalid submissions cannot overwrite newer data.
+- [x] A connection can be renamed without retrieving its token.
+- [x] Token replacement remains a distinct explicit action.
+- [x] Renaming preserves credentials, associations and cached activity.
+- [x] Stale or invalid submissions cannot overwrite newer data.
 
 ## Verification
 
@@ -40,3 +40,11 @@ After PHP edits, run `vendor/bin/pint --dirty --format agent`.
 ## Related plans
 
 None.
+
+## Completion — 28 September 2026
+
+A dedicated label-only route/dialog performs an atomic revision-checked rename without retrieving/replacing credentials or clearing cached activity.
+
+Checks: tests/provider-connections.test.mjs; tests/Feature/ProviderCredentialTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

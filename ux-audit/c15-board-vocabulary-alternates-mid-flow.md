@@ -2,7 +2,7 @@
 
 Priority: P3  
 Area: content  
-Status: Planned  
+Status: Implemented
 Evidence: Live + source — ProjectBoard.vue:92,310,461; BulkIdeas.vue:50; ScratchpadActionsReview.vue:95  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-158)
 
@@ -20,11 +20,11 @@ Board objects use cards/lists in primary controls but tasks/columns in deletion,
 
 ## Acceptance criteria
 
-- [ ] A Board object is consistently called a card or a list across visible flows.
-- [ ] Screen-reader labels and validation messages use the same vocabulary.
-- [ ] Internal identifiers, requests and stored data remain unchanged.
-- [ ] Suggestions still clearly distinguish cards from documents, links and project details.
-- [ ] Search labels say Card; `type:task` remains the working, clearly explained card filter.
+- [x] A Board object is consistently called a card or a list across visible flows.
+- [x] Screen-reader labels and validation messages use the same vocabulary.
+- [x] Internal identifiers, requests and stored data remain unchanged.
+- [x] Suggestions still clearly distinguish cards from documents, links and project details.
+- [x] Search labels say Card; `type:task` remains the working, clearly explained card filter.
 
 ## Verification
 
@@ -37,3 +37,9 @@ No new tests are needed for wording. If PHP changes, run `vendor/bin/pint --dirt
 - [C13 — Board ordering has no keyboard equivalent](c13-board-ordering-has-no-keyboard-equivalent.md)
 - [C17 — New card says Save changes](c17-new-card-says-save-changes.md)
 - [PW22 — Workspace search scope is unclear](pw22-workspace-search-scope-is-unclear.md)
+
+## Completion — 28 September 2026
+
+Visible board, scratchpad, search and validation language consistently uses Card/List; internal action identifiers remain compatible.
+
+Checks: tests/project-board-drag.test.mjs; tests/scratchpad-action-review.test.mjs; tests/Feature/ProjectBoardTest.php; tests/Feature/TaskContentTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

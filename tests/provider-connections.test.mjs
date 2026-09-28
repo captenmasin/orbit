@@ -45,3 +45,27 @@ test('credential forms retain failures and clear token values and defaults after
     scope.stop();
     assert.equal(component.credential.value, '');
 });
+
+
+test('label editing submits metadata only and retains a rejected draft', async t => {
+    const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ProviderConnections.vue', import.meta.url), 'utf8'));
+    const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'label-test' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
+    const context = { exports: {}, require: name => name === 'vue' ? { ...vue, onBeforeUnmount: vue.onScopeDispose } : name === '@inertiajs/vue3' ? inertia : {} };
+    runInNewContext(outputText, context);
+    const scope = vue.effectScope(); t.after(() => scope.stop());
+    const connection = { id: 'work', label: 'Work', revision: 4 };
+    const state = scope.run(() => context.exports.default.setup({ connections: [connection], native: true }, { expose() {} }));
+    const requests = []; let fail = true;
+    t.mock.method(inertia.router, 'reload', () => {});
+    t.mock.method(http.getClient(), 'request', async request => {
+        requests.push({ url: request.url, data: JSON.parse(request.data) });
+        if (fail) throw new Error('Offline');
+        return { status: 200, data: JSON.stringify({ saved: true }), headers: {} };
+    });
+    state.editLabel(connection); state.labelForm.label = 'Team';
+    await state.rename();
+    assert.equal(state.renaming.value.id, 'work'); assert.equal(state.labelForm.label, 'Team'); assert.match(state.labelError.value, /review your draft/);
+    fail = false; await state.rename();
+    assert.equal(state.renaming.value, null);
+    assert.deepEqual(requests[0], { url: '/connections/work/label', data: { label: 'Team', revision: 4 } });
+});

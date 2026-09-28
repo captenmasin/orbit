@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — BackupController.php:139–153; WorkspaceBackups.vue:141–145,190
 
@@ -24,10 +24,10 @@ The backend consumes the staged preview before restoring. A wrong re-entered pas
 
 ## Acceptance criteria
 
-- [ ] A failed consumed restore cannot offer an unusable Replace workspace retry.
-- [ ] Preview again clearly starts fresh validation.
-- [ ] The previous checkbox consent and application password are cleared.
-- [ ] File/workspace-change protection and one-use staging remain enforced.
+- [x] A failed consumed restore cannot offer an unusable Replace workspace retry.
+- [x] Preview again clearly starts fresh validation.
+- [x] The previous checkbox consent and application password are cleared.
+- [x] File/workspace-change protection and one-use staging remain enforced.
 
 ## Verification
 
@@ -38,3 +38,11 @@ Run `node --test tests/workspace-backups.test.mjs` and `php artisan test --compa
 ## Related plans
 
 - [S01 — Restore can leave the previous backup actionable](s01-restore-can-leave-the-previous-backup-actionable.md)
+
+## Completion — 28 September 2026
+
+Consumed restore failure clears candidate/consent/password and requires Preview again; one-use and file/workspace-change checks remain enforced.
+
+Checks: tests/workspace-backups.test.mjs; tests/settings-preferences.test.mjs; tests/Feature/BackupExportTest.php; tests/Feature/WorkspaceRestoreTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

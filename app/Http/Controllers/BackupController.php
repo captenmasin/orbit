@@ -100,6 +100,7 @@ class BackupController extends Controller
 
     public function previewRestore(Request $request, Dialog $dialog, OrbitBackup $backup, WorkspaceRestore $restore, ProtectCredential $crypto): JsonResponse
     {
+        $request->session()->forget('backup-restore');
         $password = $this->takePassword($request, false);
         if (! config('nativephp-internal.running')) {
             throw ValidationException::withMessages(['backup' => 'Restore backups from the desktop app.']);
@@ -124,7 +125,7 @@ class BackupController extends Controller
                 'preferences_revision' => $staged['preferences_revision'],
             ]);
 
-            return response()->json(['preview' => $staged['summary']]);
+            return response()->json(['preview' => [...$staged['summary'], 'source' => $path]]);
         } catch (Throwable) {
             return response()->json(['message' => 'The backup password is incorrect or the file is damaged.', 'errors' => ['backup' => 'The backup password is incorrect or the file is damaged.']], 422);
         } finally {

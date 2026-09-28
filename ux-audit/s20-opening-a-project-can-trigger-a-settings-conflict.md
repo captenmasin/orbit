@@ -4,7 +4,7 @@ Priority: P3
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — WorkspaceController.php:81; WorkspacePreferences.php:79; Settings.vue:93
 
@@ -24,11 +24,11 @@ Last-project history writes the editable settings revision. A project visit in a
 
 ## Acceptance criteria
 
-- [ ] Opening projects does not advance editable-settings revision.
-- [ ] Previously recorded startup history survives upgrading.
-- [ ] Settings writes cannot overwrite newer incidental history.
-- [ ] Real settings changes still reject stale saves.
-- [ ] All current startup fallbacks remain intact.
+- [x] Opening projects does not advance editable-settings revision.
+- [x] Previously recorded startup history survives upgrading.
+- [x] Settings writes cannot overwrite newer incidental history.
+- [x] Real settings changes still reject stale saves.
+- [x] All current startup fallbacks remain intact.
 
 ## Verification
 
@@ -39,3 +39,9 @@ Run `php artisan test --compact tests/Feature/WorkspacePreferencesTest.php` and 
 ## Related plans
 
 None.
+
+## Completion — 28 September 2026
+
+Incidental startup history uses a separate last_project_id column without advancing editable preference revisions. Migration preserves old history; stale real settings writes still conflict.
+
+Checks: tests/Feature/WorkspacePreferencesTest.php; tests/Feature/WorkspaceTest.php; local migration applied. These checks passed in the full suites; production build and lint of changed Vue files also passed.

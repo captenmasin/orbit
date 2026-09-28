@@ -2,7 +2,7 @@
 
 - **Priority:** P2
 - **Area:** sources
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Live + source — ProjectForm.vue:310; ShowProject.vue:240,381; ProjectProviderActivity.vue:79
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-251)
 
@@ -22,10 +22,10 @@ Expose the existing connection dialog from the Sources rows. Do not duplicate pr
 
 ## Acceptance criteria
 
-- [ ] Every saved repository offers a visible provider connection entry point in Sources.
-- [ ] The action opens settings for the correct repository, including multiple repositories.
-- [ ] Provider verification, disconnect wording and conflict recovery use the existing dialog.
-- [ ] No-connections and unavailable credentials have an actionable recovery path.
+- [x] Every saved repository offers a visible provider connection entry point in Sources.
+- [x] The action opens settings for the correct repository, including multiple repositories.
+- [x] Provider verification, disconnect wording and conflict recovery use the existing dialog.
+- [x] No-connections and unavailable credentials have an actionable recovery path.
 
 ## Verification
 
@@ -37,3 +37,11 @@ Run `node --test tests/project-tab.test.mjs`. Manually connect one of two reposi
 - [PW12 — Sources Refresh refreshes only local folders](pw12-sources-refresh-refreshes-only-local-folders.md)
 - [S12 — Connection “Current” overstates verification](s12-connection-current-overstates-verification.md)
 
+
+## Completion — 28 September 2026
+
+Saved repository rows expose Connect provider or settings actions that delegate to the existing repository-specific activity dialog.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProviderActivityTest.php; source/template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

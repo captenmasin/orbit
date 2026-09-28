@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Source — SearchController.php:56–70; ContentSearch.vue:107–114,146
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-76)
 
@@ -22,10 +22,10 @@ Current working source already renders `result.excerpt` visibly in the global la
 
 ## Acceptance criteria
 
-- [ ] Body/description matches show a readable excerpt in global results.
-- [ ] Title-only matches do not leave blank excerpt space.
-- [ ] User-supplied markup is displayed as plain text.
-- [ ] Keyboard selection, project identity and type labels remain clear.
+- [x] Body/description matches show a readable excerpt in global results.
+- [x] Title-only matches do not leave blank excerpt space.
+- [x] User-supplied markup is displayed as plain text.
+- [x] Keyboard selection, project identity and type labels remain clear.
 
 ## Verification
 
@@ -36,3 +36,9 @@ No new automated tests are required for this display-only change. Manually searc
 - [PW06 — Project search can show stale results](pw06-project-search-can-show-stale-results.md)
 - [PW22 — Workspace search scope is unclear](pw22-workspace-search-scope-is-unclear.md)
 - [PW04 — Full project descriptions are hidden](pw04-full-project-descriptions-are-hidden.md)
+
+## Completion — 28 September 2026
+
+Existing launcher result excerpts already satisfy the finding: body/description context is rendered as plain text only when present. This behavior was retained and checked.
+
+Checks: tests/content-search.test.mjs; tests/Feature/ContentSearchTest.php; launcher template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

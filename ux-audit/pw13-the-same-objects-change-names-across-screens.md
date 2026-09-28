@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** workspace
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Live + source — ProjectForm.vue:190–192,315; ShowProject.vue:235,340
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-57)
 
@@ -22,10 +22,10 @@ Standardize visible terminology while preserving internal tab values and existin
 
 ## Acceptance criteria
 
-- [ ] The metadata editor uses the same section labels in Create and Edit.
-- [ ] Repositories and Local folders are clearly subsections of Sources.
-- [ ] Saved project Links use the same name as their editor.
-- [ ] Existing tab URLs, session restoration and accessible labels still work.
+- [x] The metadata editor uses the same section labels in Create and Edit.
+- [x] Repositories and Local folders are clearly subsections of Sources.
+- [x] Saved project Links use the same name as their editor.
+- [x] Existing tab URLs, session restoration and accessible labels still work.
 
 ## Verification
 
@@ -37,3 +37,9 @@ No new automated tests are needed for copy-only changes. Manually move through C
 - [PW16 — Package location controls have several names](pw16-package-location-controls-have-several-names.md)
 - [PW09 — Shortcut rows imply a larger click target](pw09-shortcut-rows-imply-a-larger-click-target.md)
 
+
+## Completion — 28 September 2026
+
+Create/Edit share Details, Sources and Links; Sources identifies Repositories and Local folders without changing stored tab identifiers.
+
+Checks: tests/project-tab.test.mjs; tests/Feature/ProjectDetailsTest.php; tests/Feature/RepositoryCloneTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

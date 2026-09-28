@@ -2,7 +2,7 @@
 
 Priority: P2  
 Area: content  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectScratchpad.vue:37–42,122,188; WorkspaceController.php:211–234  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-126)
 
@@ -19,10 +19,10 @@ Writing and saving notes automatically schedules AI generation. The scratchpad's
 
 ## Acceptance criteria
 
-- [ ] Typing, autosaving, opening and switching project tabs never generate AI actions.
-- [ ] Pressing Generate actions saves pending notes, then requests suggestions once.
-- [ ] Save failure prevents generation and preserves notes.
-- [ ] Review and cached-suggestion behavior remain available for unchanged notes.
+- [x] Typing, autosaving, opening and switching project tabs never generate AI actions.
+- [x] Pressing Generate actions saves pending notes, then requests suggestions once.
+- [x] Save failure prevents generation and preserves notes.
+- [x] Review and cached-suggestion behavior remain available for unchanged notes.
 
 ## Verification
 
@@ -34,3 +34,9 @@ After implementation, run `node --test tests/project-tab.test.mjs` and `php arti
 
 - [C06 — Note-taking can trigger unrelated AI errors](c06-note-taking-can-trigger-unrelated-ai-errors.md)
 - [C07 — Autosave lacks persistent saved/failed status](c07-autosave-lacks-persistent-saved-failed-status.md)
+
+## Completion — 28 September 2026
+
+Scratchpad generation runs only from Generate actions, after pending notes save successfully. Background typing/tab changes no longer request AI actions.
+
+Checks: tests/Feature/ProjectScratchpadTest.php; tests/scratchpad-action-review.test.mjs. These checks passed in the full suites; production build and lint of changed Vue files also passed.

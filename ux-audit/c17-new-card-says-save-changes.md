@@ -2,7 +2,7 @@
 
 Priority: P3  
 Area: content  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectBoard.vue:49,471  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-164)
 
@@ -19,10 +19,10 @@ A dialog titled New card ends with Save changes, the same action used for an exi
 
 ## Acceptance criteria
 
-- [ ] New-card editors say Create card.
-- [ ] Existing-card editors continue to say Save changes.
-- [ ] Loading and delete confirmation labels remain accurate.
-- [ ] Submission behavior and validation remain unchanged.
+- [x] New-card editors say Create card.
+- [x] Existing-card editors continue to say Save changes.
+- [x] Loading and delete confirmation labels remain accurate.
+- [x] Submission behavior and validation remain unchanged.
 
 ## Verification
 
@@ -33,3 +33,9 @@ No new automated tests are needed for this copy-only change; verify the conditio
 ## Related plans
 
 - [C15 — Board vocabulary alternates mid-flow](c15-board-vocabulary-alternates-mid-flow.md)
+
+## Completion — 28 September 2026
+
+New-card submission reads Create card; existing-card submission reads Save changes.
+
+Checks: tests/project-board-drag.test.mjs; tests/scratchpad-action-review.test.mjs; tests/Feature/ProjectBoardTest.php; tests/Feature/TaskContentTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

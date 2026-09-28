@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — Settings.vue:153–176; ProbeRuntimes.php:85; WorkspacePreferences.php:24
 
@@ -24,10 +24,10 @@ General/Appearance/Security repeat inline errors in a global loop. Column/runtim
 
 ## Acceptance criteria
 
-- [ ] Each field error appears once beside the responsible control.
-- [ ] Invalid column/runtime inputs are identifiable without interpreting raw indexes.
-- [ ] Non-field conflict/network feedback remains visible.
-- [ ] Fixing and resubmitting a field removes obsolete error feedback.
+- [x] Each field error appears once beside the responsible control.
+- [x] Invalid column/runtime inputs are identifiable without interpreting raw indexes.
+- [x] Non-field conflict/network feedback remains visible.
+- [x] Fixing and resubmitting a field removes obsolete error feedback.
 
 ## Verification
 
@@ -40,3 +40,9 @@ Run `node --test tests/settings-preferences.test.mjs` and `php artisan test --co
 - [S07 — Mid-save edits can be marked saved falsely](s07-mid-save-edits-can-be-marked-saved-falsely.md)
 - [S15 — Runtime results expose jargon without next steps](s15-runtime-results-expose-jargon-without-next-steps.md)
 
+
+## Completion — 28 September 2026
+
+Field validation is shown beside its specific column/runtime/control; conflict and network feedback remain separate.
+
+Checks: tests/settings-preferences.test.mjs; tests/settings.test.mjs; tests/workspace-backups.test.mjs; tests/Feature/WorkspacePreferencesTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

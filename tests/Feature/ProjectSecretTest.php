@@ -207,7 +207,7 @@ class ProjectSecretTest extends TestCase
         $selection = ['environment' => 'Default', 'names' => ['APP_LOCALE', 'APP_FAKER_LOCALE']];
         try {
             $this->postJson('/projects/'.$project->id.'/secrets/export/preview', $selection)->assertOk()
-                ->assertJsonPath('preview.destination', basename($path))->assertJsonPath('preview.exists', false);
+                ->assertJsonPath('preview.destination', $path)->assertJsonPath('preview.exists', false);
             $this->mock(ProtectCredential::class, function ($mock): void {
                 $mock->shouldReceive('decrypt')->once()->with('locale-ciphertext')->andReturn('en');
                 $mock->shouldReceive('decrypt')->once()->with('faker-ciphertext')->andReturn('en_US');

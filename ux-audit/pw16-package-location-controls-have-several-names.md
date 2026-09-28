@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** sources
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Live + source — ProjectDependencies.vue:105–140
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-270)
 
@@ -22,10 +22,10 @@ Reserve Linked folder for the saved source parent, and Package location for the 
 
 ## Acceptance criteria
 
-- [ ] Every user-facing dependency location action uses the same noun.
-- [ ] Linked folder remains visibly distinct from its package locations.
-- [ ] Help explains allowed locations without exposing internal model names.
-- [ ] Existing validation, save/delete payloads and folder containment behavior are unchanged.
+- [x] Every user-facing dependency location action uses the same noun.
+- [x] Linked folder remains visibly distinct from its package locations.
+- [x] Help explains allowed locations without exposing internal model names.
+- [x] Existing validation, save/delete payloads and folder containment behavior are unchanged.
 
 ## Verification
 
@@ -37,3 +37,9 @@ No new tests are needed for copy-only edits. Manually open Dependencies with no 
 - [PW11 — Browser Relink uses a detached input](pw11-browser-relink-uses-a-detached-input.md)
 - [PW13 — The same objects change names across screens](pw13-the-same-objects-change-names-across-screens.md)
 
+
+## Completion — 28 September 2026
+
+Dependency controls consistently use Package location and distinguish it from Linked folder.
+
+Checks: tests/dependencies.test.mjs; tests/Feature/RuntimeProbeTest.php; tests/Feature/DependencyUpdatesTest.php; template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

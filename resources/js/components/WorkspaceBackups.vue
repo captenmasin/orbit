@@ -4,19 +4,20 @@ import SecretPinInput from '@/components/SecretPinInput.vue';
 import { toast } from 'vue-sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { router, useHttp } from '@inertiajs/vue3';
 import { Checkbox } from '@/components/ui/checkbox';
-import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Link, router, useHttp, usePage } from '@inertiajs/vue3';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 type Preview = { destination: string; exists: boolean } | null;
-type RestorePreview = { created_at: string; projects: number; tasks: number; secrets: number; includes_secrets: boolean; project_defaults: { columns: { name: string; color: string | null }[] } | null; project_statuses: { names: string[] } } | null;
+type RestorePreview = { source: string; created_at: string; projects: number; tasks: number; secrets: number; includes_secrets: boolean; project_defaults: { columns: { name: string; color: string | null }[] } | null; project_statuses: { names: string[] } } | null;
 type BackupPreferences = { folder: string | null; last_export_at: string | null; last_export_path: string | null };
 type BackupMetadata = { revision: number; backups: BackupPreferences };
-const props = defineProps<{ native: boolean }>();
-const emit = defineEmits<{ saved: [revision: number] }>();
+const props = defineProps<{ native: boolean; pinSet?: boolean | null; preferencesRevision?: number; prepareRestore?: () => Promise<boolean> }>();
+const emit = defineEmits<{ saved: [revision: number]; restored: [] }>();
 const metadata = useHttp<Record<string, never>, BackupMetadata>({});
 const folderPicker = useHttp<Record<string, never>, { folder: string | null }>({});
 const folderForm = useHttp<{ revision: number; folder: string | null }, { preferences: { revision: number } }>({ revision: 1, folder: null });
@@ -34,15 +35,74 @@ const restorePassword = ref('');
 const restoreApplyPassword = ref('');
 const restorePreview = ref<RestorePreview>(null);
 const error = ref('');
+const folderDepartureOpen = ref(false);
+const page = usePage();
+let pendingNavigation: string | null = null;
+let disposed = false;
+const rememberedFolder = router.restore('settings:backups:folder') as { folder: string | null; revision: number; baseline: string | null } | null;
+const folderDirty = computed(() => folderForm.isDirty);
+watch(() => [folderForm.folder, folderForm.revision], () => {
+    if (!preferencesReady.value) return;
+    router.remember(folderDirty.value ? { folder: folderForm.folder, revision: folderForm.revision, baseline: backupPreferences.value.folder } : null, 'settings:backups:folder');
+});
+function invalidateRestore() {
+    restorePreview.value = null;
+    restoreApply.confirm = false;
+    restoreApply.password = '';
+    restoreApplyPassword.value = '';
+}
+watch(() => props.preferencesRevision, (value, previous) => {
+    if (value !== previous && restorePreview.value) { invalidateRestore(); error.value = 'Settings changed. Preview the backup again before replacing the workspace.'; }
+});
+function discardFolder() {
+    folderForm.folder = backupPreferences.value.folder;
+    folderForm.defaults();
+    folderForm.clearErrors();
+    router.remember(null, 'settings:backups:folder');
+    resumeDeparture();
+}
+function resumeDeparture() {
+    folderDepartureOpen.value = false;
+    const destination = pendingNavigation;
+    pendingNavigation = null;
+    if (destination) router.visit(destination);
+}
+function keepFolder() { folderDepartureOpen.value = false; pendingNavigation = null; }
+const stopNavigationGuard = router.on('before', event => {
+    if (event.detail.visit.method !== 'get' || (!folderDirty.value && !folderForm.processing)) return;
+    const current = new URL(page.url ?? '/', 'https://orbit.local');
+    const target = new URL(String(event.detail.visit.url), current);
+    if (target.pathname === current.pathname && target.search === current.search) return;
+    pendingNavigation = String(event.detail.visit.url);
+    folderDepartureOpen.value = true;
+    return false;
+});
+if (typeof window !== 'undefined') {
+    const warnUnsaved = (event: BeforeUnloadEvent) => { if (folderDirty.value || folderForm.processing) { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('beforeunload', warnUnsaved);
+    onBeforeUnmount(() => window.removeEventListener('beforeunload', warnUnsaved));
+}
 
-async function loadPreferences() {
+async function loadPreferences(reviewDraft = false) {
+    if (metadata.processing || folderForm.processing) return;
+    const draft = folderForm.folder;
     try {
         const result = await metadata.get('/backups/preferences');
-        if (!result) return;
+        if (!result || disposed) return;
         backupPreferences.value = result.backups;
         folderForm.folder = result.backups.folder;
         folderForm.revision = result.revision;
         folderForm.defaults();
+        folderForm.clearErrors();
+        if (reviewDraft) {
+            folderForm.folder = draft;
+        } else if (rememberedFolder) {
+            folderForm.folder = rememberedFolder.folder;
+            if (rememberedFolder.baseline !== result.backups.folder) {
+                folderForm.revision = rememberedFolder.revision;
+                folderForm.setError('revision', 'The saved folder changed. Review the saved folder or discard this draft before saving.');
+            }
+        }
         preferencesReady.value = true;
         emit('saved', result.revision);
     } catch {
@@ -58,13 +118,16 @@ async function chooseFolder() {
     }
 }
 async function saveFolder() {
+    if (folderForm.processing || folderPicker.processing || folderForm.errors.revision) return;
+    const submittedFolder = folderForm.folder;
     error.value = '';
     try {
         const result = await folderForm.put('/settings/backups', { onHttpException: response => { error.value = JSON.parse(response.data).message ?? 'Backup preferences could not be saved.'; } });
         if (!result) return;
         folderForm.revision = result.preferences.revision;
-        backupPreferences.value.folder = folderForm.folder;
-        folderForm.defaults();
+        backupPreferences.value.folder = submittedFolder;
+        folderForm.defaults({ revision: result.preferences.revision, folder: submittedFolder });
+        if (!folderForm.isDirty) { router.remember(null, 'settings:backups:folder'); resumeDeparture(); }
         emit('saved', result.preferences.revision);
         toast.success('Backup preferences saved.');
     } catch {
@@ -90,7 +153,7 @@ async function chooseDestination() {
     }
 }
 async function exportBackup() {
-    if (!destination.value) return;
+    if (!destination.value || form.processing || (form.include_secrets && props.pinSet !== true)) return;
     error.value = '';
     form.password = password.value;
     form.password_confirmation = confirmation.value;
@@ -120,12 +183,17 @@ async function exportBackup() {
     }
 }
 async function previewRestore() {
+    if (restore.processing || restoreApply.processing) return;
+    invalidateRestore();
+    restoreApply.clearErrors();
+    restore.clearErrors();
     error.value = '';
+    if (props.prepareRestore && !await props.prepareRestore()) return;
     restore.password = restorePassword.value;
     restorePassword.value = '';
     try {
         const result = await restore.post('/backups/restore/preview');
-        if (!result) return;
+        if (!result || disposed) return;
         restorePreview.value = result.preview;
     } catch {
         if (!restore.hasErrors) error.value = 'The backup could not be unlocked. Check its password and try again.';
@@ -134,23 +202,24 @@ async function previewRestore() {
     }
 }
 async function applyRestore() {
-    if (!restorePreview.value) return;
+    if (!restorePreview.value || restore.processing || restoreApply.processing) return;
     error.value = '';
     restoreApply.password = restoreApplyPassword.value;
     restoreApplyPassword.value = '';
     try {
         const result = await restoreApply.post('/backups/restore');
-        if (!result) return;
-        restorePreview.value = null;
-        router.reload();
+        if (!result) { error.value = Object.values(restoreApply.errors).flat().join(' ') || 'Restore failed. Preview the backup again.'; return; }
+        invalidateRestore();
+        router.reload({ onSuccess: () => emit('restored') });
     } catch {
         if (!restoreApply.hasErrors) error.value = 'The backup could not be restored. Preview it again and retry.';
     } finally {
+        invalidateRestore();
         restoreApply.password = '';
     }
 }
 onMounted(loadPreferences);
-onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.cancel(); preview.cancel(); form.cancel(); pinForm.cancel(); restore.cancel(); restoreApply.cancel(); pinForm.pin = ''; clearPassword(); restore.password = ''; restorePassword.value = ''; restoreApply.password = ''; restoreApplyPassword.value = ''; });
+onBeforeUnmount(() => { disposed = true; stopNavigationGuard(); metadata.cancel(); folderPicker.cancel(); folderForm.cancel(); preview.cancel(); form.cancel(); pinForm.cancel(); restore.cancel(); restoreApply.cancel(); pinForm.pin = ''; clearPassword(); restore.password = ''; restorePassword.value = ''; restoreApply.password = ''; restoreApplyPassword.value = ''; });
 </script>
 
 <template>
@@ -205,10 +274,36 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                         Clear
                     </Button><Button
                         type="submit"
-                        :disabled="!preferencesReady || folderForm.processing || !folderForm.isDirty">
+                        :disabled="!preferencesReady || folderForm.processing || folderPicker.processing || metadata.processing || !!folderForm.errors.revision || !folderForm.isDirty">
                         <TextTransition :text="folderForm.processing ? 'Saving…' : 'Save'" />
                     </Button>
                 </div>
+                <Alert v-if="folderForm.errors.revision">
+                    <AlertDescription>
+                        {{ folderForm.errors.revision }}
+                        <div class="mt-2 flex flex-wrap gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                :disabled="metadata.processing || folderForm.processing"
+                                @click="loadPreferences(true)">
+                                Review saved folder
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                :disabled="metadata.processing || folderForm.processing"
+                                @click="discardFolder">
+                                Discard draft
+                            </Button>
+                        </div>
+                    </AlertDescription>
+                </Alert>
+                <FieldDescription
+                    v-if="folderDirty"
+                    class="break-all">
+                    Saved folder: {{ backupPreferences.folder ?? 'Choose a destination for each export' }}
+                </FieldDescription>
                 <FieldDescription v-if="backupPreferences.last_export_at">
                     Last export: {{ new Date(backupPreferences.last_export_at).toLocaleString() }}<span class="block break-all">{{ backupPreferences.last_export_path }}</span>
                 </FieldDescription>
@@ -222,8 +317,17 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                 <label class="flex items-start gap-3 text-sm"><Checkbox
                     v-model="form.include_secrets"
                     :disabled="!native || form.processing" /><span><span class="font-medium">Include project secrets</span><span class="block text-muted-foreground">Secrets are encrypted in the backup with this password. Provider tokens are never included.</span></span></label>
+                <p
+                    v-if="form.include_secrets && pinSet !== true"
+                    class="text-sm text-muted-foreground">
+                    {{ pinSet === false ? 'Set up a secrets PIN before including secrets.' : 'PIN status is unavailable. Reopen Security to check it.' }} <Link
+                        href="/settings?section=security"
+                        class="underline">
+                        Open Security
+                    </Link>
+                </p>
                 <Field
-                    v-if="form.include_secrets"
+                    v-if="form.include_secrets && pinSet === true"
                     :data-invalid="!!pinForm.errors.pin">
                     <FieldLabel for="backup-pin">
                         Secrets PIN
@@ -241,6 +345,7 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                     </FieldLabel><Input
                         id="backup-password"
                         v-model="password"
+                        aria-describedby="backup-password-help"
                         variant="filled"
                         type="password"
                         autocomplete="new-password"
@@ -248,9 +353,11 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                         minlength="12"
                         maxlength="4096"
                         required
-                        :disabled="!native || form.processing" /><FieldError v-if="form.errors.password">
-                            {{ form.errors.password }}
-                        </FieldError>
+                        :disabled="!native || form.processing" /><FieldDescription id="backup-password-help">
+                            Use at least 12 characters. Keep this password: it is required to restore the backup.
+                        </FieldDescription><FieldError v-if="form.errors.password">
+                        {{ form.errors.password }}
+                    </FieldError>
                 </Field>
                 <Field :data-invalid="!!form.errors.password_confirmation">
                     <FieldLabel for="backup-password-confirmation">
@@ -293,7 +400,7 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                 <div>
                     <Button
                         type="submit"
-                        :disabled="!native || !destination || pinForm.processing || form.processing">
+                        :disabled="!native || !destination || pinForm.processing || form.processing || (form.include_secrets && pinSet !== true)">
                         <TextTransition :text="pinForm.processing ? 'Unlocking…' : form.processing ? 'Encrypting…' : 'Export backup'" />
                     </Button>
                 </div>
@@ -313,6 +420,7 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                         </FieldLabel><Input
                             id="restore-password"
                             v-model="restorePassword"
+                            aria-describedby="restore-password-help"
                             variant="filled"
                             type="password"
                             autocomplete="current-password"
@@ -320,7 +428,9 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                             minlength="12"
                             maxlength="4096"
                             required
-                            :disabled="!native || restore.processing" /><FieldError v-if="restore.errors.password">
+                            :disabled="!native || restore.processing || restoreApply.processing" /><FieldDescription id="restore-password-help">
+                                Enter the password used when exporting this backup, at least 12 characters. This is separate from your Secrets PIN.
+                            </FieldDescription><FieldError v-if="restore.errors.password">
                                 {{ restore.errors.password }}
                             </FieldError>
                     </Field>
@@ -331,15 +441,16 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                         <Button
                             type="submit"
                             variant="outline"
-                            :disabled="!native || restore.processing">
-                            <TextTransition :text="restore.processing ? 'Validating…' : 'Choose backup and preview'" />
+                            :disabled="!native || restore.processing || restoreApply.processing">
+                            <TextTransition :text="restore.processing ? 'Validating…' : error ? 'Preview again' : 'Choose backup and preview'" />
                         </Button>
                     </div>
                 </form>
                 <FieldDescription
                     v-if="restorePreview"
                     class="mt-6">
-                    Created {{ new Date(restorePreview.created_at).toLocaleString() }} · {{ restorePreview.projects }} projects · {{ restorePreview.tasks }} tasks · {{ restorePreview.secrets }} secrets {{ restorePreview.includes_secrets ? 'included' : 'not included' }}.
+                    <span class="block break-all">Backup: {{ restorePreview.source }}</span>
+                    Created {{ new Date(restorePreview.created_at).toLocaleString() }} · {{ restorePreview.projects }} projects · {{ restorePreview.tasks }} cards · {{ restorePreview.secrets }} secrets {{ restorePreview.includes_secrets ? 'included' : 'not included' }}.
                 </FieldDescription>
                 <div
                     v-if="restorePreview?.project_defaults"
@@ -368,6 +479,11 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                     class="mt-3">
                     This older backup keeps your current board defaults.
                 </FieldDescription>
+                <Alert
+                    v-if="restorePreview"
+                    class="mt-6">
+                    <AlertDescription>All provider connections will be removed and must be reconnected. Backups never include provider tokens. {{ restorePreview.includes_secrets ? 'Current secrets will be replaced with the secrets in this backup.' : 'This backup excludes secrets: all current secrets will be removed.' }}</AlertDescription>
+                </Alert>
                 <form
                     v-if="restorePreview"
                     class="mt-6 grid gap-6"
@@ -391,7 +507,7 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                     </Field>
                     <label class="flex items-center gap-2 text-sm"><Checkbox
                         v-model="restoreApply.confirm"
-                        :disabled="restoreApply.processing" />I understand this replaces the current workspace, including secrets and provider connections.</label>
+                        :disabled="restoreApply.processing" />I understand this replaces the current workspace, and removes all provider connections.</label>
                     <FieldError v-if="restoreApply.errors.backup">
                         {{ restoreApply.errors.backup }}
                     </FieldError><FieldError v-if="restoreApply.errors.confirm">
@@ -407,6 +523,48 @@ onBeforeUnmount(() => { metadata.cancel(); folderPicker.cancel(); folderForm.can
                     </div>
                 </form>
             </div>
+            <p
+                v-if="folderDirty"
+                role="status"
+                class="text-sm text-muted-foreground">
+                Unsaved backup folder
+            </p>
+            <FieldError v-if="folderForm.errors.revision">
+                {{ folderForm.errors.revision }}
+            </FieldError>
+            <Button
+                v-if="folderDirty"
+                variant="outline"
+                :disabled="folderForm.processing"
+                @click="discardFolder">
+                Discard folder changes
+            </Button>
+            <Dialog
+                :open="folderDepartureOpen"
+                @update:open="open => { if (!open) keepFolder(); }">
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Unsaved backup folder</DialogTitle><DialogDescription>Save or discard your preferred folder before leaving.</DialogDescription></DialogHeader>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            :disabled="folderForm.processing"
+                            @click="keepFolder">
+                            Stay
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            :disabled="folderForm.processing"
+                            @click="discardFolder">
+                            Discard changes
+                        </Button>
+                        <Button
+                            :disabled="folderForm.processing || !!folderForm.errors.revision"
+                            @click="saveFolder">
+                            Save folder
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </CardContent>
     </Card>
 </template>

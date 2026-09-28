@@ -4,7 +4,6 @@ import WorkspaceSidebar from '@/components/WorkspaceSidebar.vue';
 import { Toaster, toast } from 'vue-sonner';
 import { useLocalStorage } from '@vueuse/core';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { Link, router, usePage } from '@inertiajs/vue3';
 import { ArrowLeftIcon, ArrowRightIcon } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -40,7 +39,7 @@ function recentDestination(value: unknown): SearchResult | undefined {
     const result = value as SearchResult;
     if (typeof result.id !== 'string' || typeof result.project_id !== 'string' || !/^[\w-]+$/.test(result.id) || !/^[\w-]+$/.test(result.project_id) || typeof result.title !== 'string' || typeof result.project !== 'string' || typeof result.type !== 'string' || !Object.hasOwn(resultTabs, result.type)) return;
     const projectUrl = `/projects/${result.project_id}`;
-    const url = `${projectUrl}?tab=${resultTabs[result.type]}${result.type === 'project' ? '' : `&${result.type}=${result.id}`}`;
+    const url = projectUrl + '?tab=' + resultTabs[result.type] + (result.type === 'project' ? '' : '&' + result.type + '=' + result.id);
     if (result.url !== url && !(result.type === 'project' && result.url === projectUrl)) return;
     return { id: result.id, project_id: result.project_id, project: result.project, type: result.type, title: result.title, excerpt: '', url };
 }
@@ -80,7 +79,7 @@ function updateHistoryButtons() {
 function handleNavigation() {
     updateHistoryButtons();
     const selectedProject = project.value;
-    const pageUrl = new URL(page.url, 'http://orbit.local');
+    const pageUrl = new URL(page.url, 'https://orbit.local');
     if (selectedProject && pageUrl.pathname === `/projects/${selectedProject.id}`) {
         const parameters = pageUrl.searchParams;
         const type = Object.keys(currentItems.value).find(type => currentItems.value[type]?.some(item => item.id === parameters.get(type)));
@@ -92,7 +91,7 @@ function handleNavigation() {
             type: type ?? 'project',
             title: item?.title ?? item?.label ?? item?.name ?? selectedProject.name,
             excerpt: '',
-            url: `/projects/${selectedProject.id}?tab=${resultTabs[type ?? 'project']}${type ? `&${type}=${item!.id}` : ''}`,
+            url: '/projects/' + selectedProject.id + '?tab=' + resultTabs[type ?? 'project'] + (type ? '&' + type + '=' + item!.id : ''),
         });
     }
 }
@@ -194,7 +193,6 @@ function handleTrackpadSwipe(event: WheelEvent) {
                         <ArrowRightIcon aria-hidden="true" />
                     </Button>
                 </div>
-                <!--                <Separator orientation="vertical" class="mr-2 data-[orientation=vertical]:h-4" />-->
                 <Breadcrumb>
                     <BreadcrumbList>
                         <template v-if="page.component !== 'Dashboard'">
@@ -241,7 +239,7 @@ function handleTrackpadSwipe(event: WheelEvent) {
                 :show-close-button="false"
                 class="top-[min(20vh,8rem)] translate-y-0 gap-0 overflow-hidden rounded-3xl bg-sidebar/95 p-0 shadow-2xl backdrop-blur-xl sm:max-w-3xl">
                 <DialogHeader class="sr-only">
-                    <DialogTitle>Search workspace</DialogTitle><DialogDescription>Search projects, documents, tasks, links, and secret names. Use the arrow keys to navigate and Enter to open a result.</DialogDescription>
+                    <DialogTitle>Search workspace</DialogTitle><DialogDescription>Search projects, documents, cards, links and secret metadata. Secret values, scratchpad notes, assets and source folders are not included. Use the arrow keys to navigate and Enter to open a result.</DialogDescription>
                 </DialogHeader><ContentSearch
                     launcher
                     :preferred-project-id="project?.id"

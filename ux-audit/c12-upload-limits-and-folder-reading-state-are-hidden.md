@@ -2,7 +2,7 @@
 
 Priority: P2  
 Area: assets  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectAssetController.php:23,59,74; ProjectAssets.vue:105,325–347,416,472  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-221)
 
@@ -19,10 +19,10 @@ Assets accepts files only up to 10 MB and caps a project at 100 files and 100 fo
 
 ## Acceptance criteria
 
-- [ ] File-size and project-capacity limits are visible before upload.
-- [ ] Folder reading has an explicit accessible status.
-- [ ] Upload percentage begins only once an upload is actually running.
-- [ ] Reading/upload failures restore actionable controls with useful feedback.
+- [x] File-size and project-capacity limits are visible before upload.
+- [x] Folder reading has an explicit accessible status.
+- [x] Upload percentage begins only once an upload is actually running.
+- [x] Reading/upload failures restore actionable controls with useful feedback.
 
 ## Verification
 
@@ -33,3 +33,11 @@ After implementation, run `node --test tests/project-assets.test.mjs`. No new te
 ## Related plans
 
 None.
+
+## Completion — 28 September 2026
+
+Upload limits are visible before selection. Folder reading and uploading have separate accessible states; failures and unmount restore/cancel work safely.
+
+Checks: tests/project-assets.test.mjs; tests/Feature/ProjectAssetSelectionTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.
+
+Limit: native history, file pickers/keychain/clipboard, external-client setup and desktop-only execution were covered where applicable by automated boundaries and source review; an installed desktop smoke test remains manual.

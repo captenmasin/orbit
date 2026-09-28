@@ -51,6 +51,7 @@ export interface DependencySource {
 }
 
 export interface RuntimeResult {
+    source: 'automatic' | 'global' | 'root';
     tool: string;
     path: string | null;
     state: string;

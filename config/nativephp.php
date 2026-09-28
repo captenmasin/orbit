@@ -179,6 +179,7 @@ return [
      */
     'prebuild' => [
         'php bootstrap/patch-nativephp.php',
+        'node bootstrap/compile-macos-icon.mjs',
         'pnpm run build',
     ],
 

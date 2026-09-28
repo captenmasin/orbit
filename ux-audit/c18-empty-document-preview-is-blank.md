@@ -2,7 +2,7 @@
 
 Priority: P3  
 Area: content  
-Status: Planned  
+Status: Implemented
 Evidence: Source — ProjectDocuments.vue:99; ProjectBoard.vue:411  
 Audit: [Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-171)
 
@@ -19,10 +19,10 @@ Documents can render a completely blank successful Markdown preview, while Board
 
 ## Acceptance criteria
 
-- [ ] Successful empty previews show Nothing to preview.
-- [ ] Loading and preview errors remain distinguishable from an empty result.
-- [ ] Returning to Write preserves the unchanged body draft.
-- [ ] Nonempty previews retain Markdown formatting and navigation.
+- [x] Successful empty previews show Nothing to preview.
+- [x] Loading and preview errors remain distinguishable from an empty result.
+- [x] Returning to Write preserves the unchanged body draft.
+- [x] Nonempty previews retain Markdown formatting and navigation.
 
 ## Verification
 
@@ -33,3 +33,9 @@ No new automated tests are needed for this presentation-only empty-state change;
 ## Related plans
 
 - [C01 — Changing tabs destroys a document draft](c01-changing-tabs-destroys-a-document-draft.md)
+
+## Completion — 28 September 2026
+
+Empty successful Markdown previews show Nothing to preview; loading/errors and the retained write draft remain distinct.
+
+Checks: tests/project-documents.test.mjs; tests/Feature/ProjectDocumentTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

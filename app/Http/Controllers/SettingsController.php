@@ -160,7 +160,7 @@ class SettingsController extends Controller
     public function startup(WorkspacePreferences $preferences): Response
     {
         $project = $preferences->get('general.startup_destination') === 'last_project'
-            ? Project::whereKey($preferences->get('startup.last_project_id'))->whereNull('archived_at')->where('status', '!=', 'Archived')->first() : null;
+            ? Project::whereKey($preferences->lastProjectId())->whereNull('archived_at')->where('status', '!=', 'Archived')->first() : null;
 
         return $project ? to_route('projects.show', $project) : to_route('workspace');
     }

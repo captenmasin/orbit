@@ -4,7 +4,7 @@ Priority: P2
 
 Area: settings
 
-Status: Planned
+Status: Implemented
 
 Evidence: Source — Settings.vue:80–92,153–167; installed useHttp data serialization
 
@@ -24,10 +24,10 @@ Some selects remain editable during save. Success marks current values as defaul
 
 ## Acceptance criteria
 
-- [ ] A processing section cannot be edited or submitted twice.
-- [ ] Confirmed values, displayed values and the clean baseline agree after success.
-- [ ] Failed saves preserve the draft and unsaved indicator.
-- [ ] Saving one section never cleans unrelated drafts.
+- [x] A processing section cannot be edited or submitted twice.
+- [x] Confirmed values, displayed values and the clean baseline agree after success.
+- [x] Failed saves preserve the draft and unsaved indicator.
+- [x] Saving one section never cleans unrelated drafts.
 
 ## Verification
 
@@ -39,3 +39,9 @@ Run `node --test tests/settings-preferences.test.mjs`. Retain the existing check
 
 - [S05 — Settings sections handle drafts differently](s05-settings-sections-handle-drafts-differently.md)
 - [S02 — Restored defaults can display stale values](s02-restored-defaults-can-display-stale-values.md)
+
+## Completion — 28 September 2026
+
+Processing preference controls/actions are disabled. Success records returned normalized values as the affected baseline and keeps newer/unrelated drafts dirty.
+
+Checks: tests/settings-preferences.test.mjs; tests/settings.test.mjs; tests/workspace-backups.test.mjs; tests/Feature/WorkspacePreferencesTest.php. These checks passed in the full suites; production build and lint of changed Vue files also passed.

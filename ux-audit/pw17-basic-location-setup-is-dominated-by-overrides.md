@@ -2,7 +2,7 @@
 
 - **Priority:** P3
 - **Area:** sources
-- **Status:** Planned
+- **Status:** Implemented
 - **Evidence:** Live + source — ProjectDependencies.vue:67,132–140; ProbeRuntimes.php:18–66
 - **Audit:** [Exact Figma finding](https://www.figma.com/design/fUo6BlJ5s4obNpmJ6SPevJ?node-id=3-276)
 
@@ -22,10 +22,10 @@ Location selection is the first task. Overrides are optional corrections; displa
 
 ## Acceptance criteria
 
-- [ ] A basic location can be added without scrolling through executable fields.
-- [ ] Advanced disclosure preserves values and reveals override errors.
-- [ ] Detected values use recorded data with their source and check state.
-- [ ] Blank inheritance and manual overrides are distinguishable.
+- [x] A basic location can be added without scrolling through executable fields.
+- [x] Advanced disclosure preserves values and reveals override errors.
+- [x] Detected values use recorded data with their source and check state.
+- [x] Blank inheritance and manual overrides are distinguishable.
 
 ## Verification
 
@@ -36,3 +36,9 @@ Manually add a fresh location, edit one with automatic probes, edit one with ove
 - [PW16 — Package location controls have several names](pw16-package-location-controls-have-several-names.md)
 - [S15 — Runtime results expose jargon without next steps](s15-runtime-results-expose-jargon-without-next-steps.md)
 
+
+## Completion — 28 September 2026
+
+Executable overrides live in an advanced disclosure that opens for existing overrides/errors; recorded runtime state, path and source remain visible.
+
+Checks: tests/dependencies.test.mjs; tests/Feature/RuntimeProbeTest.php; tests/Feature/DependencyUpdatesTest.php; template review. These checks passed in the full suites; production build and lint of changed Vue files also passed.

@@ -137,6 +137,7 @@ Route::prefix('connections')->name('connections.')->controller(ProviderControlle
     Route::post('/', 'save')->name('store');
     Route::get('/{connection}/repositories', 'repositories')->name('repositories');
     Route::put('/{connection}', 'save')->name('update');
+    Route::put('/{connection}/label', 'rename')->name('rename');
     Route::delete('/{connection}', 'destroy')->name('destroy');
 });
 

@@ -51,7 +51,11 @@ const emit = defineEmits<{ 'change-status': [status: string]; reload: [] }>();
                         Reload project
                     </Button>
                 </p>
-                <!--                <p v-if="project.description" class="max-w-2xl text-sm leading-6 whitespace-pre-line break-words text-muted-foreground">{{ project.description }}</p>-->
+                <p
+                    v-if="project.description"
+                    class="max-w-2xl text-sm leading-6 whitespace-pre-line break-words text-muted-foreground">
+                    {{ project.description }}
+                </p>
                 <div
                     v-if="project.tags.length"
                     class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">

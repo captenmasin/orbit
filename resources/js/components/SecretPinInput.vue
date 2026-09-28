@@ -7,9 +7,24 @@ const pin = defineModel<string>({ default: '' });
 </script>
 
 <template>
-    <InputOTP :id="id" v-model="pin" :maxlength="4" :pattern="REGEXP_ONLY_DIGITS" type="password" inputmode="numeric" autocomplete="off" required :disabled="disabled" :aria-invalid="invalid || undefined">
+    <InputOTP
+        :id="id"
+        v-model="pin"
+        :maxlength="4"
+        :pattern="REGEXP_ONLY_DIGITS"
+        type="password"
+        inputmode="numeric"
+        autocomplete="off"
+        required
+        :disabled="disabled"
+        :aria-invalid="invalid || undefined">
         <InputOTPGroup :class="size === 'lg' ? 'gap-2' : undefined">
-            <InputOTPSlot v-for="index in 4" :key="index" :index="index - 1" mask :class="size === 'lg' ? 'size-14 rounded-md border text-xl' : undefined" />
+            <InputOTPSlot
+                v-for="index in 4"
+                :key="index"
+                :index="index - 1"
+                mask
+                :class="size === 'lg' ? 'size-14 rounded-md border text-xl' : undefined" />
         </InputOTPGroup>
     </InputOTP>
 </template>

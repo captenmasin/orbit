@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Link, router, usePage } from '@inertiajs/vue3';
-import { useLocalStorage } from '@vueuse/core';
-import { ArrowLeftIcon, ArrowRightIcon } from '@lucide/vue';
-import { Toaster, toast } from 'vue-sonner';
-import 'vue-sonner/style.css';
-import { appearance, applyAppearance, applyMotionPreference, type Appearance, type MotionPreference } from '@/lib/appearance';
-import WorkspaceSidebar from '@/components/WorkspaceSidebar.vue';
 import ContentSearch from '@/components/ContentSearch.vue';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import WorkspaceSidebar from '@/components/WorkspaceSidebar.vue';
+import { Toaster, toast } from 'vue-sonner';
+import { useLocalStorage } from '@vueuse/core';
 import { Button } from '@/components/ui/button';
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
-import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { Link, router, usePage } from '@inertiajs/vue3';
+import { ArrowLeftIcon, ArrowRightIcon } from '@lucide/vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Project, ProjectPage, SearchResult, SidebarProject } from '@/types';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { appearance, applyAppearance, applyMotionPreference, type Appearance, type MotionPreference } from '@/lib/appearance';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 
-const page = usePage<{ sidebarProjects: SidebarProject[]; projects?: ProjectPage; selectedProject?: Project; message?: string | null; native: boolean; appearance: Appearance; reduceMotion: MotionPreference }>();
+const page = usePage<{ sidebarProjects: SidebarProject[]; statuses: string[]; projects?: ProjectPage; selectedProject?: Project; message?: string | null; native: boolean; appearance: Appearance; reduceMotion: MotionPreference }>();
+const nativeMac = page.props.native && typeof navigator !== 'undefined' && navigator.platform.startsWith('Mac');
 watch(() => page.props.appearance, value => { if (value) applyAppearance(value); });
 watch(() => page.props.reduceMotion, value => { if (value) applyMotionPreference(value); });
 watch(() => page.props.message, message => {
@@ -100,7 +100,7 @@ onMounted(() => {
     handleNavigation();
     window.addEventListener('keydown', handleWorkspaceShortcut);
     stopTrackingHistory = router.on('navigate', handleNavigation);
-    if (page.props.native && navigator.platform.startsWith('Mac')) {
+    if (nativeMac) {
         window.addEventListener('wheel', handleTrackpadSwipe, { passive: false });
     }
 });
@@ -152,36 +152,108 @@ function handleTrackpadSwipe(event: WheelEvent) {
 </script>
 
 <template>
-    <SidebarProvider class="bg-sidebar" style="--sidebar-width: 17rem">
-        <Button as-child class="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50"><a href="#main">Skip to content</a></Button>
-        <WorkspaceSidebar :projects="page.props.sidebarProjects" :selected-project="project ?? null" :page="page.component" @search-workspace="searchOpen = true" />
+    <SidebarProvider
+        class="bg-sidebar"
+        :class="{ 'native-macos': nativeMac }"
+        style="--sidebar-width: 17rem">
+        <Button
+            as-child
+            class="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50">
+            <a href="#main">Skip to content</a>
+        </Button>
+        <WorkspaceSidebar
+            :projects="page.props.sidebarProjects"
+            :statuses="page.props.statuses"
+            :selected-project="project ?? null"
+            :page="page.component"
+            @search-workspace="searchOpen = true" />
         <SidebarInset class="min-w-0 md:my-3 md:mr-0 md:ml-1 md:overflow-hidden md:rounded-l-2xl md:shadow-sm">
-            <header class="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 px-4 lg:px-6">
+            <header
+                data-slot="window-toolbar"
+                class="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-4">
                 <div class="flex items-center gap-1">
                     <SidebarTrigger class="-ml-1 text-muted-foreground" />
-                    <Button type="button" variant="ghost" size="icon-sm" class="text-muted-foreground" aria-label="Back" :disabled="!canGoBack" @click="goBack"><ArrowLeftIcon aria-hidden="true" /></Button>
-                    <Button type="button" variant="ghost" size="icon-sm" class="text-muted-foreground" aria-label="Forward" :disabled="!canGoForward" @click="goForward"><ArrowRightIcon aria-hidden="true" /></Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        class="text-muted-foreground"
+                        aria-label="Back"
+                        :disabled="!canGoBack"
+                        @click="goBack">
+                        <ArrowLeftIcon aria-hidden="true" />
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        class="text-muted-foreground"
+                        aria-label="Forward"
+                        :disabled="!canGoForward"
+                        @click="goForward">
+                        <ArrowRightIcon aria-hidden="true" />
+                    </Button>
                 </div>
-                <Separator orientation="vertical" class="mr-2 data-[orientation=vertical]:h-4" />
+                <!--                <Separator orientation="vertical" class="mr-2 data-[orientation=vertical]:h-4" />-->
                 <Breadcrumb>
                     <BreadcrumbList>
                         <template v-if="page.component !== 'Dashboard'">
-                            <BreadcrumbItem class="hidden md:block"><BreadcrumbLink as-child><Link href="/">Dashboard</Link></BreadcrumbLink></BreadcrumbItem>
+                            <BreadcrumbItem class="hidden md:block">
+                                <BreadcrumbLink as-child>
+                                    <Link href="/">
+                                        Dashboard
+                                    </Link>
+                                </BreadcrumbLink>
+                            </BreadcrumbItem>
                             <BreadcrumbSeparator class="hidden md:block" />
                         </template>
                         <template v-if="project && page.component === 'EditProject'">
-                            <BreadcrumbItem><BreadcrumbLink as-child><Link :href="`/projects/${project.id}`">{{ project.name }}</Link></BreadcrumbLink></BreadcrumbItem>
+                            <BreadcrumbItem>
+                                <BreadcrumbLink as-child>
+                                    <Link :href="`/projects/${project.id}`">
+                                        {{ project.name }}
+                                    </Link>
+                                </BreadcrumbLink>
+                            </BreadcrumbItem>
                             <BreadcrumbSeparator />
                         </template>
-                        <BreadcrumbItem><BreadcrumbPage class="line-clamp-1 break-all">{{ title }}</BreadcrumbPage></BreadcrumbItem>
+                        <BreadcrumbItem>
+                            <BreadcrumbPage class="line-clamp-1 break-all">
+                                {{ title }}
+                            </BreadcrumbPage>
+                        </BreadcrumbItem>
                     </BreadcrumbList>
                 </Breadcrumb>
             </header>
-            <main id="main" tabindex="-1" class="flex min-w-0 flex-1 flex-col gap-6 p-4 lg:p-6">
-                <slot />
+            <main
+                id="main"
+                tabindex="-1"
+                class="flex min-w-0 flex-1 flex-col gap-6 p-4 lg:p-6">
+                <Transition
+                    name="t-page-navigation"
+                    mode="out-in">
+                    <slot />
+                </Transition>
             </main>
         </SidebarInset>
-        <Dialog v-model:open="searchOpen"><DialogContent :show-close-button="false" class="top-[min(20vh,8rem)] translate-y-0 gap-0 overflow-hidden rounded-3xl bg-sidebar/95 p-0 shadow-2xl backdrop-blur-xl sm:max-w-3xl"><DialogHeader class="sr-only"><DialogTitle>Search workspace</DialogTitle><DialogDescription>Search projects, documents, tasks, links, and secret names. Use the arrow keys to navigate and Enter to open a result.</DialogDescription></DialogHeader><ContentSearch launcher :preferred-project-id="project?.id" :recent-items="recentItems" @navigate="navigateFromSearch" @clear-recents="clearRecentItems" @close="searchOpen = false" /></DialogContent></Dialog>
-        <Toaster position="bottom-right" :theme="appearance" />
+        <Dialog v-model:open="searchOpen">
+            <DialogContent
+                :show-close-button="false"
+                class="top-[min(20vh,8rem)] translate-y-0 gap-0 overflow-hidden rounded-3xl bg-sidebar/95 p-0 shadow-2xl backdrop-blur-xl sm:max-w-3xl">
+                <DialogHeader class="sr-only">
+                    <DialogTitle>Search workspace</DialogTitle><DialogDescription>Search projects, documents, tasks, links, and secret names. Use the arrow keys to navigate and Enter to open a result.</DialogDescription>
+                </DialogHeader><ContentSearch
+                    launcher
+                    :preferred-project-id="project?.id"
+                    :recent-items="recentItems"
+                    @navigate="navigateFromSearch"
+                    @clear-recents="clearRecentItems"
+                    @close="searchOpen = false" />
+            </DialogContent>
+        </Dialog>
+        <Toaster
+            position="bottom-right"
+            :theme="appearance"
+            :toast-options="{ class: 't-toast' }" />
     </SidebarProvider>
 </template>

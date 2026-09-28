@@ -20,14 +20,38 @@ const selected = computed({
 </script>
 
 <template>
-    <Select v-model="selected" :disabled="disabled" :name="name">
-        <SelectTrigger v-bind="$attrs" :variant="variant" :disabled="disabled">
+    <Select
+        v-model="selected"
+        :disabled="disabled"
+        :name="name">
+        <SelectTrigger
+            v-bind="$attrs"
+            :variant="variant"
+            :disabled="disabled">
             <SelectValue :placeholder="placeholder ?? (emptyChoice?.disabled ? emptyChoice.label : 'Select…')">
-                <template v-if="selectedChoice?.dotClass" #default><span class="size-2 shrink-0 rounded-full" :class="selectedChoice.dotClass" aria-hidden="true" />{{ selectedChoice.label }}</template>
+                <template
+                    v-if="selectedChoice?.dotClass"
+                    #default>
+                    <span
+                        class="size-2 shrink-0 rounded-full"
+                        :class="selectedChoice.dotClass"
+                        aria-hidden="true" />{{ selectedChoice.label }}
+                </template>
             </SelectValue>
         </SelectTrigger>
         <SelectContent>
-            <SelectItem v-for="option in choices.filter(item => item.value !== '' || !item.disabled)" :key="option.value" :value="option.value === '' ? emptyValue : option.value" :disabled="option.disabled" :text-value="option.label"><span v-if="option.dotClass" class="size-2 shrink-0 rounded-full" :class="option.dotClass" aria-hidden="true" />{{ option.label }}</SelectItem>
+            <SelectItem
+                v-for="option in choices.filter(item => item.value !== '' || !item.disabled)"
+                :key="option.value"
+                :value="option.value === '' ? emptyValue : option.value"
+                :disabled="option.disabled"
+                :text-value="option.label">
+                <span
+                    v-if="option.dotClass"
+                    class="size-2 shrink-0 rounded-full"
+                    :class="option.dotClass"
+                    aria-hidden="true" />{{ option.label }}
+            </SelectItem>
         </SelectContent>
     </Select>
 </template>

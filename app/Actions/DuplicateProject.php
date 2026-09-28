@@ -17,6 +17,7 @@ class DuplicateProject
 
         try {
             return DB::transaction(function () use ($source, &$copiedFiles): Project {
+                $source->refresh();
                 $source->load(['tags', 'repositories', 'folders.packageRoots', 'links', 'documents', 'boardColumns.tasks', 'secrets']);
                 $duplicate = $source->replicate(['revision', 'icon_path', 'asset_files', 'asset_folders']);
                 $nameSuffix = ' (copy)';

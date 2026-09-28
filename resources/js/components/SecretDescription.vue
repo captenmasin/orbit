@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onScopeDispose, ref, watch } from 'vue';
-import { router, useHttp, usePage } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { Project, ProjectSecret } from '@/types';
+import { computed, onScopeDispose, ref, watch } from 'vue';
+import { router, useHttp, usePage } from '@inertiajs/vue3';
 
 const props = defineProps<{ project: Project; secret: ProjectSecret; native: boolean }>();
 const page = usePage();
@@ -151,11 +151,41 @@ onScopeDispose(() => {
 
 <template>
     <div class="space-y-2">
-        <Textarea :id="inputId" v-model="draft" aria-label="Description" maxlength="2000" :rows="4" :readonly="!native" placeholder="Add a description…" class="min-h-24 resize-none rounded-xl border-0 bg-muted px-3.5 py-3 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]" :aria-invalid="!!error" :aria-describedby="error ? `${inputId}-error` : undefined" />
-        <div v-if="error" :id="`${inputId}-error`" role="alert" class="flex flex-wrap items-center gap-2 text-sm text-destructive">
+        <Textarea
+            :id="inputId"
+            v-model="draft"
+            aria-label="Description"
+            maxlength="2000"
+            :rows="4"
+            :readonly="!native"
+            placeholder="Add a description…"
+            class="min-h-24 resize-none rounded-xl border-0 bg-muted px-3.5 py-3 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]"
+            :aria-invalid="!!error"
+            :aria-describedby="error ? `${inputId}-error` : undefined" />
+        <div
+            v-if="error"
+            :id="`${inputId}-error`"
+            role="alert"
+            class="flex flex-wrap items-center gap-2 text-sm text-destructive">
             <span>{{ error }}</span>
-            <Button v-if="needsReload" type="button" size="sm" variant="outline" :disabled="reloading" @click="reloadProject">{{ reloading ? 'Reloading…' : 'Reload project' }}</Button>
-            <Button v-else type="button" size="sm" variant="outline" :disabled="saving || !native" @click="flush">Retry save</Button>
+            <Button
+                v-if="needsReload"
+                type="button"
+                size="sm"
+                variant="outline"
+                :disabled="reloading"
+                @click="reloadProject">
+                {{ reloading ? 'Reloading…' : 'Reload project' }}
+            </Button>
+            <Button
+                v-else
+                type="button"
+                size="sm"
+                variant="outline"
+                :disabled="saving || !native"
+                @click="flush">
+                Retry save
+            </Button>
         </div>
     </div>
 </template>

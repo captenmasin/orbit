@@ -5,15 +5,6 @@ export function repositoryName(remote: string): string {
     } catch { return ''; }
 }
 
-export const projectStatusDotClasses: Record<string, string> = {
-    Idea: 'bg-violet-500 dark:bg-violet-400',
-    'In Progress': 'bg-blue-500 dark:bg-blue-400',
-    Live: 'bg-emerald-500 dark:bg-emerald-400',
-    Paused: 'bg-amber-500 dark:bg-amber-400',
-    Maintenance: 'bg-orange-600 dark:bg-orange-400',
-    Archived: 'bg-neutral-500 dark:bg-neutral-400',
-};
-
 export const boardColumnColors: Record<string, { label: string; dotClass: string }> = {
     gray: { label: 'Grey', dotClass: 'bg-neutral-500' },
     blue: { label: 'Blue', dotClass: 'bg-blue-500/70' },
@@ -26,3 +17,8 @@ export const boardColumnColors: Record<string, { label: string; dotClass: string
 
 const defaultColumnColors: Record<string, string> = { 'to do': 'blue', 'in progress': 'amber', done: 'green' };
 export const boardColumnColor = (column: { name: string; color?: string | null }): string => column.color ?? defaultColumnColors[column.name.trim().toLowerCase()] ?? 'gray';
+
+export const projectStatusColors: Record<string, { label: string; dotClass: string }> = {
+    ...boardColumnColors,
+    orange: { label: 'Orange', dotClass: 'bg-orange-600 dark:bg-orange-400' },
+};

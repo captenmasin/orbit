@@ -17,7 +17,8 @@ class HandleInertiaRequests extends Middleware
             'message' => fn () => $request->session()->get('message'),
             'sidebarProjects' => fn () => Project::orderBy('position')->orderBy('id')
                 ->get(['id', 'name', 'description', 'status', 'revision', 'icon_type', 'icon_emoji', 'icon_path']),
-            'statuses' => Project::STATUSES,
+            'statuses' => Project::statuses(),
+            'statusColors' => fn () => app(WorkspacePreferences::class)->get('project_statuses.colors'),
             'appearance' => fn () => app(WorkspacePreferences::class)->get('appearance.theme'),
             'reduceMotion' => fn () => app(WorkspacePreferences::class)->get('appearance.reduce_motion'),
             'native' => (bool) config('nativephp-internal.running'),

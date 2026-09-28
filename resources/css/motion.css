@@ -1,0 +1,192 @@
+/* Transitions.dev recipes, with Vue and Sonner lifecycle adapters below. */
+@keyframes t-digit-pop-in {
+  0%   {
+    transform: translate(
+      calc(var(--digit-distance) * var(--digit-dir-x)),
+      calc(var(--digit-distance) * var(--digit-dir-y))
+    );
+    opacity: 0;
+    filter: blur(var(--digit-blur));
+  }
+  100% { transform: translate(0, 0); opacity: 1; filter: blur(0); }
+}
+
+.t-digit-group {
+  display: inline-flex;
+  align-items: baseline;
+}
+.t-digit {
+  display: inline-block;
+  will-change: transform, opacity, filter;
+}
+.t-digit-group.is-animating .t-digit {
+  animation: t-digit-pop-in var(--digit-dur) var(--digit-ease) both;
+}
+.t-digit-group.is-animating .t-digit[data-stagger="1"] {
+  animation-delay: var(--digit-stagger);
+}
+.t-digit-group.is-animating .t-digit[data-stagger="2"] {
+  animation-delay: calc(var(--digit-stagger) * 2);
+}
+
+html:not([data-orbit-motion="off"]) {
+  @media (prefers-reduced-motion: reduce) {
+    .t-digit-group .t-digit { animation: none !important; }
+  }
+}
+
+.t-toast {
+  opacity: 0;
+  transform: translateY(var(--toast-distance)) scale(var(--toast-scale));
+  filter: blur(var(--toast-blur));
+  will-change: transform, opacity, filter;
+  transition:
+    opacity var(--toast-close) var(--toast-ease),
+    transform var(--toast-close) var(--toast-ease),
+    filter var(--toast-close) var(--toast-ease);
+}
+.t-toast.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  transition:
+    opacity var(--toast-open) var(--toast-ease),
+    transform var(--toast-open) var(--toast-ease),
+    filter var(--toast-open) var(--toast-ease);
+}
+
+html:not([data-orbit-motion="off"]) {
+  @media (prefers-reduced-motion: reduce) {
+    .t-toast { transition: none !important; }
+  }
+}
+
+/* Vue keeps the outgoing page mounted until its transition completes. */
+.t-page-navigation-enter-active,
+.t-page-navigation-leave-active {
+  transition:
+    opacity var(--page-fade-dur) var(--page-fade-ease),
+    transform var(--page-slide-dur) var(--page-slide-ease),
+    filter var(--page-slide-dur) var(--page-slide-ease);
+  will-change: opacity, transform, filter;
+}
+.t-page-navigation-enter-from {
+  opacity: 0;
+  transform: translateX(var(--page-slide-distance));
+  filter: blur(var(--page-blur));
+}
+.t-page-navigation-leave-to {
+  opacity: 0;
+  transform: translateX(calc(var(--page-slide-distance) * -1));
+  filter: blur(var(--page-blur));
+  pointer-events: none;
+}
+
+.t-panel-reveal-enter-active,
+.t-panel-reveal-leave-active {
+  transition:
+    opacity var(--panel-open-dur) var(--panel-ease),
+    transform var(--panel-open-dur) var(--panel-ease),
+    filter var(--panel-open-dur) var(--panel-ease);
+  will-change: opacity, transform, filter;
+}
+.t-panel-reveal-leave-active { transition-duration: var(--panel-close-dur); }
+.t-panel-reveal-enter-from {
+  opacity: 0;
+  transform: translateY(var(--distance-medium));
+  filter: blur(var(--panel-blur));
+}
+.t-panel-reveal-leave-to { opacity: 0; filter: blur(var(--panel-blur)); }
+
+/* Preserve Sonner's stack positions and direct-manipulation swipe transforms. */
+.t-toast[data-sonner-toast] {
+  /* ponytail: Sonner unmounts at 200ms; use a configurable lifecycle for longer exits. */
+  --toast-close: 200ms;
+}
+[data-sonner-toaster] {
+  transition: transform var(--toast-open) var(--toast-ease);
+}
+.t-toast[data-sonner-toast]:not([data-swiping='true']):not([data-swipe-out='true']) {
+  transform: var(--y);
+  transition:
+    opacity var(--toast-open) var(--toast-ease),
+    transform var(--toast-open) var(--toast-ease),
+    filter var(--toast-open) var(--toast-ease),
+    height var(--toast-open) var(--toast-ease);
+}
+.t-toast[data-sonner-toast][data-mounted='false'] {
+  --y: translateY(var(--toast-distance)) scale(var(--toast-scale));
+}
+.t-toast[data-sonner-toast][data-mounted='true'] {
+  filter: blur(0);
+}
+.t-toast[data-sonner-toast][data-removed='true']:not([data-swiping='true']):not([data-swipe-out='true']) {
+  transition-duration: var(--toast-close);
+  filter: blur(var(--toast-blur));
+}
+.t-toast[data-sonner-toast][data-removed='true'][data-front='true'][data-swipe-out='false'] {
+  --y: translateY(var(--toast-distance));
+}
+.t-toast[data-sonner-toast] > * {
+  transition-duration: var(--toast-close);
+}
+
+/* Native disclosures retain keyboard behavior and degrade to an instant toggle. */
+.t-disclosure > summary svg {
+  transition: transform var(--acc-chevron) var(--acc-ease);
+}
+@supports (interpolate-size: allow-keywords) and selector(::details-content) {
+  .t-disclosure { interpolate-size: allow-keywords; }
+  .t-disclosure::details-content {
+    block-size: 0;
+    opacity: 0;
+    overflow: clip;
+    transition:
+      block-size var(--acc-collapse) var(--acc-ease),
+      opacity var(--acc-collapse) var(--acc-ease),
+      content-visibility var(--acc-collapse) allow-discrete;
+  }
+  .t-disclosure[open]::details-content { block-size: auto; opacity: 1; }
+}
+
+[data-slot='field-error'] {
+  animation: t-error-reveal var(--text-swap-dur) var(--text-swap-ease);
+}
+@keyframes t-error-reveal {
+  from { opacity: 0; transform: translateY(var(--text-swap-translate-y)); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Explicit app preferences take precedence over the OS recipe defaults. */
+html[data-orbit-motion='off'] .t-toast[data-sonner-toast]:not([data-swiping='true']):not([data-swipe-out='true']) {
+  transition-property: opacity, transform, filter, height !important;
+  transition-duration: var(--toast-open) !important;
+  transition-timing-function: var(--toast-ease) !important;
+}
+html[data-orbit-motion='off'] .t-toast[data-sonner-toast][data-removed='true']:not([data-swiping='true']):not([data-swipe-out='true']) {
+  transition-duration: var(--toast-close) !important;
+}
+html[data-orbit-motion='off'] .t-toast[data-sonner-toast][data-swipe-out='true'] {
+  animation-duration: 200ms !important;
+  animation-timing-function: ease-out !important;
+  animation-fill-mode: forwards !important;
+}
+html[data-orbit-motion='off'] .t-toast[data-swipe-out='true'][data-swipe-direction='left'] { animation-name: swipe-out-left !important; }
+html[data-orbit-motion='off'] .t-toast[data-swipe-out='true'][data-swipe-direction='right'] { animation-name: swipe-out-right !important; }
+html[data-orbit-motion='off'] .t-toast[data-swipe-out='true'][data-swipe-direction='up'] { animation-name: swipe-out-up !important; }
+html[data-orbit-motion='off'] .t-toast[data-swipe-out='true'][data-swipe-direction='down'] { animation-name: swipe-out-down !important; }
+html.reduce-motion .t-disclosure::details-content {
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-orbit-motion='off']) .t-page-navigation-enter-active,
+  html:not([data-orbit-motion='off']) .t-page-navigation-leave-active,
+  html:not([data-orbit-motion='off']) .t-panel-reveal-enter-active,
+  html:not([data-orbit-motion='off']) .t-panel-reveal-leave-active,
+  html:not([data-orbit-motion='off']) .t-disclosure::details-content {
+    transition: none !important;
+  }
+  html:not([data-orbit-motion='off']) [data-slot='field-error'] {
+    animation: none !important;
+  }
+}

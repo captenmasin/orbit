@@ -21,7 +21,7 @@ if (getenv('NATIVEPHP_RUNNING') === 'true' && ($nativeData = getenv('NATIVEPHP_U
     // ponytail: one config file per launch; prune old files when adding cache maintenance.
     $launch = hash('sha256', getenv('NATIVEPHP_SECRET') ?: 'startup');
     $dependencies = hash_file('sha256', __DIR__.'/../composer.lock');
-    foreach (['SERVICES' => 'services-'.$dependencies, 'PACKAGES' => 'packages-'.$dependencies, 'CONFIG' => 'config-'.$launch, 'ROUTES' => 'routes-v13', 'EVENTS' => 'events-v2'] as $key => $file) {
+    foreach (['SERVICES' => 'services-'.$dependencies, 'PACKAGES' => 'packages-'.$dependencies, 'CONFIG' => 'config-'.$launch, 'ROUTES' => 'routes-v14', 'EVENTS' => 'events-v2'] as $key => $file) {
         $_ENV['APP_'.$key.'_CACHE'] = $_SERVER['APP_'.$key.'_CACHE'] = $cache.'/'.$file.'.php';
         putenv('APP_'.$key.'_CACHE='.$cache.'/'.$file.'.php');
     }
@@ -39,14 +39,14 @@ return Application::configure(basePath: dirname(__DIR__))
             ->name('dependency-checks')->everyMinute()->withoutOverlapping(2);
     })
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->trimStrings(except: ['description', 'body', 'notes', 'token', 'value', 'entries', 'password', 'password_confirmation', 'pin', 'pin_confirmation', 'current_pin', 'key', 'paths.*', 'directories.*']);
+        $middleware->trimStrings(except: ['description', 'body', 'notes', 'token', 'value', 'entries', 'password', 'password_confirmation', 'pin', 'pin_confirmation', 'current_pin', 'confirmation', 'key', 'paths.*', 'directories.*']);
         $middleware->convertEmptyStringsToNull(except: [
             fn (Request $request): bool => $request->is('projects/*/secrets') || $request->is('projects/*/secrets/*'),
         ]);
         $middleware->web(append: [HandleInertiaRequests::class, ProtectWorkspaceWrites::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->dontFlash(['token', 'value', 'entries', 'password', 'password_confirmation', 'pin', 'pin_confirmation', 'current_pin', 'key']);
+        $exceptions->dontFlash(['token', 'value', 'entries', 'password', 'password_confirmation', 'pin', 'pin_confirmation', 'current_pin', 'recovery_code', 'key']);
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );

@@ -1,33 +1,33 @@
 <script setup lang="ts">
-import type { HTMLAttributes } from 'vue'
-import { useVModel } from '@vueuse/core'
 import { cn } from '@/lib/utils'
+import { useVModel } from '@vueuse/core'
+import type { HTMLAttributes } from 'vue'
 
 const props = defineProps<{
-  defaultValue?: string | number
-  modelValue?: string | number
-  variant?: 'default' | 'filled'
-  class?: HTMLAttributes['class']
+    defaultValue?: string | number
+    modelValue?: string | number
+    variant?: 'default' | 'filled'
+    class?: HTMLAttributes['class']
 }>()
 
 const emits = defineEmits<{
-  (e: 'update:modelValue', payload: string | number): void
+    (e: 'update:modelValue', payload: string | number): void
 }>()
 
 const modelValue = useVModel(props, 'modelValue', emits, {
-  passive: true,
-  defaultValue: props.defaultValue,
+    passive: true,
+    defaultValue: props.defaultValue,
 })
 </script>
 
 <template>
-  <input
-    v-model="modelValue"
-    data-slot="input"
-    :class="cn(
-      'dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 h-9 rounded-md border bg-transparent px-2.5 py-1 text-base shadow-xs transition-[color,box-shadow] file:h-7 file:text-sm file:font-medium focus-visible:ring-3 aria-invalid:ring-3 md:text-sm w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
-      props.variant === 'filled' && 'h-9 rounded-full border-0 bg-muted px-3.5 text-[13px] shadow-none focus-visible:ring-2 md:text-[13px] dark:bg-muted',
-      props.class,
-    )"
-  >
+    <input
+        v-model="modelValue"
+        data-slot="input"
+        :class="cn(
+            'dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 h-9 rounded-md border bg-transparent px-2.5 py-1 text-base shadow-xs transition-[color,box-shadow] file:h-7 file:text-sm file:font-medium focus-visible:ring-3 aria-invalid:ring-3 md:text-sm w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+            props.variant === 'filled' && 'h-9 rounded-full border-0 bg-muted px-3.5 text-[13px] shadow-none focus-visible:ring-2 md:text-[13px] dark:bg-muted',
+            props.class,
+        )"
+    >
 </template>

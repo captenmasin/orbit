@@ -1,17 +1,17 @@
 <script lang="ts" setup>
-import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
+import type { HTMLAttributes } from 'vue'
 
 const props = defineProps<{
-  class?: HTMLAttributes['class']
+    class?: HTMLAttributes['class']
 }>()
 </script>
 
 <template>
-  <ol
-    data-slot="breadcrumb-list"
-    :class="cn('text-muted-foreground gap-1.5 text-sm sm:gap-2.5 flex flex-wrap items-center wrap-break-word', props.class)"
-  >
-    <slot />
-  </ol>
+    <ol
+        data-slot="breadcrumb-list"
+        :class="cn('text-muted-foreground gap-1.5 text-sm sm:gap-2.5 flex flex-wrap items-center wrap-break-word', props.class)"
+    >
+        <slot />
+    </ol>
 </template>

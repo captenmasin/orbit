@@ -175,7 +175,7 @@ test('saving appearance keeps the confirmed motion preference when leaving or un
 test('board ordering and Restore default columns keep reactive props independent from editable drafts', async t => {
     const state = mount(t, { section: 'project_defaults' });
     state.board.columns[0].name = 'Ideas';
-    state.moveColumn(0, 1);
+    state.board.columns = [state.board.columns[1], state.board.columns[0]];
     assert.deepEqual(Array.from(state.board.columns, column => column.name), ['Done', 'Ideas']);
     assert.equal(state.props.preferences.values.project_defaults.columns[0].name, 'Backlog');
 
@@ -185,6 +185,26 @@ test('board ordering and Restore default columns keep reactive props independent
     assert.deepEqual(JSON.parse(JSON.stringify(state.board.columns)), values.project_defaults.columns);
     state.board.columns[0].name = 'Draft';
     assert.equal(state.props.defaultColumns[0].name, 'Backlog');
+});
+
+test('keyboard column reordering preserves identity and focus and stops at boundaries or while saving', async t => {
+    const state = mount(t, { section: 'project_defaults' });
+    const column = state.board.columns[1];
+    const key = state.columnKey(column);
+    const handle = { focus: t.mock.fn() };
+
+    await state.moveColumn(1, -1, { currentTarget: handle });
+
+    assert.equal(state.board.columns[0], column);
+    assert.equal(state.columnKey(state.board.columns[0]), key);
+    assert.equal(state.columnAnnouncement.value, 'Done moved to position 1 of 2.');
+    assert.equal(handle.focus.mock.callCount(), 1);
+
+    await state.moveColumn(0, -1);
+    await state.moveColumn(1, 1);
+    state.board.processing = true;
+    await state.moveColumn(0, 1);
+    assert.deepEqual(Array.from(state.board.columns, column => column.name), ['Done', 'Backlog']);
 });
 
 test('the executable picker changes only its selected draft path and clears obsolete probe results', async t => {

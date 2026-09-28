@@ -13,8 +13,10 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Native\Desktop\Facades\System;
 use RuntimeException;
 use SensitiveParameter;
+use Throwable;
 
 class SecretVaultController extends Controller
 {
@@ -39,11 +41,12 @@ class SecretVaultController extends Controller
             throw ValidationException::withMessages(['pin' => 'A PIN is already set. Unlock with it.']);
         }
         $hash = Hash::make($pins['pin']);
-        $this->vault->savePinHash($hash, null);
+        $recoveryCode = $this->recoveryCode();
+        $this->vault->savePinHash($hash, null, $this->recoveryDigest($recoveryCode));
         $this->vault->revokeUnlocks();
         $this->vault->unlock($request, $hash);
 
-        return $this->pinSaved($request);
+        return $this->pinSaved($request, $recoveryCode);
     }
 
     public function unlock(Request $request): JsonResponse
@@ -94,32 +97,139 @@ class SecretVaultController extends Controller
         }
         $this->verifyPin($pins['current_pin'], $hash, 'current_pin');
         $newHash = Hash::make($pins['pin']);
-        $this->vault->savePinHash($newHash, $hash);
+        $recoveryCode = $this->recoveryCode();
+        $this->vault->savePinHash($newHash, $hash, $this->recoveryDigest($recoveryCode));
         $this->vault->revokeUnlocks();
         $this->vault->lock($request);
 
-        return $this->pinSaved($request);
+        return $this->pinSaved($request, $recoveryCode);
     }
 
-    private function pinSaved(Request $request): JsonResponse
+    public function recoveryStatus(): JsonResponse
+    {
+        abort_unless(config('nativephp-internal.running'), 403);
+        $hash = $this->vault->pinHash();
+
+        return response()->json([
+            'touch_id_available' => $hash !== null && $this->touchIdAvailable(),
+            'recovery_code_set' => $hash !== null && $this->vault->recoveryHash($hash) !== null,
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function recover(Request $request): JsonResponse
+    {
+        abort_unless(config('nativephp-internal.running'), 403);
+        $data = $this->validatedPins($request, true, extraRules: [
+            'method' => ['required', 'in:touch_id,recovery_code'],
+            'recovery_code' => ['required_if:method,recovery_code', 'nullable', 'string', 'max:200'],
+        ]);
+        $this->limitRecovery('secret-vault-recovery');
+        $hash = $this->vault->pinHash();
+        if ($hash === null) {
+            throw ValidationException::withMessages(['pin' => 'Set up a PIN first.']);
+        }
+        if ($data['method'] === 'touch_id') {
+            try {
+                $verified = $this->touchIdAvailable() && System::promptTouchID('Reset your Orbit secrets PIN');
+            } catch (Throwable) {
+                $verified = false;
+            }
+            if (! $verified) {
+                throw ValidationException::withMessages(['method' => 'Touch ID was cancelled or is unavailable. Try again or use your recovery code.']);
+            }
+        } else {
+            $recoveryHash = $this->vault->recoveryHash($hash);
+            if ($recoveryHash === null || ! hash_equals($recoveryHash, $this->recoveryDigest($data['recovery_code']))) {
+                throw ValidationException::withMessages(['recovery_code' => 'Incorrect recovery code.']);
+            }
+        }
+        $recoveryCode = $this->recoveryCode();
+        $this->vault->savePinHash(Hash::make($data['pin']), $hash, $this->recoveryDigest($recoveryCode));
+        $this->vault->revokeUnlocks();
+        $this->clearRecoverySession($request);
+        RateLimiter::clear('secret-vault-pin');
+        RateLimiter::clear('secret-vault-recovery');
+
+        return $this->pinSaved($request, $recoveryCode);
+    }
+
+    public function reset(Request $request): JsonResponse
+    {
+        abort_unless(config('nativephp-internal.running'), 403);
+        $data = $this->validatedPins($request, true, extraRules: [
+            'confirmation' => ['required', 'in:DELETE ALL SECRETS'],
+        ]);
+        $this->limitRecovery('secret-vault-reset');
+        $hash = $this->vault->pinHash();
+        if ($hash === null) {
+            throw ValidationException::withMessages(['pin' => 'Set up a PIN first.']);
+        }
+        $recoveryCode = $this->recoveryCode();
+        $this->clearRecoverySession($request);
+        $this->vault->savePinHash(Hash::make($data['pin']), $hash, $this->recoveryDigest($recoveryCode), resetSecrets: true);
+        RateLimiter::clear('secret-vault-pin');
+        RateLimiter::clear('secret-vault-recovery');
+
+        return $this->pinSaved($request, $recoveryCode);
+    }
+
+    private function touchIdAvailable(): bool
+    {
+        try {
+            return System::canPromptTouchID();
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function recoveryCode(): string
+    {
+        return implode('-', str_split(strtoupper(bin2hex(random_bytes(32))), 8));
+    }
+
+    private function recoveryDigest(#[SensitiveParameter] string $code): string
+    {
+        return hash('sha256', strtoupper(preg_replace('/[\\s-]+/', '', $code)));
+    }
+
+    private function limitRecovery(string $key): void
+    {
+        abort_if(RateLimiter::tooManyAttempts($key, 5), 429, 'Too many attempts. Try again in '.RateLimiter::availableIn($key).' seconds.');
+        RateLimiter::hit($key, 300);
+    }
+
+    private function clearRecoverySession(Request $request): void
+    {
+        $this->vault->lock($request);
+        foreach (array_keys($request->session()->all()) as $key) {
+            if (str_starts_with($key, 'secret-import:') || str_starts_with($key, 'secret-export:') || in_array($key, ['backup-export', 'backup-restore'], true)) {
+                $request->session()->forget($key);
+            }
+        }
+        $request->session()->migrate(true);
+    }
+
+    private function pinSaved(Request $request, #[SensitiveParameter] string $recoveryCode): JsonResponse
     {
         $response = $this->status($request);
-        $response->setData([...$response->getData(true), 'revision' => $this->preferences->snapshot()['revision']]);
+        $response->setData([...$response->getData(true), 'revision' => $this->preferences->snapshot()['revision'], 'recovery_code' => $recoveryCode]);
 
         return $response;
     }
 
     /**
-     * @return array{pin: string, pin_confirmation?: string, current_pin?: string}
+     * @param  array<string, list<string>>  $extraRules
+     * @return array<string, string>
      */
-    private function validatedPins(Request $request, bool $confirmation, bool $currentPin = false): array
+    private function validatedPins(Request $request, bool $confirmation, bool $currentPin = false, array $extraRules = []): array
     {
-        $pins = $request->only(['pin', 'pin_confirmation', 'current_pin']);
-        foreach (['pin', 'pin_confirmation', 'current_pin'] as $field) {
+        $fields = ['pin', 'pin_confirmation', 'current_pin', ...array_keys($extraRules)];
+        $pins = $request->only($fields);
+        foreach ($fields as $field) {
             $request->request->remove($field);
             $request->json()->remove($field);
         }
-        $rules = ['pin' => ['required', 'string', 'regex:/\A[0-9]{4}\z/D']];
+        $rules = ['pin' => ['required', 'string', 'regex:/\A[0-9]{4}\z/D'], ...$extraRules];
         if ($confirmation) {
             $rules['pin_confirmation'] = ['required', 'same:pin'];
         }

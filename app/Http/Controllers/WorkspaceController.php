@@ -35,7 +35,7 @@ class WorkspaceController extends Controller
         $request->merge(['tag' => is_array($requestedTags) ? $requestedTags : ($requestedTags === '' ? [] : [$requestedTags])]);
         $filters = $request->validate([
             'q' => ['nullable', 'string', 'max:255'],
-            'status' => ['nullable', Rule::in(Project::STATUSES)],
+            'status' => ['nullable', Rule::in(Project::statuses())],
             'tag' => ['array', 'list', 'max:50'],
             'tag.*' => ['required', 'string', 'max:50', 'distinct:ignore_case'],
             'sort' => ['nullable', Rule::in(['name', 'name-desc', 'last-commit'])],
@@ -48,8 +48,8 @@ class WorkspaceController extends Controller
                 ->orWhereRaw('instr(lower(description), ?) > 0', [$search])
                 ->orWhereHas('tags', fn ($tags) => $tags->whereRaw('instr(lower(name), ?) > 0', [$search])));
         }
-        if ($status = $filters['status'] ?? null) {
-            $query->where('status', $status);
+        if (isset($filters['status']) && $filters['status'] !== '') {
+            $query->where('status', $filters['status']);
         }
         foreach ($selectedTags as $tag) {
             $query->whereHas('tags', fn ($tags) => $tags->where('name', $tag));
@@ -61,7 +61,7 @@ class WorkspaceController extends Controller
 
         return $this->render($request, 'Dashboard', [
             'projects' => $query->simplePaginate(25)->withPath(route('workspace', absolute: false))->withQueryString(),
-            'statuses' => Project::STATUSES,
+            'statuses' => Project::statuses(),
             'filters' => ['q' => $filters['q'] ?? '', 'status' => $filters['status'] ?? '', 'tag' => $selectedTags, 'sort' => $filters['sort'] ?? 'name'],
             'tags' => Tag::whereIn('id', fn ($query) => $query->select('tag_id')->from('project_tag'))->orderBy('name')->pluck('name'),
         ]);
@@ -70,7 +70,7 @@ class WorkspaceController extends Controller
     public function create(Request $request): Response
     {
         return $this->render($request, 'CreateProject', [
-            'statuses' => Project::STATUSES,
+            'statuses' => Project::statuses(),
             'connections' => ProviderConnection::orderBy('label')->get(),
         ]);
     }
@@ -86,7 +86,7 @@ class WorkspaceController extends Controller
 
         return $this->render($request, 'ShowProject', [
             'selectedProject' => $project,
-            'statuses' => Project::STATUSES,
+            'statuses' => Project::statuses(),
             'connections' => fn () => ProviderConnection::orderBy('label')->get(),
             'activity' => fn () => $project->repositories()->with(['providerConnection', 'providerSnapshots'])->get(),
             'inspection' => fn () => $project->folders()->with('packageRoots')->get(),
@@ -97,7 +97,7 @@ class WorkspaceController extends Controller
     {
         return $this->render($request, 'EditProject', [
             'selectedProject' => $project->load(['tags', 'repositories', 'folders', 'links']),
-            'statuses' => Project::STATUSES,
+            'statuses' => Project::statuses(),
         ]);
     }
 
@@ -195,7 +195,7 @@ class WorkspaceController extends Controller
         if ($isBareUrl) {
             return response()->json(['actions' => [[
                 'type' => 'link', 'label' => parse_url($note, PHP_URL_HOST), 'url' => $note, 'description' => '',
-            ]], 'statuses' => Project::STATUSES]);
+            ]], 'statuses' => Project::statuses()]);
         }
         if (! app(ScratchpadAi::class)->status()['configured']) {
             throw ValidationException::withMessages(['scratchpad' => 'Configure scratchpad AI in Settings → Connections to generate actions.']);
@@ -213,7 +213,7 @@ class WorkspaceController extends Controller
             'description' => $project->description,
             'status' => $project->status,
             'tags' => $project->tags()->pluck('name')->all(),
-            'statuses' => Project::STATUSES,
+            'statuses' => Project::statuses(),
             'has_board' => $hasBoard,
         ], JSON_THROW_ON_ERROR);
         try {
@@ -255,15 +255,14 @@ class WorkspaceController extends Controller
             throw ValidationException::withMessages(['scratchpad' => 'AI found no clear actions. Add more specific notes and try again.']);
         }
 
-        return response()->json(['actions' => $actions, 'statuses' => Project::STATUSES]);
+        return response()->json(['actions' => $actions, 'statuses' => Project::statuses()]);
     }
 
     public function applyScratchpadActions(Request $request, Project $project): JsonResponse
     {
         $data = $request->validate(['revision' => ['required', 'integer', 'min:1']]);
-        $actions = $this->validatedScratchpadActions($request->input('actions'));
-
-        DB::transaction(function () use ($project, $data, $actions): void {
+        DB::transaction(function () use ($project, $data, $request): void {
+            $actions = $this->validatedScratchpadActions($request->input('actions'));
             $details = [];
             $tagNames = [];
             foreach ($actions as $action) {
@@ -384,7 +383,7 @@ class WorkspaceController extends Controller
                     'tag' => 50,
                 };
                 if (($field !== 'description' && $value === '') || mb_strlen($value) > $limit
-                    || ($field === 'status' && ! in_array($value, Project::STATUSES, true))) {
+                    || ($field === 'status' && ! in_array($value, Project::statuses(), true))) {
                     throw ValidationException::withMessages(['actions' => 'Choose a valid project detail and value.']);
                 }
 

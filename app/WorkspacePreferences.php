@@ -3,6 +3,7 @@
 namespace App;
 
 use App\Models\BoardColumn;
+use App\Models\Project;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -11,6 +12,17 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class WorkspacePreferences
 {
+    /** @return list<string> */
+    public static function validatedProjectStatuses(array $statuses): array
+    {
+        $statuses = array_map(fn (mixed $name): mixed => is_string($name) ? trim($name) : $name, $statuses);
+
+        return Validator::make(['statuses' => $statuses], [
+            'statuses' => ['required', 'array', 'list', 'min:1', 'max:100'],
+            'statuses.*' => ['required', 'string', 'max:100', 'distinct:ignore_case', 'regex:/\A[^\x00-\x1F\x7F]+\z/u', 'not_regex:/\AArchived\z/iu'],
+        ], ['statuses.*.not_regex' => 'Archived is reserved for archiving projects.'])->validate()['statuses'];
+    }
+
     public static function defaultBoardColumns(): array
     {
         return array_map(fn (string $name): array => ['name' => $name, 'color' => null], BoardColumn::DEFAULT_NAMES);
@@ -35,6 +47,10 @@ class WorkspacePreferences
             'appearance' => ['theme' => 'system', 'reduce_motion' => 'system'],
             'security' => ['lock_minutes' => 15, 'clipboard_seconds' => 30, 'generation' => 0],
             'project_defaults' => ['columns' => self::defaultBoardColumns()],
+            'project_statuses' => [
+                'names' => array_values(array_diff(Project::STATUSES, ['Archived'])),
+                'colors' => ['Idea' => 'purple', 'In Progress' => 'blue', 'Live' => 'green', 'Paused' => 'amber', 'Maintenance' => 'orange'],
+            ],
             'tools' => ['paths' => array_fill_keys(['php', 'node', 'composer', 'npm', 'pnpm', 'yarn'], null)],
             'backups' => ['folder' => null, 'last_export_at' => null, 'last_export_path' => null],
             'startup' => ['last_project_id' => null],
@@ -52,6 +68,7 @@ class WorkspacePreferences
                 $values[$section] = array_replace($values[$section], $fields);
             }
         }
+        $values['project_statuses']['colors'] = Arr::only($values['project_statuses']['colors'], $values['project_statuses']['names']);
 
         return ['revision' => (int) ($record?->revision ?? 1), 'values' => $values];
     }

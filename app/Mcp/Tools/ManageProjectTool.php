@@ -79,7 +79,7 @@ class ManageProjectTool extends Tool
             'revision' => $schema->integer()->description('Current project revision; required for update or delete.'),
             'ids' => $schema->array()->items($schema->string())->description('Complete list of project IDs in the new order; required for reorder.'),
             'name' => $schema->string(),
-            'status' => $schema->string()->enum(Project::STATUSES),
+            'status' => $schema->string()->enum(Project::statuses()),
             'description' => $schema->string()->nullable(),
             'icon_type' => $schema->string()->enum(['initials', 'emoji', 'image']),
             'icon_emoji' => $schema->string()->nullable(),

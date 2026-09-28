@@ -48,10 +48,11 @@ class WorkspaceBackupTest extends TestCase
         $this->assertNull(collect($records)->firstWhere('type', 'project_secrets'));
     }
 
-    public function test_it_exports_only_portable_board_defaults_from_preferences(): void
+    public function test_it_exports_only_portable_project_preferences(): void
     {
         app(WorkspacePreferences::class)->merge([
             'project_defaults' => ['columns' => [['name' => 'Ready', 'color' => 'blue']]],
+            'project_statuses' => ['names' => ['Planning', 'Shipped'], 'colors' => ['Planning' => 'pink', 'Shipped' => 'green']],
             'tools' => ['paths' => ['php' => '/local/php']],
             'backups' => ['folder' => '/local/backups', 'last_export_path' => '/local/export.orbitbackup'],
             'startup' => ['last_project_id' => 'local-project'],
@@ -61,8 +62,8 @@ class WorkspaceBackupTest extends TestCase
 
         $records = app(WorkspaceBackup::class)->records(false, app(ProtectCredential::class));
 
-        $this->assertSame(4, $records[0]['data']['schema']);
-        $this->assertSame(['project_defaults' => ['columns' => [['name' => 'Ready', 'color' => 'blue']]]], collect($records)->firstWhere('type', 'preferences')['data']);
+        $this->assertSame(5, $records[0]['data']['schema']);
+        $this->assertSame(['project_defaults' => ['columns' => [['name' => 'Ready', 'color' => 'blue']]], 'project_statuses' => ['names' => ['Planning', 'Shipped'], 'colors' => ['Planning' => 'pink', 'Shipped' => 'green']]], collect($records)->firstWhere('type', 'preferences')['data']);
         $this->assertStringNotContainsString('/local/', json_encode($records));
         $this->assertStringNotContainsString('private-encrypted-key', json_encode($records));
     }

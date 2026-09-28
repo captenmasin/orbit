@@ -99,4 +99,9 @@ test('sidebar status groups save project order and open state', async t => {
     const reloaded = scope.run(() => context.exports.default.setup(props, { expose() {} }));
     assert.equal(reloaded.groupOpen.value.Idea, false);
     assert.equal(reloaded.groupOpen.value.Live, undefined);
+
+    props.statuses = ['Live', 'Unused', 'Idea', 'Archived'];
+    await vue.nextTick();
+    assert.deepEqual(Array.from(sidebar.groups.value, group => group.status), ['Live', 'Idea']);
+    assert.deepEqual(Array.from(sidebar.groups.value[0].projects, project => project.id), ['gamma', 'live']);
 });

@@ -113,6 +113,9 @@ Route::prefix('secrets')->name('secrets.')->controller(SecretVaultController::cl
     Route::get('/unlock/status', 'status')->name('unlock.status');
     Route::post('/pin', 'setup')->name('pin.store');
     Route::put('/pin', 'update')->name('pin.update');
+    Route::get('/recovery/status', 'recoveryStatus')->name('recovery.status');
+    Route::post('/recover', 'recover')->name('recover');
+    Route::post('/reset', 'reset')->name('reset');
     Route::post('/unlock', 'unlock')->name('unlock');
     Route::post('/lock', 'lock')->name('lock');
 });

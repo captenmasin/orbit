@@ -25,6 +25,8 @@ class SecretVaultTest extends TestCase
 
     private ?string $nativePinHash = null;
 
+    private ?array $nativeRecovery = null;
+
     public function test_pin_setup_requires_the_desktop_app_and_exactly_four_digits(): void
     {
         $this->mockNativeSettings();
@@ -353,6 +355,11 @@ class SecretVaultTest extends TestCase
 
     private function mockNativeSettings(): void
     {
+        Settings::shouldReceive('get')->with('secrets.recovery')->andReturnUsing(fn (): ?array => $this->nativeRecovery);
+        Settings::shouldReceive('set')->with('secrets.recovery', \Mockery::type('array'))
+            ->andReturnUsing(function (string $key, array $recovery): void {
+                $this->nativeRecovery = $recovery;
+            });
         Settings::shouldReceive('get')->with('secrets.pin_hash')->andReturnUsing(fn (): ?string => $this->nativePinHash);
         Settings::shouldReceive('set')->with('secrets.pin_hash', \Mockery::type('string'))
             ->andReturnUsing(function (string $key, string $hash): void {

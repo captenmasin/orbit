@@ -1,23 +1,25 @@
 <script setup lang="ts">
-import {computed, nextTick, ref, watch} from 'vue';
-import {router, useForm, useHttp, usePage} from '@inertiajs/vue3';
-import {toast} from 'vue-sonner';
-import {VueDraggable, type DraggableEvent} from 'vue-draggable-plus';
-import {AlignLeftIcon, ArrowRightIcon, ChevronRightIcon, EllipsisIcon, PaperclipIcon, PlusIcon, SearchIcon, Trash2Icon, XIcon} from '@lucide/vue';
-import {ContextMenuPortal, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger} from 'reka-ui';
-import MarkdownContent from '@/components/MarkdownContent.vue';
 import BulkIdeas from '@/components/BulkIdeas.vue';
-import {Alert, AlertDescription} from '@/components/ui/alert';
-import {Button} from '@/components/ui/button';
-import {ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, contextMenuContentClass, contextMenuItemClass} from '@/components/ui/context-menu';
-import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
-import {Field, FieldGroup, FieldLabel} from '@/components/ui/field';
-import {Input} from '@/components/ui/input';
 import ChoiceSelect from '@/components/ChoiceSelect.vue';
-import {Textarea} from '@/components/ui/textarea';
+import MarkdownContent from '@/components/MarkdownContent.vue';
+import NumberTransition from '@/components/NumberTransition.vue';
+import {cn} from '@/lib/utils';
+import {toast} from 'vue-sonner';
+import {Input} from '@/components/ui/input';
+import {Button} from '@/components/ui/button';
 import {reducedMotion} from '@/lib/appearance';
-import {boardColumnColors as columnColors, boardColumnColor as columnColor} from '@/lib/project';
+import {Textarea} from '@/components/ui/textarea';
+import {computed, nextTick, ref, watch} from 'vue';
 import type {BoardColumn, BoardTask, Project} from '@/types';
+import {Alert, AlertDescription} from '@/components/ui/alert';
+import {router, useForm, useHttp, usePage} from '@inertiajs/vue3';
+import {Field, FieldGroup, FieldLabel} from '@/components/ui/field';
+import {VueDraggable, type DraggableEvent} from 'vue-draggable-plus';
+import {boardColumnColors as columnColors, boardColumnColor as columnColor} from '@/lib/project';
+import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
+import {AlignLeftIcon, ArrowRightIcon, ChevronRightIcon, EllipsisIcon, PaperclipIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon, XIcon} from '@lucide/vue';
+import {ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, contextMenuContentClass, contextMenuItemClass} from '@/components/ui/context-menu';
+import {ContextMenuPortal, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger} from 'reka-ui';
 
 const props = defineProps<{ project: Project; targetTaskId?: string | null }>();
 const page = usePage();
@@ -264,210 +266,616 @@ function reload() {
 </script>
 
 <template>
-    <div class="grid min-w-0 gap-4 pb-8" :aria-busy="busy">
+    <div
+        class="grid min-w-0 gap-4 pb-8"
+        :aria-busy="busy">
         <div class="flex flex-wrap items-center justify-between gap-4">
-            <div><h2 id="board-title" class="text-xl font-semibold tracking-[-0.025em]">Board</h2></div>
+            <div>
+                <h2
+                    id="board-title"
+                    class="text-xl font-normal tracking-[-0.025em]">
+                    Board
+                </h2>
+            </div>
             <div class="flex flex-wrap items-center justify-between gap-4">
-                <BulkIdeas :show-trigger="true" :project="project"/>
+                <BulkIdeas
+                    :show-trigger="true"
+                    :project="project" />
                 <div class="relative min-w-[240px] max-w-[20rem]">
-                    <label for="board-card-search" class="sr-only">Search cards</label>
-                    <SearchIcon class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true"/>
-                    <Input id="board-card-search" v-model="query" maxlength="255" placeholder="Search cards" class="h-9 rounded-full border-0 bg-muted pl-9 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]" :disabled="busy"/>
+                    <label
+                        for="board-card-search"
+                        class="sr-only">Search cards</label>
+                    <SearchIcon
+                        class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                        aria-hidden="true" />
+                    <Input
+                        id="board-card-search"
+                        v-model="query"
+                        maxlength="255"
+                        placeholder="Search cards"
+                        class="h-9 rounded-full border-0 bg-muted pl-9 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]"
+                        :disabled="busy" />
                 </div>
             </div>
         </div>
-        <Alert v-if="form.hasErrors && !editor" variant="destructive" role="alert">
-            <AlertDescription><p v-for="(error, key) in form.errors" :key="key">{{ error }}</p>
-                <Button v-if="form.errors.revision" type="button" variant="outline" @click="reload">Reload board</Button>
+        <Alert
+            v-if="form.hasErrors && !editor"
+            variant="destructive"
+            role="alert">
+            <AlertDescription>
+                <p
+                    v-for="(error, key) in form.errors"
+                    :key="key">
+                    {{ error }}
+                </p>
+                <Button
+                    v-if="form.errors.revision"
+                    type="button"
+                    variant="outline"
+                    @click="reload">
+                    Reload board
+                </Button>
             </AlertDescription>
         </Alert>
-        <div v-if="!columns.length" class="flex flex-col items-center rounded-[1.25rem] border border-black/8 bg-neutral-50 px-6 py-14 text-center dark:border-white/10 dark:bg-neutral-800">
-            <span class="flex size-12 items-center justify-center rounded-2xl bg-background text-muted-foreground"><PlusIcon class="size-5" aria-hidden="true"/></span>
-            <h3 class="mt-4 text-sm font-semibold">No lists yet</h3>
-            <Button type="button" class="mt-5" :disabled="busy" @click="editColumn()">
-                <PlusIcon aria-hidden="true"/>
+        <div
+            v-if="!columns.length"
+            class="flex flex-col items-center rounded-[1.25rem] border border-black/8 bg-neutral-50 px-6 py-14 text-center dark:border-white/10 dark:bg-neutral-800">
+            <span class="flex size-12 items-center justify-center rounded-2xl bg-background text-muted-foreground"><PlusIcon
+                class="size-5"
+                aria-hidden="true" /></span>
+            <h3 class="mt-4 text-sm font-normal">
+                No lists yet
+            </h3>
+            <Button
+                type="button"
+                class="mt-5"
+                :disabled="busy"
+                @click="editColumn()">
+                <PlusIcon aria-hidden="true" />
                 Add a list
             </Button>
         </div>
-        <div v-else class="-mx-4 flex min-w-0 items-start gap-4 overflow-x-auto px-4 pb-4 lg:-mx-6 lg:px-6" role="region" aria-label="Task board" tabindex="0">
-            <VueDraggable v-model="columns" handle="[data-column-handle]" filter="button, input" :prevent-on-filter="false" direction="horizontal" :animation="reducedMotion ? 0 : 150" :disabled="busy || !!editor || !!cardMenuTaskId || !!query.trim()" ghost-class="opacity-50" class="flex shrink-0 items-start gap-4" @start="startDrag($event, 'column')" @end="finishDrag">
-                <section v-for="column in columns" :key="column.id" class="flex w-[min(15rem,82vw)] shrink-0 flex-col gap-1.5 rounded-[10px] bg-neutral-100 p-2 dark:bg-neutral-800" :aria-labelledby="`column-${column.id}`">
-                    <div data-column-handle class="flex h-8 min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing">
-                        <span class="size-1.5 shrink-0 rounded-full" :class="columnColors[columnColor(column)]?.dotClass ?? columnColors.gray.dotClass" aria-hidden="true"/>
-                        <h3 :id="`column-${column.id}`" class="min-w-0 flex-1 break-words text-[13px] font-medium">
-                            <span class="block truncate" :title="column.name">{{ column.name }}</span>
+        <div
+            v-else
+            class="-mx-4 flex min-w-0 items-start gap-4 overflow-x-auto px-4 pb-4 lg:-mx-6 lg:px-6"
+            role="region"
+            aria-label="Task board"
+            tabindex="0">
+            <VueDraggable
+                v-model="columns"
+                handle="[data-column-handle]"
+                filter="button, input"
+                :prevent-on-filter="false"
+                direction="horizontal"
+                :animation="reducedMotion ? 0 : 150"
+                :disabled="busy || !!editor || !!cardMenuTaskId || !!query.trim()"
+                ghost-class="opacity-50"
+                class="flex shrink-0 items-start gap-4"
+                @start="startDrag($event, 'column')"
+@end="finishDrag">
+                <section
+                    v-for="column in columns"
+                    :key="column.id"
+                    class="flex w-[min(15rem,82vw)] shrink-0 flex-col gap-1.5 rounded-[10px] bg-neutral-100 p-2 dark:bg-neutral-800"
+                    :aria-labelledby="`column-${column.id}`">
+                    <div
+                        data-column-handle
+                        class="flex h-8 min-w-0 select-none cursor-grab items-center gap-2 active:cursor-grabbing">
+                        <span
+                            class="size-1.5 shrink-0 rounded-full"
+                            :class="columnColors[columnColor(column)]?.dotClass ?? columnColors.gray.dotClass"
+                            aria-hidden="true" />
+                        <h3
+                            :id="`column-${column.id}`"
+                            class="min-w-0 flex-1 break-words text-[13px] font-medium">
+                            <span
+                                class="block truncate"
+                                :title="column.name">{{ column.name }}</span>
                         </h3>
-                        <span class="text-xs tabular-nums text-muted-foreground">{{ column.tasks.length }}</span>
+                        <span class="text-xs tabular-nums text-muted-foreground"><NumberTransition :value="column.tasks.length" /></span>
                         <DropdownMenuRoot>
                             <DropdownMenuTrigger as-child>
-                                <Button type="button" variant="ghost" size="icon-sm" class="text-muted-foreground" :aria-label="`Actions for ${column.name} list`" :disabled="busy || !!editor">
-                                    <EllipsisIcon class="size-4" aria-hidden="true"/>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    class="text-muted-foreground"
+                                    :aria-label="`Actions for ${column.name} list`"
+                                    :disabled="busy || !!editor">
+                                    <EllipsisIcon
+                                        class="size-4"
+                                        aria-hidden="true" />
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuPortal>
-                                <DropdownMenuContent align="end" :side-offset="4" :class="contextMenuContentClass" @close-auto-focus="event => { if (editor) event.preventDefault(); }">
-                                    <DropdownMenuItem :class="contextMenuItemClass" @select="editColumn(column)">Edit list</DropdownMenuItem>
-                                    <DropdownMenuItem :class="contextMenuItemClass" class="text-destructive focus:bg-destructive/10 focus:text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive [&_svg]:text-destructive" @select="deleteColumn(column)">
-                                        <Trash2Icon class="size-4" aria-hidden="true"/>
+                                <DropdownMenuContent
+                                    align="end"
+                                    :side-offset="4"
+                                    :class="contextMenuContentClass"
+                                    @close-auto-focus="event => { if (editor) event.preventDefault(); }">
+                                    <DropdownMenuItem
+                                        :class="contextMenuItemClass"
+                                        @select="editColumn(column)">
+                                        <PencilIcon
+                                            class="size-4"
+                                            aria-hidden="true" />
+                                        Edit list
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        :class="cn(contextMenuItemClass, 'text-destructive focus:bg-destructive/10 focus:text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive [&_svg]:text-destructive')"
+                                        @select="deleteColumn(column)">
+                                        <Trash2Icon
+                                            class="size-4"
+                                            aria-hidden="true" />
                                         Delete list
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenuPortal>
                         </DropdownMenuRoot>
                     </div>
-                    <VueDraggable v-model="column.tasks" tag="ol" :group="`project-${project.id}-tasks`" :data-column-id="column.id" handle="[data-task-handle]" :animation="reducedMotion ? 0 : 150" :disabled="busy || !!editor || !!cardMenuTaskId || !!query.trim()" ghost-class="opacity-50" class="grid min-h-4 content-start gap-1.5" :aria-label="`${column.name} cards`" @start="startDrag($event, 'task')" @end="finishDrag">
-                        <li v-for="task in column.tasks" v-show="!query.trim() || matchingTaskIds.has(task.id)" :key="task.id">
+                    <VueDraggable
+                        v-model="column.tasks"
+                        tag="ol"
+                        :group="`project-${project.id}-tasks`"
+                        :data-column-id="column.id"
+                        handle="[data-task-handle]"
+                        :animation="reducedMotion ? 0 : 150"
+                        :disabled="busy || !!editor || !!cardMenuTaskId || !!query.trim()"
+                        ghost-class="opacity-50"
+                        class="grid min-h-4 content-start gap-1.5"
+                        :aria-label="`${column.name} cards`"
+@start="startDrag($event, 'task')" @end="finishDrag">
+                        <li
+                            v-for="task in column.tasks"
+                            v-show="!query.trim() || matchingTaskIds.has(task.id)"
+                            :key="task.id">
                             <ContextMenu @update:open="value => { if (value) cardMenuTaskId = task.id; else if (cardMenuTaskId === task.id) cardMenuTaskId = null; }">
-                                <ContextMenuTrigger as-child :disabled="busy || !!editor || !!dragged">
-                                    <div data-task-handle role="button" tabindex="0" aria-haspopup="menu" :aria-expanded="cardMenuTaskId === task.id" :aria-label="`Open card: ${task.title}`" :aria-disabled="busy" class="cursor-grab rounded-lg bg-white p-3 transition-colors hover:bg-white/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:cursor-grabbing dark:bg-neutral-900 dark:hover:bg-neutral-900/70" @click="openTaskCard($event, column, task)" @keydown="openCardMenu" @keydown.enter.prevent="editTask(column, task)" @keydown.space.prevent="editTask(column, task)">
-                                        <p class="break-words text-[13px] leading-[19px] font-medium">{{ task.title }}</p>
-                                        <div v-if="task.description || task.attachments.length" class="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                                            <AlignLeftIcon v-if="task.description" class="size-3.5" role="img" aria-label="Has description"/>
-                                            <span v-if="task.attachments.length" class="flex items-center gap-1" :aria-label="`${task.attachments.length} attachments`"><PaperclipIcon class="size-3.5" aria-hidden="true"/>{{ task.attachments.length }}</span>
+                                <ContextMenuTrigger
+                                    as-child
+                                    :disabled="busy || !!editor || !!dragged">
+                                    <div
+                                        data-task-handle
+                                        role="button"
+                                        tabindex="0"
+                                        aria-haspopup="menu"
+                                        :aria-expanded="cardMenuTaskId === task.id"
+                                        :aria-label="`Open card: ${task.title}`"
+                                        :aria-disabled="busy"
+                                        class="cursor-grab rounded-lg bg-white p-3 transition-colors hover:bg-white/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:cursor-grabbing dark:bg-neutral-900 dark:hover:bg-neutral-900/70"
+                                        @click="openTaskCard($event, column, task)"
+                                        @keydown="openCardMenu"
+@keydown.enter.prevent="editTask(column, task)" @keydown.space.prevent="editTask(column, task)">
+                                        <p class="break-words text-[13px] leading-[19px] font-medium">
+                                            {{ task.title }}
+                                        </p>
+                                        <div
+                                            v-if="task.description || task.attachments.length"
+                                            class="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                                            <AlignLeftIcon
+                                                v-if="task.description"
+                                                class="size-3.5"
+                                                role="img"
+                                                aria-label="Has description" />
+                                            <span
+                                                v-if="task.attachments.length"
+                                                class="flex items-center gap-1"
+                                                :aria-label="`${task.attachments.length} attachments`"><PaperclipIcon
+                                                    class="size-3.5"
+                                                    aria-hidden="true" />{{ task.attachments.length }}</span>
                                         </div>
                                     </div>
                                 </ContextMenuTrigger>
-                                <ContextMenuContent class="min-w-44" @close-auto-focus="event => { if (editor) event.preventDefault(); }">
-                                    <ContextMenuItem :disabled="busy" @select="editTask(column, task)">
-                                        <AlignLeftIcon aria-hidden="true"/>
+                                <ContextMenuContent
+                                    class="min-w-44"
+                                    @close-auto-focus="event => { if (editor) event.preventDefault(); }">
+                                    <ContextMenuItem
+                                        :disabled="busy"
+                                        @select="editTask(column, task)">
+                                        <AlignLeftIcon aria-hidden="true" />
                                         Open details
                                     </ContextMenuItem>
                                     <ContextMenuSub>
-                                        <ContextMenuSubTrigger :disabled="busy || columns.length < 2" :class="contextMenuItemClass">
-                                            <ArrowRightIcon class="size-4" aria-hidden="true"/>
+                                        <ContextMenuSubTrigger
+                                            :disabled="busy || columns.length < 2"
+                                            :class="contextMenuItemClass">
+                                            <ArrowRightIcon
+                                                class="size-4"
+                                                aria-hidden="true" />
                                             Move to list
-                                            <ChevronRightIcon class="ml-auto size-4" aria-hidden="true"/>
+                                            <ChevronRightIcon
+                                                class="ml-auto size-4"
+                                                aria-hidden="true" />
                                         </ContextMenuSubTrigger>
                                         <ContextMenuPortal>
-                                            <ContextMenuSubContent :class="contextMenuContentClass" class="max-h-(--reka-context-menu-content-available-height)">
-                                                <ContextMenuItem v-for="destination in columns" :key="destination.id" :disabled="busy || destination.id === column.id" @select="moveTask(column, task, destination)">{{ destination.name }}</ContextMenuItem>
+                                            <ContextMenuSubContent
+                                                :class="contextMenuContentClass"
+                                                class="max-h-(--reka-context-menu-content-available-height)">
+                                                <ContextMenuItem
+                                                    v-for="destination in columns"
+                                                    :key="destination.id"
+                                                    :disabled="busy || destination.id === column.id"
+                                                    @select="moveTask(column, task, destination)">
+                                                    <span
+                                                        class="size-1.5 shrink-0 rounded-full"
+                                                        :class="columnColors[columnColor(destination)]?.dotClass ?? columnColors.gray.dotClass"
+                                                        aria-hidden="true" />
+                                                    {{ destination.name }}
+                                                </ContextMenuItem>
                                             </ContextMenuSubContent>
                                         </ContextMenuPortal>
                                     </ContextMenuSub>
-                                    <ContextMenuSeparator class="mx-2.5 my-1.5 h-px bg-border/80"/>
-                                    <ContextMenuItem variant="destructive" :disabled="busy" @select="deleteTask(column, task)">
-                                        <Trash2Icon aria-hidden="true"/>
+                                    <ContextMenuSeparator class="mx-2.5 my-1.5 h-px bg-border/80" />
+                                    <ContextMenuItem
+                                        variant="destructive"
+                                        :disabled="busy"
+                                        @select="deleteTask(column, task)">
+                                        <Trash2Icon aria-hidden="true" />
                                         Delete card
                                     </ContextMenuItem>
                                 </ContextMenuContent>
                             </ContextMenu>
                         </li>
                     </VueDraggable>
-                    <form v-if="quickAddColumnId === column.id" class="grid gap-2" @submit.prevent="saveQuickAdd">
-                        <Textarea :id="`quick-add-${column.id}`" v-model="quickAdd.title" maxlength="255" :rows="3" placeholder="Enter a title for this card…" :aria-label="`New card title in ${column.name}`" :aria-invalid="!!quickAdd.errors.title" :aria-describedby="quickAdd.hasErrors ? `quick-add-errors-${column.id}` : undefined" :disabled="busy || !!editor" class="min-h-21 resize-none bg-background" @keydown.enter.exact.prevent="saveQuickAdd" @keydown.esc.stop.prevent="cancelQuickAdd"/>
-                        <div v-if="quickAdd.hasErrors" :id="`quick-add-errors-${column.id}`" role="alert" class="grid gap-1 text-xs text-destructive"><p v-for="(error, key) in quickAdd.errors" :key="key">{{ error }}</p>
-                            <Button v-if="quickAdd.errors.revision" type="button" size="sm" variant="outline" :disabled="busy" @click="reload">Reload board</Button>
+                    <form
+                        v-if="quickAddColumnId === column.id"
+                        class="grid gap-2"
+                        @submit.prevent="saveQuickAdd">
+                        <Textarea
+                            :id="`quick-add-${column.id}`"
+                            v-model="quickAdd.title"
+                            maxlength="255"
+                            :rows="3"
+                            placeholder="Enter a title for this card…"
+                            :aria-label="`New card title in ${column.name}`"
+                            :aria-invalid="!!quickAdd.errors.title"
+                            :aria-describedby="quickAdd.hasErrors ? `quick-add-errors-${column.id}` : undefined"
+                            :disabled="busy || !!editor"
+                            class="min-h-21 resize-none bg-background"
+@keydown.enter.exact.prevent="saveQuickAdd" @keydown.esc.stop.prevent="cancelQuickAdd" />
+                        <div
+                            v-if="quickAdd.hasErrors"
+                            :id="`quick-add-errors-${column.id}`"
+                            role="alert"
+                            class="grid gap-1 text-xs text-destructive">
+                            <p
+                                v-for="(error, key) in quickAdd.errors"
+                                :key="key">
+                                {{ error }}
+                            </p>
+                            <Button
+                                v-if="quickAdd.errors.revision"
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                :disabled="busy"
+                                @click="reload">
+                                Reload board
+                            </Button>
                         </div>
                         <div class="flex items-center gap-1">
-                            <Button type="submit" size="sm" :disabled="busy || !!editor">{{ quickAdd.processing ? 'Adding…' : 'Add card' }}</Button>
-                            <Button type="button" variant="ghost" size="icon-sm" aria-label="Cancel adding card" :disabled="busy" @click="cancelQuickAdd">
-                                <XIcon aria-hidden="true"/>
+                            <Button
+                                type="submit"
+                                size="sm"
+                                :disabled="busy || !!editor">
+                                {{ quickAdd.processing ? 'Adding…' : 'Add card' }}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="Cancel adding card"
+                                :disabled="busy"
+                                @click="cancelQuickAdd">
+                                <XIcon aria-hidden="true" />
                             </Button>
                         </div>
                     </form>
-                    <Button v-else type="button" variant="ghost" size="sm" class="w-full justify-start" :aria-label="`Add a card to ${column.name}`" :disabled="busy || !!editor" @click="openQuickAdd(column)">
-                        <PlusIcon aria-hidden="true"/>
+                    <Button
+                        v-else
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        class="w-full justify-start"
+                        :aria-label="`Add a card to ${column.name}`"
+                        :disabled="busy || !!editor"
+                        @click="openQuickAdd(column)">
+                        <PlusIcon aria-hidden="true" />
                         Add a card
                     </Button>
                 </section>
             </VueDraggable>
-            <Button type="button" variant="ghost" size="sm" :disabled="busy" @click="editColumn()">
-                <PlusIcon aria-hidden="true"/>
+            <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                :disabled="busy"
+                @click="editColumn()">
+                <PlusIcon aria-hidden="true" />
                 Add a list
             </Button>
         </div>
-        <p v-if="query.trim() && !matchingTaskIds.size" role="status" class="text-sm text-muted-foreground">No cards match “{{ query }}”.</p>
-        <Dialog :open="!!editor" @update:open="value => { if (!value && !form.processing) editor = null; }">
-        <DialogContent v-bind="deleting ? {} : { 'aria-describedby': undefined }" class="max-h-[calc(100dvh-2rem)] overflow-y-auto" :class="editor === 'task' ? 'sm:max-w-2xl' : undefined">
+        <p
+            v-if="query.trim() && !matchingTaskIds.size"
+            role="status"
+            class="text-sm text-muted-foreground">
+            No cards match “{{ query }}”.
+        </p>
+        <Dialog
+            :open="!!editor"
+            @update:open="value => { if (!value && !form.processing) editor = null; }">
+            <DialogContent
+                v-bind="deleting ? {} : { 'aria-describedby': undefined }"
+                class="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+                :class="editor === 'task' ? 'sm:max-w-2xl' : undefined">
                 <DialogHeader>
                     <DialogTitle>{{ dialogTitle }}</DialogTitle>
-                <DialogDescription v-if="editor === 'delete-task'">“{{ form.title }}” will be permanently deleted.</DialogDescription>
-                <DialogDescription v-else-if="editor === 'delete-column'">{{ selectedColumn?.tasks.length ? 'Move the remaining cards to another list before deleting this one.' : `Delete the empty “${form.name}” list.` }}</DialogDescription>
+                    <DialogDescription v-if="editor === 'delete-task'">
+                        “{{ form.title }}” will be permanently deleted.
+                    </DialogDescription>
+                    <DialogDescription v-else-if="editor === 'delete-column'">
+                        {{ selectedColumn?.tasks.length ? 'Move the remaining cards to another list before deleting this one.' : `Delete the empty “${form.name}” list.` }}
+                    </DialogDescription>
                 </DialogHeader>
-                <form class="grid gap-4" novalidate @submit.prevent="submit">
-                    <Alert v-if="form.hasErrors" variant="destructive" role="alert">
-                        <AlertDescription><p v-for="(error, key) in form.errors" :key="key">{{ error }}</p>
-                            <Button v-if="form.errors.revision" type="button" variant="outline" @click="reload">Reload board</Button>
+                <form
+                    class="grid gap-4"
+                    novalidate
+                    @submit.prevent="submit">
+                    <Alert
+                        v-if="form.hasErrors"
+                        variant="destructive"
+                        role="alert">
+                        <AlertDescription>
+                            <p
+                                v-for="(error, key) in form.errors"
+                                :key="key">
+                                {{ error }}
+                            </p>
+                            <Button
+                                v-if="form.errors.revision"
+                                type="button"
+                                variant="outline"
+                                @click="reload">
+                                Reload board
+                            </Button>
                         </AlertDescription>
                     </Alert>
-                    <FieldGroup v-if="editor === 'task'" class="gap-4">
+                    <FieldGroup
+                        v-if="editor === 'task'"
+                        class="gap-4">
                         <Field>
-                            <FieldLabel for="task-title">Card title</FieldLabel>
-                            <Input id="task-title" v-model="form.title" maxlength="255" placeholder="Card title" :aria-invalid="!!form.errors.title" :disabled="form.processing"/></Field>
+                            <FieldLabel for="task-title">
+                                Card title
+                            </FieldLabel>
+                            <Input
+                                id="task-title"
+                                v-model="form.title"
+                                maxlength="255"
+                                placeholder="Card title"
+                                :aria-invalid="!!form.errors.title"
+                                :disabled="form.processing" />
+                        </Field>
                         <Field>
-                            <FieldLabel for="task-column">In list</FieldLabel>
-                            <ChoiceSelect id="task-column" v-model="form.column_id" :aria-invalid="!!form.errors.column_id" :disabled="form.processing" :options="columns.map(column => ({ value: column.id, label: column.name }))"/>
+                            <FieldLabel for="task-column">
+                                In list
+                            </FieldLabel>
+                            <ChoiceSelect
+                                id="task-column"
+                                v-model="form.column_id"
+                                :aria-invalid="!!form.errors.column_id"
+                                :disabled="form.processing"
+                                :options="columns.map(column => ({ value: column.id, label: column.name }))" />
                         </Field>
                         <Field>
                             <div class="flex items-center justify-between gap-2">
-                                <FieldLabel for="task-description">Description</FieldLabel>
-                                <Button type="button" variant="ghost" size="sm" :aria-pressed="previewOpen" :disabled="preview.processing" @click="togglePreview">{{ previewOpen ? 'Write' : 'Preview' }}</Button>
+                                <FieldLabel for="task-description">
+                                    Description
+                                </FieldLabel>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    :aria-pressed="previewOpen"
+                                    :disabled="preview.processing"
+                                    @click="togglePreview">
+                                    {{ previewOpen ? 'Write' : 'Preview' }}
+                                </Button>
                             </div>
                             <template v-if="previewOpen">
-                                <p v-if="preview.processing" role="status" class="text-sm text-muted-foreground">Loading preview…</p>
-                                <p v-else-if="preview.errors.description" role="alert" class="text-sm text-destructive">{{ preview.errors.description }}</p>
-                                <MarkdownContent v-else-if="previewHtml" :html="previewHtml"/>
-                                <p v-else class="text-sm text-muted-foreground">Nothing to preview.</p>
+                                <p
+                                    v-if="preview.processing"
+                                    role="status"
+                                    class="text-sm text-muted-foreground">
+                                    Loading preview…
+                                </p>
+                                <p
+                                    v-else-if="preview.errors.description"
+                                    role="alert"
+                                    class="text-sm text-destructive">
+                                    {{ preview.errors.description }}
+                                </p>
+                                <MarkdownContent
+                                    v-else-if="previewHtml"
+                                    :html="previewHtml" />
+                                <p
+                                    v-else
+                                    class="text-sm text-muted-foreground">
+                                    Nothing to preview.
+                                </p>
                             </template>
-                            <Textarea v-else id="task-description" v-model="form.description" maxlength="10000" :rows="5" placeholder="Add a description… Markdown is supported." :aria-invalid="!!form.errors.description" :disabled="form.processing" class="min-h-30 resize-y"/>
+                            <Textarea
+                                v-else
+                                id="task-description"
+                                v-model="form.description"
+                                maxlength="10000"
+                                :rows="5"
+                                placeholder="Add a description… Markdown is supported."
+                                :aria-invalid="!!form.errors.description"
+                                :disabled="form.processing"
+                                class="min-h-30 resize-y" />
                         </Field>
                         <Field>
                             <div class="flex items-center justify-between gap-2">
-                                <FieldLabel for="task-attachments">Attachments <span class="ml-1 text-xs font-normal text-muted-foreground">{{ retainedAttachments.length + form.attachments.length || '' }}</span></FieldLabel>
-                                <Button type="button" variant="outline" size="sm" :disabled="form.processing" aria-describedby="attachment-limits" @click="attachmentInput?.click()">
-                                    <PlusIcon aria-hidden="true"/>
+                                <FieldLabel for="task-attachments">
+                                    Attachments <span class="ml-1 text-xs font-normal text-muted-foreground">{{ retainedAttachments.length + form.attachments.length || '' }}</span>
+                                </FieldLabel>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    :disabled="form.processing"
+                                    aria-describedby="attachment-limits"
+                                    @click="attachmentInput?.click()">
+                                    <PlusIcon aria-hidden="true" />
                                     Add attachment
                                 </Button>
                             </div>
-                            <input id="task-attachments" ref="attachmentInput" :key="attachmentPickerKey" type="file" multiple class="hidden" :disabled="form.processing" @change="attachFiles"/>
-                            <ul v-if="retainedAttachments.length || form.attachments.length" class="grid gap-1.5" aria-label="Task attachments">
-                                <li v-for="file in retainedAttachments" :key="file.id" class="flex min-w-0 items-center gap-3 rounded-md border p-2">
-                                    <PaperclipIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true"/>
-                                    <a :href="attachmentUrl(form.id!, file.id)" download class="min-w-0 flex-1 truncate text-sm underline underline-offset-4" :title="file.name">{{ file.name }}</a>
+                            <input
+                                id="task-attachments"
+                                ref="attachmentInput"
+                                :key="attachmentPickerKey"
+                                type="file"
+                                multiple
+                                class="hidden"
+                                :disabled="form.processing"
+                                @change="attachFiles">
+                            <ul
+                                v-if="retainedAttachments.length || form.attachments.length"
+                                class="grid gap-1.5"
+                                aria-label="Task attachments">
+                                <li
+                                    v-for="file in retainedAttachments"
+                                    :key="file.id"
+                                    class="flex min-w-0 items-center gap-3 rounded-md border p-2">
+                                    <PaperclipIcon
+                                        class="size-4 shrink-0 text-muted-foreground"
+                                        aria-hidden="true" />
+                                    <a
+                                        :href="attachmentUrl(form.id!, file.id)"
+                                        download
+                                        class="min-w-0 flex-1 truncate text-sm underline underline-offset-4"
+                                        :title="file.name">{{ file.name }}</a>
                                     <span class="shrink-0 text-xs text-muted-foreground">{{ fileSize(file.size) }}</span>
-                                    <Button type="button" variant="ghost" size="icon-sm" :aria-label="`Remove attachment: ${file.name}`" :disabled="form.processing" @click="form.removed_attachment_ids.push(file.id)">
-                                        <XIcon aria-hidden="true"/>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        :aria-label="`Remove attachment: ${file.name}`"
+                                        :disabled="form.processing"
+                                        @click="form.removed_attachment_ids.push(file.id)">
+                                        <XIcon aria-hidden="true" />
                                     </Button>
                                 </li>
-                                <li v-for="(file, index) in form.attachments" :key="index" class="flex min-w-0 items-center gap-3 rounded-md border p-2">
-                                    <PaperclipIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true"/>
-                                    <span class="min-w-0 flex-1 truncate text-sm" :title="file.name">{{ file.name }}</span>
+                                <li
+                                    v-for="(file, index) in form.attachments"
+                                    :key="index"
+                                    class="flex min-w-0 items-center gap-3 rounded-md border p-2">
+                                    <PaperclipIcon
+                                        class="size-4 shrink-0 text-muted-foreground"
+                                        aria-hidden="true" />
+                                    <span
+                                        class="min-w-0 flex-1 truncate text-sm"
+                                        :title="file.name">{{ file.name }}</span>
                                     <span class="shrink-0 text-xs text-muted-foreground">{{ fileSize(file.size) }} · Pending</span>
-                                    <Button type="button" variant="ghost" size="icon-sm" :aria-label="`Remove pending attachment: ${file.name}`" :disabled="form.processing" @click="form.attachments.splice(index, 1)">
-                                        <XIcon aria-hidden="true"/>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        :aria-label="`Remove pending attachment: ${file.name}`"
+                                        :disabled="form.processing"
+                                        @click="form.attachments.splice(index, 1)">
+                                        <XIcon aria-hidden="true" />
                                     </Button>
                                 </li>
                             </ul>
-                            <p id="attachment-limits" class="text-xs text-muted-foreground">Up to 10 files, 10 MB each.</p>
-                            <div v-if="form.progress" class="grid gap-1.5">
-                                <div class="flex items-center justify-between text-xs text-muted-foreground"><span>Uploading attachments…</span><span class="tabular-nums">{{ form.progress.percentage }}%</span></div>
-                                <div role="progressbar" aria-label="Attachment upload progress" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="form.progress.percentage" class="h-1 overflow-hidden rounded-full bg-muted">
-                                    <div class="h-full rounded-full bg-foreground transition-[width] duration-200" :style="{ width: `${form.progress.percentage}%` }"/>
+                            <p
+                                id="attachment-limits"
+                                class="text-xs text-muted-foreground">
+                                Up to 10 files, 10 MB each.
+                            </p>
+                            <div
+                                v-if="form.progress"
+                                class="grid gap-1.5">
+                                <div class="flex items-center justify-between text-xs text-muted-foreground">
+                                    <span>Uploading attachments…</span><span class="tabular-nums">{{ form.progress.percentage }}%</span>
+                                </div>
+                                <div
+                                    role="progressbar"
+                                    aria-label="Attachment upload progress"
+                                    aria-valuemin="0"
+                                    aria-valuemax="100"
+                                    :aria-valuenow="form.progress.percentage"
+                                    class="h-1 overflow-hidden rounded-full bg-muted">
+                                    <div
+                                        class="h-full rounded-full bg-foreground t-resize"
+                                        :style="{ width: `${form.progress.percentage}%` }" />
                                 </div>
                             </div>
                         </Field>
                     </FieldGroup>
                     <template v-if="editor === 'column'">
                         <Field>
-                            <FieldLabel for="column-name">List name</FieldLabel>
-                            <Input id="column-name" v-model="form.name" maxlength="100" :aria-invalid="!!form.errors.name" :disabled="form.processing"/></Field>
+                            <FieldLabel for="column-name">
+                                List name
+                            </FieldLabel>
+                            <Input
+                                id="column-name"
+                                v-model="form.name"
+                                maxlength="100"
+                                :aria-invalid="!!form.errors.name"
+                                :disabled="form.processing" />
+                        </Field>
                         <Field>
-                            <FieldLabel for="column-color">Dot colour</FieldLabel>
-                            <ChoiceSelect id="column-color" v-model="form.color" :disabled="form.processing" :aria-invalid="!!form.errors.color" :options="Object.entries(columnColors).map(([value, color]) => ({ value, ...color }))" />
+                            <FieldLabel for="column-color">
+                                Dot colour
+                            </FieldLabel>
+                            <ChoiceSelect
+                                id="column-color"
+                                v-model="form.color"
+                                :disabled="form.processing"
+                                :aria-invalid="!!form.errors.color"
+                                :options="Object.entries(columnColors).map(([value, color]) => ({ value, ...color }))" />
                         </Field>
                     </template>
                     <Field v-if="editor === 'delete-column' && selectedColumn?.tasks.length">
-                        <FieldLabel for="column-destination">Move remaining tasks to</FieldLabel>
-                        <ChoiceSelect id="column-destination" v-model="form.destination_id" :aria-invalid="!!form.errors.destination_id" :disabled="form.processing" :options="[{ value: '', label: 'Choose a column', disabled: true }, ...destinations.map(column => ({ value: column.id, label: column.name }))]"/>
-                        <p v-if="!destinations.length" class="text-sm text-muted-foreground">Add another list before deleting this one.</p>
+                        <FieldLabel for="column-destination">
+                            Move remaining tasks to
+                        </FieldLabel>
+                        <ChoiceSelect
+                            id="column-destination"
+                            v-model="form.destination_id"
+                            :aria-invalid="!!form.errors.destination_id"
+                            :disabled="form.processing"
+                            :options="[{ value: '', label: 'Choose a column', disabled: true }, ...destinations.map(column => ({ value: column.id, label: column.name }))]" />
+                        <p
+                            v-if="!destinations.length"
+                            class="text-sm text-muted-foreground">
+                            Add another list before deleting this one.
+                        </p>
                     </Field>
                     <DialogFooter>
-                        <Button v-if="form.id && editor === 'task'" type="button" variant="ghost" class="sm:mr-auto" :disabled="form.processing" @click="confirmDelete">
-                            <Trash2Icon aria-hidden="true"/>
+                        <Button
+                            v-if="form.id && editor === 'task'"
+                            type="button"
+                            variant="ghost"
+                            class="sm:mr-auto"
+                            :disabled="form.processing"
+                            @click="confirmDelete">
+                            <Trash2Icon aria-hidden="true" />
                             Delete card
                         </Button>
-                        <Button type="button" variant="outline" :disabled="form.processing" @click="editor = null">Cancel</Button>
-                    <Button type="submit" :variant="deleting ? 'destructive' : 'default'" :disabled="form.processing || cannotDeleteColumn">{{ form.processing ? 'Saving…' : deleting ? (editor === 'delete-task' ? 'Delete card' : 'Delete list') : editor === 'task' || form.id ? 'Save changes' : 'Add list' }}</Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            :disabled="form.processing"
+                            @click="editor = null">
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            :variant="deleting ? 'destructive' : 'default'"
+                            :disabled="form.processing || cannotDeleteColumn">
+                            {{ form.processing ? 'Saving…' : deleting ? (editor === 'delete-task' ? 'Delete card' : 'Delete list') : editor === 'task' || form.id ? 'Save changes' : 'Add list' }}
+                        </Button>
                     </DialogFooter>
                 </form>
             </DialogContent>

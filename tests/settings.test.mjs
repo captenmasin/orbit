@@ -27,6 +27,7 @@ function assertPinCleared(form) {
     assert.equal(form.current_pin, '');
     assert.equal(form.pin, '');
     assert.equal(form.pin_confirmation, '');
+    assert.equal(form.response, null);
     form.reset();
     assert.equal(form.current_pin, '');
     assert.equal(form.pin, '');
@@ -48,7 +49,7 @@ test('setting a PIN waits for Save PIN and avoids duplicate requests', async t =
     const pending = state.savePin();
     await state.savePin();
     assert.deepEqual(state.toasts, []);
-    finish({ status: 200, data: JSON.stringify({ saved: true }), headers: {} });
+    finish({ status: 200, data: JSON.stringify({ saved: true, recovery_code: 'setup-recovery-code' }), headers: {} });
     await pending;
 
     assert.equal(requests.length, 1);
@@ -56,6 +57,7 @@ test('setting a PIN waits for Save PIN and avoids duplicate requests', async t =
     assert.equal(requests[0].url, '/secrets/pin');
     assert.deepEqual(JSON.parse(requests[0].data), { current_pin: '', pin: '0123', pin_confirmation: '0123' });
     assert.equal(state.pinSet.value, true);
+    assert.equal(state.recoveryCode.value, 'setup-recovery-code');
     assert.deepEqual(state.toasts, ['PIN saved.']);
     assertPinCleared(state.form);
 });
@@ -65,7 +67,7 @@ test('changing an existing PIN sends the current PIN and clears all digits after
     const requests = [];
     t.mock.method(http.getClient(), 'request', async request => {
         requests.push(request);
-        return { status: 200, data: JSON.stringify({ revision: 9 }), headers: {} };
+        return { status: 200, data: JSON.stringify({ revision: 9, recovery_code: 'replacement-recovery-code' }), headers: {} };
     });
     state.form.current_pin = '0123';
     state.form.pin = state.form.pin_confirmation = '4567';
@@ -76,10 +78,38 @@ test('changing an existing PIN sends the current PIN and clears all digits after
     assert.equal(requests[0].url, '/secrets/pin');
     assert.deepEqual(JSON.parse(requests[0].data), { current_pin: '0123', pin: '4567', pin_confirmation: '4567' });
     assert.equal(state.pinSet.value, true);
+    assert.equal(state.recoveryCode.value, 'replacement-recovery-code');
     assert.deepEqual(state.toasts, ['PIN changed. Secrets are locked.']);
     assert.deepEqual(state.events, [['saved', 9]]);
     assertPinCleared(state.form);
 });
+
+for (const pinSet of [false, true]) {
+    test(`${pinSet ? 'changing' : 'setting'} the PIN blocks another save until the recovery code is acknowledged`, async t => {
+        const state = mount(t, { pinSet });
+        const requests = [];
+        t.mock.method(http.getClient(), 'request', async request => {
+            requests.push(request);
+            return { status: 200, data: JSON.stringify({ revision: 12, recovery_code: 'new-private-code' }), headers: {} };
+        });
+        Object.assign(state.form, { current_pin: pinSet ? '1357' : '', pin: '2468', pin_confirmation: '2468' });
+        await state.savePin();
+        Object.assign(state.form, { current_pin: '2468', pin: '9876', pin_confirmation: '9876' });
+
+        await state.savePin();
+
+        assert.equal(requests.length, 1);
+        assert.equal(state.recoveryCode.value, 'new-private-code');
+        assert.deepEqual(state.events, [['saved', 12]]);
+        state.recoveryCode.value = '';
+
+        await state.savePin();
+
+        assert.equal(requests.length, 2);
+        assert.equal(requests[1].method, 'put');
+        assertPinCleared(state.form);
+    });
+}
 
 for (const pinSet of [false, true]) {
     test(`422 ${pinSet ? 'current PIN' : 'confirmation'} errors preserve PIN status and show no success`, async t => {
@@ -96,6 +126,8 @@ for (const pinSet of [false, true]) {
 
         assert.equal(state.form.errors[field], message);
         assert.equal(state.pinSet.value, pinSet);
+        assert.equal(state.recoveryCode.value, '');
+        assert.deepEqual(state.events, []);
         assert.deepEqual(state.toasts, []);
         assertPinCleared(state.form);
     });
@@ -111,6 +143,8 @@ test('429 PIN attempts show the retry message and clear submitted digits', async
 
     assert.match(state.error.value, /Too many attempts/);
     assert.equal(state.pinSet.value, false);
+    assert.equal(state.recoveryCode.value, '');
+    assert.deepEqual(state.events, []);
     assert.deepEqual(state.toasts, []);
     assertPinCleared(state.form);
 });
@@ -124,6 +158,8 @@ test('network failures leave the PIN unset and show a retry error', async t => {
 
     assert.match(state.error.value, /could not be saved.*Try again/);
     assert.equal(state.pinSet.value, false);
+    assert.equal(state.recoveryCode.value, '');
+    assert.deepEqual(state.events, []);
     assert.deepEqual(state.toasts, []);
     assertPinCleared(state.form);
 });
@@ -159,6 +195,32 @@ test('leaving settings cancels pending saves and clears PIN values and defaults'
 
     assert.equal(requestSignal.aborted, true);
     assert.equal(state.pinSet.value, false);
+    assert.equal(state.recoveryCode.value, '');
+    assert.deepEqual(state.events, []);
+    assert.deepEqual(state.toasts, []);
+    assertPinCleared(state.form);
+});
+
+test('leaving settings ignores a late successful PIN response and clears its recovery code', async t => {
+    const state = mount(t);
+    let requestSignal;
+    let finish;
+    t.mock.method(http.getClient(), 'request', request => {
+        requestSignal = request.signal;
+        return new Promise(resolve => { finish = resolve; });
+    });
+    state.form.pin = state.form.pin_confirmation = '2468';
+    const pending = state.savePin();
+
+    state.scope.stop();
+    assertPinCleared(state.form);
+    finish({ status: 200, data: JSON.stringify({ revision: 12, recovery_code: 'late-private-code' }), headers: {} });
+    await pending;
+
+    assert.equal(requestSignal.aborted, true);
+    assert.equal(state.pinSet.value, false);
+    assert.equal(state.recoveryCode.value, '');
+    assert.deepEqual(state.events, []);
     assert.deepEqual(state.toasts, []);
     assertPinCleared(state.form);
 });

@@ -1,0 +1,138 @@
+/* Transitions.dev recipes. */
+.t-resize {
+  transition:
+    width  var(--resize-dur) var(--resize-ease),
+    height var(--resize-dur) var(--resize-ease);
+  will-change: width, height;
+}
+
+html:not([data-orbit-motion="off"]) {
+  @media (prefers-reduced-motion: reduce) {
+    .t-resize { transition: none !important; }
+  }
+}
+
+.t-check {
+  transition:
+    background var(--check-box) var(--check-ease),
+    box-shadow var(--check-box) var(--check-ease);
+}
+.t-check svg path {
+  stroke-dasharray: var(--check-len, 15);
+  stroke-dashoffset: var(--check-len, 15);
+  transition: stroke-dashoffset var(--check-uncheck) var(--check-ease);
+}
+.t-check[aria-checked="true"] svg path {
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset var(--check-draw) var(--check-ease) var(--check-delay);
+}
+
+html:not([data-orbit-motion="off"]) {
+  @media (prefers-reduced-motion: reduce) {
+    .t-check, .t-check svg path { transition: none !important; }
+  }
+}
+
+/* The default check uses SVG pathLength to normalize the dash to its exact path. */
+.t-check[aria-checked="mixed"] svg path {
+  stroke-dasharray: none;
+  stroke-dashoffset: 0;
+}
+
+.t-check [data-slot="checkbox-indicator"] {
+  transition: opacity var(--check-uncheck) var(--check-ease);
+}
+
+.t-check[aria-checked="false"] [data-slot="checkbox-indicator"] {
+  opacity: 0;
+}
+
+/* Reka retains the semantic element until its exit animation ends and measures
+   its full height, including the padding on existing grid and list callers. */
+.t-acc-content[data-state="open"] {
+  animation: orbit-accordion-open var(--acc-expand) var(--acc-ease);
+}
+
+.t-acc-content[data-state="closed"] {
+  animation: orbit-accordion-close var(--acc-collapse) var(--acc-ease);
+}
+
+@keyframes orbit-accordion-open {
+  from {
+    height: 0;
+    padding-block: 0;
+    opacity: 0;
+    filter: blur(var(--blur-small));
+    overflow: hidden;
+  }
+  to {
+    height: var(--reka-collapsible-content-height);
+    opacity: 1;
+    filter: blur(0);
+    overflow: hidden;
+  }
+}
+
+@keyframes orbit-accordion-close {
+  from {
+    height: var(--reka-collapsible-content-height);
+    opacity: 1;
+    overflow: hidden;
+  }
+  to {
+    height: 0;
+    padding-block: 0;
+    opacity: 0;
+    overflow: hidden;
+  }
+}
+
+[data-slot="collapsible-trigger"] .lucide-chevron-down {
+  transition-duration: var(--acc-chevron);
+  transition-timing-function: var(--acc-ease);
+}
+
+/* Underlines stay with their trigger when the existing line tabs wrap. */
+[data-slot="tabs-trigger"]::after {
+  transition:
+    opacity var(--tabs-dur) var(--tabs-ease),
+    transform var(--tabs-dur) var(--tabs-ease);
+}
+
+[data-slot="tabs-trigger"][data-orientation="horizontal"]::after {
+  transform: scaleX(0.5);
+}
+
+[data-slot="tabs-trigger"][data-orientation="vertical"]::after {
+  transform: scaleY(0.5);
+}
+
+[data-slot="tabs-trigger"][data-state="active"]::after {
+  transform: scale(1);
+}
+
+.t-tabs-panel[data-state="active"] {
+  animation: orbit-tab-enter var(--page-slide-dur) var(--page-slide-ease);
+}
+
+@keyframes orbit-tab-enter {
+  from {
+    opacity: 0;
+    transform: translateX(var(--page-slide-distance));
+    filter: blur(var(--page-blur));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
+  }
+}
+
+html:not([data-orbit-motion="off"]) {
+  @media (prefers-reduced-motion: reduce) {
+    .t-acc-content, .t-tabs-panel { animation: none !important; }
+    .t-check [data-slot="checkbox-indicator"],
+    [data-slot="collapsible-trigger"] .lucide-chevron-down,
+    [data-slot="tabs-trigger"]::after { transition: none !important; }
+  }
+}

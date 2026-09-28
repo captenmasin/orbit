@@ -29,7 +29,7 @@ class SaveProject
             'name' => ['required', 'string', 'max:255', 'regex:/\S/u'],
             'description' => ['nullable', 'string', 'max:10000'],
             'notes' => ['sometimes', 'nullable', 'string', 'max:50000'],
-            'status' => ['required', Rule::in(Project::STATUSES)],
+            'status' => ['required', Rule::in(Project::statuses())],
             'revision' => [$id ? 'required' : 'prohibited', 'integer', 'min:1'],
             'icon_type' => ['sometimes', Rule::in(['initials', 'emoji', 'image'])],
             'icon_emoji' => $emoji,
@@ -136,6 +136,7 @@ class SaveProject
                 }
             }
             $project = DB::transaction(function () use ($data, $id, $revision, $current, $type, $newIcon, $oldIcon, $verifiedRepositories) {
+                Validator::make($data, ['status' => ['required', Rule::in(Project::statuses())]])->validate();
                 $attributes = [
                     'name' => trim($data['name']), 'description' => $data['description'] ?? null, 'status' => $data['status'],
                     'notes' => null,

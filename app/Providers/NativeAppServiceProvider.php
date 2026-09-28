@@ -29,7 +29,10 @@ class NativeAppServiceProvider implements ProvidesPhpIni
             // The page can apply its saved appearance while the native theme bridge recovers.
         }
         $url = str_replace('://127.0.0.1', '://localhost', route('startup'));
-        Window::open()->url($url)->title('Orbit')->width(1180)->height(850)->minWidth(600)->minHeight(600);
+        $window = Window::open()->url($url)->title('Orbit')->width(1180)->height(850)->minWidth(600)->minHeight(600);
+        if (PHP_OS_FAMILY === 'Darwin') {
+            $window->titleBarHiddenInset();
+        }
     }
 
     /**

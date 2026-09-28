@@ -32,13 +32,36 @@ class SecretVault
         return is_string($hash) && $hash !== '' ? $hash : null;
     }
 
-    public function savePinHash(string $hash, ?string $previousHash): void
+    /**
+     * Commit destructive resets before publishing credentials: native settings cannot roll back with the database.
+     * Keep the current recovery hash until the new PIN is saved, so interrupted writes remain recoverable.
+     */
+    public function savePinHash(string $hash, ?string $previousHash, ?string $recoveryHash = null, bool $resetSecrets = false): void
     {
         abort_unless(config('nativephp-internal.running'), 403);
+        $secretsDeleted = false;
         try {
-            Cache::lock('secret-vault-pin-write', 10)->block(3, function () use ($hash, $previousHash): void {
+            Cache::lock('secret-vault-pin-write', 30)->block(3, function () use ($hash, $previousHash, $recoveryHash, $resetSecrets, &$secretsDeleted): void {
                 if (Settings::get('secrets.pin_hash') !== $previousHash) {
                     throw ValidationException::withMessages(['pin' => 'The PIN changed. Try again.']);
+                }
+                if ($resetSecrets) {
+                    DB::transaction(function (): void {
+                        DB::table('projects')->increment('revision');
+                        DB::table('project_secrets')->delete();
+                        $this->revokeUnlocks();
+                    });
+                    $secretsDeleted = true;
+                }
+                if ($recoveryHash !== null) {
+                    $recovery = [hash('sha256', $hash) => $recoveryHash];
+                    if ($previousHash !== null && ($previousRecoveryHash = $this->recoveryHash($previousHash)) !== null) {
+                        $recovery[hash('sha256', $previousHash)] = $previousRecoveryHash;
+                    }
+                    Settings::set('secrets.recovery', $recovery);
+                    if (Settings::get('secrets.recovery') !== $recovery) {
+                        throw ValidationException::withMessages(['pin' => 'Your recovery code could not be saved. Try again.']);
+                    }
                 }
                 Settings::set('secrets.pin_hash', $hash);
                 if (Settings::get('secrets.pin_hash') !== $hash) {
@@ -46,11 +69,26 @@ class SecretVault
                 }
                 DB::table('secret_vaults')->where('id', 1)->where('pin_hash', $previousHash ?? $hash)->delete();
             });
-        } catch (ValidationException $exception) {
-            throw $exception;
-        } catch (Throwable) {
-            throw ValidationException::withMessages(['pin' => 'Your PIN could not be saved. Try again.']);
+        } catch (Throwable $exception) {
+            if ($secretsDeleted) {
+                throw ValidationException::withMessages(['pin' => 'Secrets were deleted, but your new PIN could not be saved. Try resetting again.']);
+            }
+            throw $exception instanceof ValidationException ? $exception : ValidationException::withMessages(['pin' => 'Your PIN could not be saved. Try again.']);
         }
+    }
+
+    public function recoveryHash(string $pinHash): ?string
+    {
+        abort_unless(config('nativephp-internal.running'), 403);
+        try {
+            $recovery = Settings::get('secrets.recovery');
+        } catch (Throwable) {
+            throw ValidationException::withMessages(['recovery_code' => 'Recovery settings are unavailable. Try again.']);
+        }
+
+        $hash = is_array($recovery) ? ($recovery[hash('sha256', $pinHash)] ?? null) : null;
+
+        return is_string($hash) && $hash !== '' ? $hash : null;
     }
 
     public function unlockedUntil(Request $request): ?int

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Actions\InvalidateRuntimeResults;
 use App\Actions\ProbeRuntimes;
+use App\Actions\SaveProjectStatuses;
 use App\AppUpdates;
 use App\Models\BoardColumn;
 use App\Models\Project;
@@ -52,6 +53,9 @@ class SettingsController extends Controller
             'ai' => $ai->status(),
             'columnColors' => BoardColumn::COLORS,
             'defaultColumns' => WorkspacePreferences::defaultBoardColumns(),
+            'statusUsage' => Project::get(['status', 'previous_status'])
+                ->flatMap(fn (Project $project): array => array_filter([$project->status, $project->previous_status], fn (?string $status): bool => $status !== null))
+                ->countBy()->map(fn (int $count, string $name): array => ['name' => $name, 'count' => $count])->values(),
             'launchAtLogin' => $login,
             'nativeError' => $nativeError,
             'about' => ['version' => $version, 'updatesAvailable' => app(AppUpdates::class)->available(), 'releaseNotes' => config('nativephp.release_notes_url')],
@@ -67,6 +71,12 @@ class SettingsController extends Controller
 
     public function update(Request $request, string $section, WorkspacePreferences $preferences): JsonResponse
     {
+        if ($section === 'project_statuses') {
+            app(SaveProjectStatuses::class)->handle($request->all());
+
+            return response()->json(['preferences' => $this->safeSnapshot($preferences)]);
+        }
+
         $rules = match ($section) {
             'general' => ['startup_destination' => ['required', Rule::in(['dashboard', 'last_project'])]],
             'appearance' => [

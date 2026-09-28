@@ -4,7 +4,9 @@ namespace App;
 
 use App\Actions\ProtectCredential;
 use App\Models\BoardColumn;
+use App\Models\Project;
 use App\Rules\ProjectUrl;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -28,7 +30,7 @@ class WorkspaceRestore
     {
         $tables = array_fill_keys(['projects', 'tags', 'project_tag', 'repositories', 'project_folders', 'package_roots', 'project_links', 'project_documents', 'board_columns', 'tasks', 'project_secrets'], []);
         $assets = [];
-        if (! isset($records[0]) || $records[0]['type'] !== 'workspace' || ! in_array($records[0]['data']['schema'] ?? null, [1, 2, 3, 4], true) || ! is_string($records[0]['data']['created_at'] ?? null) || ! is_bool($records[0]['data']['includes_secrets'] ?? null)) {
+        if (! isset($records[0]) || $records[0]['type'] !== 'workspace' || ! in_array($records[0]['data']['schema'] ?? null, [1, 2, 3, 4, 5], true) || ! is_string($records[0]['data']['created_at'] ?? null) || ! is_bool($records[0]['data']['includes_secrets'] ?? null)) {
             $this->invalid();
         }
         $preferencesRevision = $this->preferences->snapshot()['revision'];
@@ -42,15 +44,26 @@ class WorkspaceRestore
                 continue;
             }
             if ($record['type'] === 'preferences') {
-                if ($records[0]['data']['schema'] !== 4 || $portablePreferences !== null || Validator::make(['preferences' => $record['data']], [
-                    'preferences' => ['required', 'array:project_defaults'],
+                if ($records[0]['data']['schema'] < 4 || $portablePreferences !== null || Validator::make(['preferences' => $record['data']], [
+                    'preferences' => ['required', 'array:project_defaults,project_statuses'],
                     'preferences.project_defaults' => ['required', 'array:columns'],
                     'preferences.project_defaults.columns' => ['required', 'array'],
+                    'preferences.project_statuses' => [$records[0]['data']['schema'] === 5 ? 'required' : 'prohibited', 'array:names,colors'],
+                    'preferences.project_statuses.names' => ['required_with:preferences.project_statuses', 'array'],
+                    'preferences.project_statuses.colors' => ['sometimes', 'array', 'max:100'],
+                    'preferences.project_statuses.colors.*' => ['required', 'string', Rule::in(Project::STATUS_COLORS)],
                 ])->fails()) {
                     $this->invalid();
                 }
                 try {
                     $record['data']['project_defaults']['columns'] = WorkspacePreferences::validatedBoardColumns($record['data']['project_defaults']['columns']);
+                    if (isset($record['data']['project_statuses'])) {
+                        $record['data']['project_statuses']['names'] = WorkspacePreferences::validatedProjectStatuses($record['data']['project_statuses']['names']);
+                        $record['data']['project_statuses']['colors'] ??= Arr::only(WorkspacePreferences::defaults()['project_statuses']['colors'], $record['data']['project_statuses']['names']);
+                        if (array_diff(array_keys($record['data']['project_statuses']['colors']), $record['data']['project_statuses']['names'])) {
+                            $this->invalid();
+                        }
+                    }
                 } catch (ValidationException) {
                     $this->invalid();
                 }
@@ -69,7 +82,7 @@ class WorkspaceRestore
             $this->asset($record['data'], $assets);
         }
         unset($record);
-        if ($records[0]['data']['schema'] === 4 && $portablePreferences === null) {
+        if ($records[0]['data']['schema'] >= 4 && $portablePreferences === null) {
             $this->invalid();
         }
         if (! $includesSecrets && $tables['project_secrets']) {
@@ -90,7 +103,14 @@ class WorkspaceRestore
                 $this->invalid();
             }
         }
+        $statuses = isset($portablePreferences['project_statuses']) ? [...$portablePreferences['project_statuses']['names'], 'Archived'] : Project::STATUSES;
         foreach ($tables['projects'] as &$project) {
+            if (Validator::make($project, [
+                'status' => ['required', Rule::in($statuses)],
+                'previous_status' => ['nullable', Rule::in(array_diff($statuses, ['Archived']))],
+            ])->fails()) {
+                $this->invalid();
+            }
             if (isset($project['notes']) && (! is_string($project['notes']) || mb_strlen($project['notes']) > 50000)) {
                 $this->invalid();
             }
@@ -256,7 +276,7 @@ class WorkspaceRestore
         }
         unset($project);
 
-        return ['summary' => ['created_at' => $records[0]['data']['created_at'], 'projects' => count($projects), 'tasks' => count($tasks), 'secrets' => count($secrets), 'includes_secrets' => $includesSecrets, 'project_defaults' => $portablePreferences['project_defaults'] ?? null], 'records' => $records, 'preferences_revision' => $preferencesRevision];
+        return ['summary' => ['created_at' => $records[0]['data']['created_at'], 'projects' => count($projects), 'tasks' => count($tasks), 'secrets' => count($secrets), 'includes_secrets' => $includesSecrets, 'project_defaults' => $portablePreferences['project_defaults'] ?? null, 'project_statuses' => $portablePreferences['project_statuses'] ?? WorkspacePreferences::defaults()['project_statuses']], 'records' => $records, 'preferences_revision' => $preferencesRevision];
     }
 
     /**
@@ -291,9 +311,7 @@ class WorkspaceRestore
                 if ($this->preferences->snapshot()['revision'] !== ($expectedPreferencesRevision ?? $staged['preferences_revision'] ?? null)) {
                     throw new InvalidArgumentException('Settings changed. Preview the backup again before restoring.');
                 }
-                if ($portablePreferences !== null) {
-                    $this->preferences->merge($portablePreferences);
-                }
+                $this->preferences->merge(array_replace(['project_statuses' => WorkspacePreferences::defaults()['project_statuses']], $portablePreferences ?? []));
                 $oldFiles = [
                     ...DB::table('projects')->whereNotNull('icon_path')->pluck('icon_path')->all(),
                     ...DB::table('projects')->whereNotNull('asset_files')->pluck('asset_files')->flatMap(fn (string $files): array => array_column(json_decode($files, true) ?: [], 'path'))->all(),

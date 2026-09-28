@@ -1,26 +1,28 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Link, router, useHttp } from '@inertiajs/vue3';
-import { useDocumentVisibility, useWindowFocus } from '@vueuse/core';
-import { toast } from 'vue-sonner';
-import OpenTargetButton from '@/components/OpenTargetButton.vue';
-import SecretPinInput from '@/components/SecretPinInput.vue';
-import SecretDescription from '@/components/SecretDescription.vue';
-import { ChevronDownIcon, CopyIcon, EllipsisIcon, EyeIcon, EyeOffIcon, LockKeyholeIcon, PlusIcon, SearchIcon, Trash2Icon } from '@lucide/vue';
-import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Field, FieldError, FieldLabel } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import ChoiceSelect from '@/components/ChoiceSelect.vue';
 import FilterSelect from '@/components/FilterSelect.vue';
+import TextTransition from '@/components/TextTransition.vue';
+import SecretPinInput from '@/components/SecretPinInput.vue';
+import OpenTargetButton from '@/components/OpenTargetButton.vue';
+import SecretPinRecovery from '@/components/SecretPinRecovery.vue';
+import SecretDescription from '@/components/SecretDescription.vue';
+import { toast } from 'vue-sonner';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 import type { Project, ProjectSecret } from '@/types';
+import { Link, router, useHttp } from '@inertiajs/vue3';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useDocumentVisibility, useWindowFocus } from '@vueuse/core';
+import { Field, FieldError, FieldLabel } from '@/components/ui/field';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ChevronDownIcon, CopyIcon, EllipsisIcon, EyeIcon, EyeOffIcon, LockKeyholeIcon, PlusIcon, SearchIcon, Trash2Icon } from '@lucide/vue';
 
 const props = defineProps<{ project: Project; native: boolean; targetSecretId?: string | null }>();
 const query = ref('');
@@ -131,6 +133,16 @@ async function confirmBulkRemoval() {
 }
 function reload() {
     router.reload({ only: ['selectedProject'] });
+}
+function recoveredPin() {
+    clearVault();
+    closeImport();
+    closeExport();
+    pinForm.pin = '';
+    pinForm.defaults('pin', '');
+    pinForm.clearErrors();
+    error.value = '';
+    reload();
 }
 async function loadValues() {
     const sessionUntil = unlockedUntil.value;
@@ -502,155 +514,871 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="space-y-4">
-    <div v-if="unlocked" class="flex flex-wrap items-start justify-between gap-4">
-        <h2 class="text-xl font-semibold tracking-[-0.025em]">Secrets</h2>
-        <div class="flex flex-wrap items-center gap-2">
-            <Button variant="ghost" size="sm" @click="lock"><LockKeyholeIcon aria-hidden="true" />Lock</Button>
-            <DropdownMenuRoot><DropdownMenuTrigger as-child><Button variant="outline" size="sm" :disabled="!native">Import / export<ChevronDownIcon aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end" :side-offset="4" class="z-50 min-w-44 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
-                <DropdownMenuItem :class="menuItemClass" @select="openPaste">Paste .env entries</DropdownMenuItem>
-                <DropdownMenuItem :class="menuItemClass" @select="openImport">Import .env file</DropdownMenuItem>
-                <DropdownMenuItem :class="menuItemClass" :disabled="!secrets.length" @select="openExport">Export .env file</DropdownMenuItem>
-            </DropdownMenuContent></DropdownMenuPortal></DropdownMenuRoot>
-            <Button :disabled="!native" @click="edit()"><PlusIcon aria-hidden="true" />Add secret</Button>
-        </div>
-    </div>
-    <section v-if="!unlocked" class="flex min-h-96 flex-col items-center justify-center px-4 py-12 text-center" aria-labelledby="secret-vault-title" :aria-busy="vaultLoading || unlocking">
-        <span class="mb-5 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground"><LockKeyholeIcon class="size-5" aria-hidden="true" /></span>
-        <h2 id="secret-vault-title" class="text-xl font-semibold tracking-[-0.025em]">{{ vaultLoading || !native || (!pinSet && error) ? 'Secrets are locked' : pinSet ? 'Enter your PIN' : 'Set up your PIN' }}</h2>
-        <p v-if="!native || vaultLoading || (!pinSet && !error)" class="mt-2 text-sm leading-6 text-muted-foreground">{{ !native ? 'Open the desktop app to unlock secrets.' : vaultLoading ? 'Loading vault…' : 'Set a shared PIN in Orbit settings to get started.' }}</p>
-        <Button v-if="native && !vaultLoading && !pinSet && !error" as-child variant="outline" class="mt-6"><Link href="/settings">Set PIN in settings</Link></Button>
-        <form v-if="native && !vaultLoading && pinSet" class="mt-6 grid w-full max-w-xs justify-items-center gap-4" @submit.prevent="unlockVault">
-            <Field class="w-auto"><FieldLabel for="secret-pin" class="sr-only">PIN</FieldLabel><SecretPinInput id="secret-pin" v-model="pinForm.pin" size="lg" :disabled="unlocking" :invalid="!!pinForm.errors.pin" aria-describedby="secret-pin-status" /></Field>
-        </form>
-        <div v-if="native && !vaultLoading" id="secret-pin-status" class="mt-4 min-h-6 text-sm"><p v-if="error" role="alert" class="text-destructive">{{ error }}</p><p v-else role="status" class="text-muted-foreground">{{ unlocking ? 'Unlocking…' : '' }}</p></div>
-    </section>
-    <div v-show="unlocked" class="space-y-4">
-        <div class="flex flex-wrap items-center gap-2">
-            <div class="min-w-[155px] flex-1 sm:flex-none"><label for="secret-environment" class="sr-only">Environment</label><FilterSelect id="secret-environment" :model-value="environment" label="Environment" :options="environments" all-label="All environments" @update:model-value="filterSecrets('environment', $event)" /></div>
-            <div class="min-w-[155px] flex-1 sm:flex-none"><label for="secret-service" class="sr-only">Service</label><FilterSelect id="secret-service" :model-value="service" label="Service" :options="services" all-label="All services" @update:model-value="filterSecrets('service', $event)" /></div>
-            <Field class="w-full sm:w-64"><FieldLabel for="secret-search" class="sr-only">Search secrets</FieldLabel><div class="relative"><SearchIcon class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /><Input id="secret-search" :model-value="query" placeholder="Search secrets…" maxlength="255" class="h-9 rounded-full border-0 bg-muted pl-9 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]" @update:model-value="filterSecrets('query', String($event))" /></div></Field>
-        </div>
-        <div v-if="selectedIds.length" class="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/50 p-3 text-sm"><span class="font-medium">{{ selectedIds.length }} selected</span><Button size="sm" variant="outline" @click="openBulk('environment')">Change environment</Button><Button size="sm" variant="outline" @click="openBulk('service')">Change service</Button><Button size="sm" variant="destructive" :disabled="!native || bulkRemoval.processing" @click="confirmBulkRemoval"><Trash2Icon aria-hidden="true" />Delete</Button><Button size="sm" variant="ghost" @click="selectedIds = []">Clear</Button></div>
-        <p v-if="!native" class="text-sm text-muted-foreground">Manage secrets in the desktop app to use macOS credential storage.</p>
-        <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
-        <div class="grid overflow-hidden rounded-xl border bg-background lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
-            <div class="min-w-0 border-b lg:border-r lg:border-b-0">
-                <label for="secret-select-all" class="flex min-h-11 items-center gap-3 border-b px-4 text-sm">
-                    <Checkbox id="secret-select-all" aria-label="Select all secrets" :model-value="selectAllState" :disabled="!rows.length" @update:model-value="toggleVisible" />
-                    <span>Select all</span>
-                </label>
-                <div v-if="rows.length" class="max-h-64 overflow-y-auto lg:max-h-[36rem]">
-                    <Collapsible v-for="group in serviceGroups" :key="group.service" class="group/service border-b last:border-b-0" :open="!collapsedServices.includes(group.service)" @update:open="toggleServiceGroup(group.service, $event)">
-                        <CollapsibleTrigger as-child><Button type="button" variant="ghost" size="sm" class="h-10 w-full justify-start rounded-none border-0 px-4 text-left aria-expanded:bg-transparent"><ChevronDownIcon class="size-3.5 transition-transform group-data-[state=closed]/service:-rotate-90" aria-hidden="true" /><span class="min-w-0 truncate">{{ group.service || 'Unassigned' }}</span><span class="ml-auto text-xs font-normal text-muted-foreground">{{ group.secrets.length }}</span></Button></CollapsibleTrigger>
-                        <CollapsibleContent as="ul" class="pb-4" :aria-label="`${group.service || 'Unassigned'} secrets`">
-                            <ContextMenu v-for="secret in group.secrets" :key="secret.id"><ContextMenuTrigger as-child><li class="flex min-h-14 items-center gap-3 px-4 transition-colors" :class="activeSecret?.id === secret.id ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80' : 'hover:bg-muted/50'">
-                                <Checkbox :aria-label="`Select ${secret.name} in ${secret.environment}`" :model-value="selectedIds.includes(secret.id)" @update:model-value="toggleSelected(secret.id)" />
-                                <button type="button" class="min-w-0 flex-1 rounded-sm py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50" :aria-pressed="activeSecret?.id === secret.id" aria-controls="secret-details" @click="selectSecret(secret.id)"><span class="block truncate text-[13px] font-medium" :title="secret.name">{{ secret.name }}</span><span class="mt-1 block truncate text-xs text-muted-foreground">{{ secret.environment }}</span></button>
-                                <Button size="icon-sm" variant="ghost" :aria-label="`Copy ${secret.name}`" :disabled="!native || clipboard.processing" @click="copy(secret)"><CopyIcon aria-hidden="true" /></Button>
-                            </li></ContextMenuTrigger><ContextMenuContent><ContextMenuItem @select="toggleSelected(secret.id)">{{ selectedIds.includes(secret.id) ? 'Deselect' : 'Select' }}</ContextMenuItem><ContextMenuItem :disabled="!native" @select="edit(secret)">Edit secret</ContextMenuItem><ContextMenuItem :disabled="!native || clipboard.processing" @select="copy(secret)">Copy value</ContextMenuItem><ContextMenuItem :disabled="!native" variant="destructive" @select="confirmRemoval(secret)">Delete</ContextMenuItem></ContextMenuContent></ContextMenu>
-                        </CollapsibleContent>
-                    </Collapsible>
-                </div>
-                <p v-else class="px-4 py-6 text-center text-sm text-muted-foreground">{{ secrets.length ? 'No matching secrets' : 'No secrets yet' }}</p>
+        <div
+            v-if="unlocked"
+            class="flex flex-wrap items-start justify-between gap-4">
+            <h2 class="text-xl font-normal tracking-[-0.025em]">
+                Secrets
+            </h2>
+            <div class="flex flex-wrap items-center gap-2">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    @click="lock">
+                    <LockKeyholeIcon aria-hidden="true" />Lock
+                </Button>
+                <DropdownMenuRoot>
+                    <DropdownMenuTrigger as-child>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            :disabled="!native">
+                            Import / export<ChevronDownIcon aria-hidden="true" />
+                        </Button>
+                    </DropdownMenuTrigger><DropdownMenuPortal>
+                        <DropdownMenuContent
+                            align="end"
+                            :side-offset="4"
+                            class="t-dropdown z-50 min-w-44 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                            <DropdownMenuItem
+                                :class="menuItemClass"
+                                @select="openPaste">
+                                Paste .env entries
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                :class="menuItemClass"
+                                @select="openImport">
+                                Import .env file
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                :class="menuItemClass"
+                                :disabled="!secrets.length"
+                                @select="openExport">
+                                Export .env file
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenuPortal>
+                </DropdownMenuRoot>
+                <Button
+                    :disabled="!native"
+                    @click="edit()">
+                    <PlusIcon aria-hidden="true" />Add secret
+                </Button>
             </div>
-            <section v-if="activeSecret" id="secret-details" aria-labelledby="secret-detail-title" class="min-w-0 space-y-6 p-6 lg:min-h-[32rem]">
-                <div class="flex items-start justify-between gap-4">
-                    <h3 id="secret-detail-title" class="min-w-0 text-xl font-semibold break-all">{{ activeSecret.name }}</h3>
-                    <DropdownMenuRoot><DropdownMenuTrigger as-child><Button variant="ghost" size="icon-sm" :aria-label="`Actions for ${activeSecret.name}`"><EllipsisIcon aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end" :side-offset="4" class="z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
-                        <DropdownMenuItem :class="menuItemClass" :disabled="!native" @select="edit(activeSecret)">Edit secret</DropdownMenuItem>
-                        <DropdownMenuItem :class="menuItemClass" class="text-destructive" :disabled="!native" @select="confirmRemoval(activeSecret)">Delete secret</DropdownMenuItem>
-                    </DropdownMenuContent></DropdownMenuPortal></DropdownMenuRoot>
-                </div>
-                <div class="space-y-3 rounded-lg bg-muted p-4">
-                    <h4 class="text-sm font-medium">Value</h4>
-                    <div class="flex flex-wrap items-center gap-3">
-                        <code v-if="valueRevealed" id="secret-value" class="min-w-0 flex-[1_1_12rem] whitespace-pre-wrap break-all text-sm">{{ values[activeSecret.id] ?? '…' }}</code><span v-else id="secret-value" class="min-w-0 flex-[1_1_12rem] overflow-hidden text-xl tracking-wider text-muted-foreground" aria-label="Value hidden">••••••••••••••••••••</span>
-                        <div class="flex flex-wrap items-center gap-2"><Button variant="ghost" size="sm" :disabled="values[activeSecret.id] === undefined" :aria-pressed="valueRevealed" aria-controls="secret-value" @click="valueRevealed = !valueRevealed"><EyeOffIcon v-if="valueRevealed" aria-hidden="true" /><EyeIcon v-else aria-hidden="true" />{{ valueRevealed ? 'Hide' : 'Reveal' }}</Button><Button size="sm" :disabled="!native || clipboard.processing" @click="copy(activeSecret)"><CopyIcon aria-hidden="true" />Copy value</Button></div>
-                    </div>
-                </div>
-                <SecretDescription ref="description" :key="activeSecret.id" :project="project" :secret="activeSecret" :native="native && unlocked" />
-                <dl class="grid gap-4 text-sm sm:grid-cols-3">
-                    <div class="min-w-0"><dt class="text-xs text-muted-foreground">Environment</dt><dd class="mt-2 wrap-anywhere">{{ activeSecret.environment }}</dd></div>
-                    <div class="min-w-0"><dt class="text-xs text-muted-foreground">Service</dt><dd class="mt-2 wrap-anywhere">{{ activeSecret.service || 'Uncategorized' }}</dd></div>
-                    <div class="min-w-0"><dt class="text-xs text-muted-foreground">Updated</dt><dd class="mt-2">{{ new Date(activeSecret.updated_at).toLocaleString() }}</dd></div>
-                </dl>
-                <OpenTargetButton v-if="activeSecret.management_url" :project-id="project.id" kind="secrets" :id="activeSecret.id" :native="native" :href="activeSecret.management_url" :label="activeSecret.service ? `Manage in ${activeSecret.service}` : 'Manage service'" />
-            </section>
-            <div v-else class="flex min-h-80 flex-col items-center justify-center px-6 py-14 text-center lg:min-h-[32rem]"><h3 class="text-sm font-semibold">{{ secrets.length ? 'No matching secrets' : 'No secrets yet' }}</h3><p class="mt-1 text-sm text-muted-foreground">{{ secrets.length ? 'Try another search or change the filters.' : 'Add a secret to keep a credential with this project.' }}</p><Button v-if="!secrets.length && native" variant="outline" class="mt-5" @click="edit()"><PlusIcon aria-hidden="true" />Add secret</Button></div>
         </div>
-    </div>
-
-    <Dialog :open="editorOpen" @update:open="open => { if (!open && !form.processing) closeEditor(); }">
-        <DialogContent :aria-describedby="undefined" class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
-            <DialogHeader><DialogTitle class="pr-6 break-all">{{ metadataOnly ? `Context for ${editing?.name}` : editing ? 'Edit secret' : 'Add secret' }}</DialogTitle></DialogHeader>
-            <form class="grid grid-cols-1 gap-4" @submit.prevent="save">
-                <template v-if="!metadataOnly">
-                    <Field :data-invalid="!!form.errors.name">
-                        <FieldLabel for="secret-editor-name">Name</FieldLabel>
-                        <Input id="secret-editor-name" v-model="form.name" maxlength="255" pattern="[A-Za-z_][A-Za-z0-9_]*" placeholder="API_KEY" required :aria-invalid="!!form.errors.name" />
-                        <FieldError v-if="form.errors.name">{{ form.errors.name }}</FieldError>
-                    </Field>
-                    <Field :data-invalid="!!form.errors.value">
-                        <FieldLabel for="secret-editor-value">Value</FieldLabel>
-                        <Textarea id="secret-editor-value" v-model="form.value" autocomplete="off" :spellcheck="false" :rows="4" class="max-h-64 min-h-28 resize-y font-mono" :disabled="!editorReady" :placeholder="editorValue.processing ? 'Loading value…' : 'Paste the secret value…'" :aria-invalid="!!form.errors.value" />
-                        <FieldError v-if="form.errors.value">{{ form.errors.value }}</FieldError>
-                    </Field>
-                </template>
-                <div class="grid grid-cols-1 gap-4" :class="!metadataOnly ? 'border-t pt-4 sm:grid-cols-2' : undefined">
-                    <Field v-if="!metadataOnly" :data-invalid="!!form.errors.environment">
-                        <FieldLabel for="secret-editor-environment">Environment</FieldLabel>
-                        <ChoiceSelect id="secret-editor-environment" class="min-w-0 w-full" :model-value="formEnvironmentChoice" :options="[...environmentOptions, { value: '__new__', label: 'New…' }]" :aria-invalid="!!form.errors.environment" @update:model-value="chooseFormEnvironment" />
-                        <Input v-if="formEnvironmentChoice === '__new__'" v-model="form.environment" aria-label="New environment name" placeholder="Environment name" maxlength="100" required :aria-invalid="!!form.errors.environment" />
-                        <FieldError v-if="form.errors.environment">{{ form.errors.environment }}</FieldError>
-                    </Field>
-                    <Field :data-invalid="!!form.errors.service">
-                        <FieldLabel for="secret-editor-service">Service / category</FieldLabel>
-                        <Input id="secret-editor-service" v-model="form.service" list="secret-categories" maxlength="100" placeholder="Optional" :aria-invalid="!!form.errors.service" />
-                        <FieldError v-if="form.errors.service">{{ form.errors.service }}</FieldError>
-                    </Field>
-                </div>
-                <Field :data-invalid="!!form.errors.management_url">
-                    <FieldLabel for="secret-editor-url">Management URL</FieldLabel>
-                    <Input id="secret-editor-url" v-model="form.management_url" maxlength="2048" placeholder="https://… (optional)" :aria-invalid="!!form.errors.management_url" />
-                    <FieldError v-if="form.errors.management_url">{{ form.errors.management_url }}</FieldError>
+        <section
+            v-if="!unlocked"
+            class="flex min-h-96 flex-col items-center justify-center px-4 py-12 text-center"
+            aria-labelledby="secret-vault-title"
+            :aria-busy="vaultLoading || unlocking">
+            <span class="mb-5 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground"><LockKeyholeIcon
+                class="size-5"
+                aria-hidden="true" /></span>
+            <h2
+                id="secret-vault-title"
+                class="text-xl font-normal tracking-[-0.025em]">
+                {{ vaultLoading || !native || (!pinSet && error) ? 'Secrets are locked' : pinSet ? 'Enter your PIN' : 'Set up your PIN' }}
+            </h2>
+            <p
+                v-if="!native || vaultLoading || (!pinSet && !error)"
+                class="mt-2 text-sm leading-6 text-muted-foreground">
+                {{ !native ? 'Open the desktop app to unlock secrets.' : vaultLoading ? 'Loading vault…' : 'Set a shared PIN in Orbit settings to get started.' }}
+            </p>
+            <Button
+                v-if="native && !vaultLoading && !pinSet && !error"
+                as-child
+                variant="outline"
+                class="mt-6">
+                <Link href="/settings?section=security">
+                    Set PIN in settings
+                </Link>
+            </Button>
+            <form
+                v-if="native && !vaultLoading && pinSet"
+                class="mt-6 grid w-full max-w-xs justify-items-center gap-4"
+                @submit.prevent="unlockVault">
+                <Field class="w-auto">
+                    <FieldLabel
+                        for="secret-pin"
+                        class="sr-only">
+                        PIN
+                    </FieldLabel><SecretPinInput
+                        id="secret-pin"
+                        v-model="pinForm.pin"
+                        size="lg"
+                        :disabled="unlocking"
+                        :invalid="!!pinForm.errors.pin"
+                        aria-describedby="secret-pin-status" />
                 </Field>
-                <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
-                <DialogFooter><Button type="button" variant="outline" :disabled="form.processing" @click="closeEditor">Cancel</Button><Button type="submit" :disabled="form.processing || !editorReady">{{ form.processing ? 'Saving…' : metadataOnly ? 'Save context' : 'Save secret' }}</Button></DialogFooter>
             </form>
-        </DialogContent>
-    </Dialog>
-    <Dialog :open="pasteOpen" @update:open="open => { if (!open && !pasteForm.processing) closePaste(); }"><DialogContent class="max-h-[calc(100dvh-2rem)] overflow-y-auto"><DialogHeader><DialogTitle>Paste .env entries</DialogTitle><DialogDescription>Supports comments, optional export, quoted values, and multiline quoted values. Expressions remain literal.</DialogDescription></DialogHeader>
-        <form class="grid gap-4" @submit.prevent="paste">
-            <Field :data-invalid="!!pasteForm.errors.environment"><FieldLabel for="secret-paste-environment">Environment</FieldLabel><Input id="secret-paste-environment" v-model="pasteForm.environment" maxlength="100" required :aria-invalid="!!pasteForm.errors.environment" /><FieldError v-if="pasteForm.errors.environment">{{ pasteForm.errors.environment }}</FieldError></Field>
-            <Field :data-invalid="!!pasteForm.errors.service"><FieldLabel for="secret-paste-service">Service / category</FieldLabel><Input id="secret-paste-service" v-model="pasteForm.service" list="secret-categories" maxlength="100" placeholder="Optional" :aria-invalid="!!pasteForm.errors.service" /><FieldError v-if="pasteForm.errors.service">{{ pasteForm.errors.service }}</FieldError></Field>
-            <Field :data-invalid="!!pasteForm.errors.entries"><FieldLabel for="secret-paste-entries">Entries</FieldLabel><Textarea id="secret-paste-entries" v-model="pasteForm.entries" autocomplete="off" :spellcheck="false" :rows="8" :aria-invalid="!!pasteForm.errors.entries" placeholder="APP_LOCALE=en&#10;APP_FALLBACK_LOCALE=en&#10;APP_FAKER_LOCALE=en_US" /><FieldError v-if="pasteForm.errors.entries">{{ pasteForm.errors.entries }}</FieldError></Field>
-            <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
-            <DialogFooter><Button type="button" variant="outline" :disabled="pasteForm.processing" @click="closePaste">Cancel</Button><Button type="submit" :disabled="pasteForm.processing">{{ pasteForm.processing ? 'Saving…' : 'Save entries' }}</Button></DialogFooter>
-        </form>
-    </DialogContent></Dialog>
-    <datalist id="secret-categories"><option v-for="item in services" :key="item" :value="item" /></datalist>
-    <Dialog :open="bulkOpen" @update:open="open => { if (!open && !bulkForm.processing) bulkOpen = false; }"><DialogContent><DialogHeader><DialogTitle>Update {{ selectedIds.length }} secrets</DialogTitle><DialogDescription>Changes apply to all selected secrets in this project.</DialogDescription></DialogHeader><form class="space-y-4" @submit.prevent="saveBulk"><Field v-if="bulkField === 'environment'"><FieldLabel for="secret-bulk-environment">Environment</FieldLabel><Input id="secret-bulk-environment" v-model="bulkEnvironment" list="secret-environments" maxlength="100" required /><FieldError v-if="bulkForm.errors.environment">{{ bulkForm.errors.environment }}</FieldError></Field><Field v-else><FieldLabel for="secret-bulk-service">Service / category</FieldLabel><Input id="secret-bulk-service" v-model="bulkService" list="secret-categories" maxlength="100" placeholder="Leave empty to clear category" /><FieldError v-if="bulkForm.errors.service">{{ bulkForm.errors.service }}</FieldError></Field><FieldError v-if="bulkForm.errors.secrets">{{ bulkForm.errors.secrets }}</FieldError><DialogFooter><Button type="button" variant="outline" @click="bulkOpen = false">Cancel</Button><Button type="submit" :disabled="bulkForm.processing">Update secrets</Button></DialogFooter></form></DialogContent></Dialog>
-    <datalist id="secret-environments"><option v-for="item in environmentOptions" :key="item" :value="item" /></datalist>
-    <Dialog :open="importOpen" @update:open="open => { if (!open && !importPreviewForm.processing && !importForm.processing) closeImport(); }"><DialogContent class="max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Import .env file</DialogTitle><DialogDescription>Orbit previews names only. Existing names are skipped; selected values never enter this page.</DialogDescription></DialogHeader>
-        <form class="grid gap-4" @submit.prevent="importPreview ? importEntries() : previewImport()">
-            <Field :data-invalid="!!importPreviewForm.errors.environment"><FieldLabel for="secret-import-environment">Environment</FieldLabel><Input id="secret-import-environment" v-model="importPreviewForm.environment" maxlength="100" required :disabled="!!importPreview" :aria-invalid="!!importPreviewForm.errors.environment" /><FieldError v-if="importPreviewForm.errors.environment">{{ importPreviewForm.errors.environment }}</FieldError></Field>
-            <template v-if="importPreview"><p class="text-sm text-muted-foreground">{{ importPreview.source }} · {{ importPreview.entries.length }} entries</p><div class="max-h-64 overflow-y-auto rounded-md border"><div v-for="entry in importPreview.entries" :key="entry.name" class="flex items-center justify-between gap-4 border-b px-3 py-2 text-sm last:border-0"><span class="break-all font-medium">{{ entry.name }}</span><Badge v-if="entry.collision" variant="secondary">Existing · skip</Badge><Badge v-else variant="outline">Import</Badge></div></div><FieldError v-if="importForm.errors.entries">{{ importForm.errors.entries }}</FieldError></template>
-            <FieldError v-if="importPreviewForm.errors.entries">{{ importPreviewForm.errors.entries }}</FieldError>
-            <Button v-if="importPreview" type="button" variant="outline" :disabled="importForm.processing" @click="importPreview = null; importForm.clearErrors(); error = ''">Choose another file</Button>
-            <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
-            <DialogFooter><Button type="button" variant="outline" :disabled="importPreviewForm.processing || importForm.processing" @click="closeImport">Cancel</Button><Button type="submit" :disabled="importPreviewForm.processing || importForm.processing || (!!importPreview && !importPreview.entries.some(entry => !entry.collision))">{{ importPreview ? (importForm.processing ? 'Importing…' : 'Import new entries') : (importPreviewForm.processing ? 'Opening…' : 'Choose file') }}</Button></DialogFooter>
-        </form>
-    </DialogContent></Dialog>
-    <Dialog :open="exportOpen" @update:open="open => { if (!open && !exportPreviewForm.processing && !exportForm.processing) closeExport(); }"><DialogContent class="max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Export .env file</DialogTitle><DialogDescription>Export writes plaintext values to the selected file. Choose only the entries you need.</DialogDescription></DialogHeader>
-        <form class="grid gap-4" @submit.prevent="exportPreview ? exportEntries() : previewExport()">
-            <Field><FieldLabel for="secret-export-environment">Environment</FieldLabel><ChoiceSelect id="secret-export-environment" :model-value="exportEnvironment" :options="environments" :disabled="!!exportPreview" @update:model-value="value => { exportEnvironment = value; changeExportEnvironment(); }" /></Field>
-            <Field :data-invalid="!!exportPreviewForm.errors.names"><FieldLabel>Secrets</FieldLabel><div class="max-h-64 overflow-y-auto rounded-md border"><label v-for="secret in secrets.filter(item => item.environment === exportEnvironment)" :key="secret.id" class="flex items-center gap-3 border-b px-3 py-2 text-sm last:border-0"><Checkbox :model-value="exportNames.includes(secret.name)" :disabled="!!exportPreview" @update:model-value="toggleExport(secret.name)" /><span class="break-all font-medium">{{ secret.name }}</span></label></div><FieldError v-if="exportPreviewForm.errors.names">{{ exportPreviewForm.errors.names }}</FieldError><FieldError v-if="exportForm.errors.names">{{ exportForm.errors.names }}</FieldError></Field>
-            <template v-if="exportPreview"><Alert><AlertDescription>Destination: {{ exportPreview.destination }}<template v-if="exportPreview.exists"> already exists.</template></AlertDescription></Alert><Field v-if="exportPreview.exists" :data-invalid="!!exportForm.errors.overwrite"><label class="flex items-center gap-3 text-sm"><Checkbox v-model="exportForm.overwrite" />Replace the existing file</label><FieldError v-if="exportForm.errors.overwrite">{{ exportForm.errors.overwrite }}</FieldError></Field></template>
-            <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
-            <DialogFooter><Button type="button" variant="outline" :disabled="exportPreviewForm.processing || exportForm.processing" @click="closeExport">Cancel</Button><Button type="submit" :disabled="exportPreviewForm.processing || exportForm.processing || !exportNames.length || (!!exportPreview && exportPreview.exists && !exportForm.overwrite)">{{ exportPreview ? (exportForm.processing ? 'Exporting…' : 'Export plaintext .env') : (exportPreviewForm.processing ? 'Opening…' : 'Choose destination') }}</Button></DialogFooter>
-        </form>
-    </DialogContent></Dialog>
-    <Dialog :open="bulkRemoveOpen" @update:open="open => { if (!open && !bulkRemoval.processing) bulkRemoveOpen = false; }"><DialogContent><DialogHeader><DialogTitle>Delete {{ bulkRemoval.secrets.length }} selected {{ bulkRemoval.secrets.length === 1 ? 'secret' : 'secrets' }}?</DialogTitle><DialogDescription>This permanently removes the selected secrets from this project.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" :disabled="bulkRemoval.processing" @click="bulkRemoveOpen = false">Cancel</Button><Button variant="destructive" :disabled="bulkRemoval.processing || !unlocked" @click="removeSelected">{{ bulkRemoval.processing ? 'Deleting…' : 'Delete selected secrets' }}</Button></DialogFooter></DialogContent></Dialog>
-    <Dialog :open="!!removing" @update:open="open => { if (!open) removing = null; }"><DialogContent><DialogHeader><DialogTitle>Delete {{ removing?.name }}?</DialogTitle><DialogDescription>This permanently removes the secret from the {{ removing?.environment }} environment.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" @click="removing = null">Cancel</Button><Button variant="destructive" :disabled="removal.processing" @click="remove">Delete secret</Button></DialogFooter></DialogContent></Dialog>
+            <div
+                v-if="native && !vaultLoading"
+                id="secret-pin-status"
+                class="mt-4 min-h-6 text-sm">
+                <p
+                    v-if="error"
+                    role="alert"
+                    class="text-destructive">
+                    {{ error }}
+                </p><p
+                    v-else
+                    role="status"
+                    class="text-muted-foreground">
+                    <TextTransition
+                        :text="unlocking ? 'Unlocking…' : ''"
+                        shimmer />
+                </p>
+            </div>
+            <SecretPinRecovery
+                v-if="native && !vaultLoading && pinSet"
+                :disabled="unlocking"
+                @saved="recoveredPin" />
+        </section>
+        <div
+            v-show="unlocked"
+            class="space-y-4">
+            <div class="flex flex-wrap items-center gap-2">
+                <div class="min-w-[155px] flex-1 sm:flex-none">
+                    <label
+                        for="secret-environment"
+                        class="sr-only">Environment</label><FilterSelect
+                            id="secret-environment"
+                            :model-value="environment"
+                            label="Environment"
+                            :options="environments"
+                            all-label="All environments"
+                            @update:model-value="filterSecrets('environment', $event)" />
+                </div>
+                <div class="min-w-[155px] flex-1 sm:flex-none">
+                    <label
+                        for="secret-service"
+                        class="sr-only">Service</label><FilterSelect
+                            id="secret-service"
+                            :model-value="service"
+                            label="Service"
+                            :options="services"
+                            all-label="All services"
+                            @update:model-value="filterSecrets('service', $event)" />
+                </div>
+                <Field class="w-full sm:w-64">
+                    <FieldLabel
+                        for="secret-search"
+                        class="sr-only">
+                        Search secrets
+                    </FieldLabel><div class="relative">
+                        <SearchIcon
+                            class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                            aria-hidden="true" /><Input
+                                id="secret-search"
+                                :model-value="query"
+                                placeholder="Search secrets…"
+                                maxlength="255"
+                                class="h-9 rounded-full border-0 bg-muted pl-9 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]"
+                                @update:model-value="filterSecrets('query', String($event))" />
+                    </div>
+                </Field>
+            </div>
+            <div
+                v-if="selectedIds.length"
+                class="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/50 p-3 text-sm">
+                <span class="font-medium">{{ selectedIds.length }} selected</span><Button
+                    size="sm"
+                    variant="outline"
+                    @click="openBulk('environment')">
+                    Change environment
+                </Button><Button
+                    size="sm"
+                    variant="outline"
+                    @click="openBulk('service')">
+                    Change service
+                </Button><Button
+                    size="sm"
+                    variant="destructive"
+                    :disabled="!native || bulkRemoval.processing"
+                    @click="confirmBulkRemoval">
+                    <Trash2Icon aria-hidden="true" />Delete
+                </Button><Button
+                    size="sm"
+                    variant="ghost"
+                    @click="selectedIds = []">
+                    Clear
+                </Button>
+            </div>
+            <p
+                v-if="!native"
+                class="text-sm text-muted-foreground">
+                Manage secrets in the desktop app to use macOS credential storage.
+            </p>
+            <Alert
+                v-if="error"
+                variant="destructive">
+                <AlertDescription>{{ error }}</AlertDescription>
+            </Alert>
+            <div class="grid overflow-hidden rounded-xl border bg-background lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
+                <div class="min-w-0 border-b lg:border-r lg:border-b-0">
+                    <label
+                        for="secret-select-all"
+                        class="flex min-h-11 items-center gap-3 border-b px-4 text-sm">
+                        <Checkbox
+                            id="secret-select-all"
+                            aria-label="Select all secrets"
+                            :model-value="selectAllState"
+                            :disabled="!rows.length"
+                            @update:model-value="toggleVisible" />
+                        <span>Select all</span>
+                    </label>
+                    <div
+                        v-if="rows.length"
+                        class="max-h-64 overflow-y-auto lg:max-h-[36rem]">
+                        <Collapsible
+                            v-for="group in serviceGroups"
+                            :key="group.service"
+                            class="group/service border-b last:border-b-0"
+                            :open="!collapsedServices.includes(group.service)"
+                            @update:open="toggleServiceGroup(group.service, $event)">
+                            <CollapsibleTrigger as-child>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    class="h-10 w-full justify-start rounded-none border-0 px-4 text-left aria-expanded:bg-transparent">
+                                    <ChevronDownIcon
+                                        class="size-3.5 transition-transform group-data-[state=closed]/service:-rotate-90"
+                                        aria-hidden="true" /><span class="min-w-0 truncate">{{ group.service || 'Unassigned' }}</span><span class="ml-auto text-xs font-normal text-muted-foreground">{{ group.secrets.length }}</span>
+                                </Button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent
+                                as="ul"
+                                class="pb-4"
+                                :aria-label="`${group.service || 'Unassigned'} secrets`">
+                                <ContextMenu
+                                    v-for="secret in group.secrets"
+                                    :key="secret.id">
+                                    <ContextMenuTrigger as-child>
+                                        <li
+                                            class="flex min-h-14 items-center gap-3 px-4 transition-colors"
+                                            :class="activeSecret?.id === secret.id ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80' : 'hover:bg-muted/50'">
+                                            <Checkbox
+                                                :aria-label="`Select ${secret.name} in ${secret.environment}`"
+                                                :model-value="selectedIds.includes(secret.id)"
+                                                @update:model-value="toggleSelected(secret.id)" />
+                                            <button
+                                                type="button"
+                                                class="min-w-0 flex-1 rounded-sm py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                                                :aria-pressed="activeSecret?.id === secret.id"
+                                                aria-controls="secret-details"
+                                                @click="selectSecret(secret.id)">
+                                                <span
+                                                    class="block truncate text-[13px] font-medium"
+                                                    :title="secret.name">{{ secret.name }}</span><span class="mt-1 block truncate text-xs text-muted-foreground">{{ secret.environment }}</span>
+                                            </button>
+                                            <Button
+                                                size="icon-sm"
+                                                variant="ghost"
+                                                :aria-label="`Copy ${secret.name}`"
+                                                :disabled="!native || clipboard.processing"
+                                                @click="copy(secret)">
+                                                <CopyIcon aria-hidden="true" />
+                                            </Button>
+                                        </li>
+                                    </ContextMenuTrigger><ContextMenuContent>
+                                        <ContextMenuItem @select="toggleSelected(secret.id)">
+                                            {{ selectedIds.includes(secret.id) ? 'Deselect' : 'Select' }}
+                                        </ContextMenuItem><ContextMenuItem
+                                            :disabled="!native"
+                                            @select="edit(secret)">
+                                            Edit secret
+                                        </ContextMenuItem><ContextMenuItem
+                                            :disabled="!native || clipboard.processing"
+                                            @select="copy(secret)">
+                                            Copy value
+                                        </ContextMenuItem><ContextMenuItem
+                                            :disabled="!native"
+                                            variant="destructive"
+                                            @select="confirmRemoval(secret)">
+                                            Delete
+                                        </ContextMenuItem>
+                                    </ContextMenuContent>
+                                </ContextMenu>
+                            </CollapsibleContent>
+                        </Collapsible>
+                    </div>
+                    <p
+                        v-else
+                        class="px-4 py-6 text-center text-sm text-muted-foreground">
+                        {{ secrets.length ? 'No matching secrets' : 'No secrets yet' }}
+                    </p>
+                </div>
+                <section
+                    v-if="activeSecret"
+                    id="secret-details"
+                    aria-labelledby="secret-detail-title"
+                    class="min-w-0 space-y-6 p-6 lg:min-h-[32rem]">
+                    <div class="flex items-start justify-between gap-4">
+                        <h3
+                            id="secret-detail-title"
+                            class="min-w-0 text-xl font-normal break-all">
+                            {{ activeSecret.name }}
+                        </h3>
+                        <DropdownMenuRoot>
+                            <DropdownMenuTrigger as-child>
+                                <Button
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    :aria-label="`Actions for ${activeSecret.name}`">
+                                    <EllipsisIcon aria-hidden="true" />
+                                </Button>
+                            </DropdownMenuTrigger><DropdownMenuPortal>
+                                <DropdownMenuContent
+                                    align="end"
+                                    :side-offset="4"
+                                    class="t-dropdown z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                                    <DropdownMenuItem
+                                        :class="menuItemClass"
+                                        :disabled="!native"
+                                        @select="edit(activeSecret)">
+                                        Edit secret
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        :class="menuItemClass"
+                                        class="text-destructive"
+                                        :disabled="!native"
+                                        @select="confirmRemoval(activeSecret)">
+                                        Delete secret
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenuPortal>
+                        </DropdownMenuRoot>
+                    </div>
+                    <div class="space-y-3 rounded-lg bg-muted p-4">
+                        <h4 class="text-sm font-medium">
+                            Value
+                        </h4>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <code
+                                v-if="valueRevealed"
+                                id="secret-value"
+                                class="min-w-0 flex-[1_1_12rem] whitespace-pre-wrap break-all text-sm">{{ values[activeSecret.id] ?? '…' }}</code><span
+                                    v-else
+                                    id="secret-value"
+                                    class="min-w-0 flex-[1_1_12rem] overflow-hidden text-xl tracking-wider text-muted-foreground"
+                                    aria-label="Value hidden">••••••••••••••••••••</span>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    :disabled="values[activeSecret.id] === undefined"
+                                    :aria-pressed="valueRevealed"
+                                    aria-controls="secret-value"
+                                    @click="valueRevealed = !valueRevealed">
+                                    <span
+                                        class="t-icon-swap"
+                                        :data-state="valueRevealed ? 'b' : 'a'"
+                                        aria-hidden="true"><EyeIcon
+                                            class="t-icon"
+                                            data-icon="a" /><EyeOffIcon
+                                                class="t-icon"
+                                                data-icon="b" /></span><TextTransition :text="valueRevealed ? 'Hide' : 'Reveal'" />
+                                </Button><Button
+                                    size="sm"
+                                    :disabled="!native || clipboard.processing"
+                                    @click="copy(activeSecret)">
+                                    <CopyIcon aria-hidden="true" />Copy value
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                    <SecretDescription
+                        ref="description"
+                        :key="activeSecret.id"
+                        :project="project"
+                        :secret="activeSecret"
+                        :native="native && unlocked" />
+                    <dl class="grid gap-4 text-sm sm:grid-cols-3">
+                        <div class="min-w-0">
+                            <dt class="text-xs text-muted-foreground">
+                                Environment
+                            </dt><dd class="mt-2 wrap-anywhere">
+                                {{ activeSecret.environment }}
+                            </dd>
+                        </div>
+                        <div class="min-w-0">
+                            <dt class="text-xs text-muted-foreground">
+                                Service
+                            </dt><dd class="mt-2 wrap-anywhere">
+                                {{ activeSecret.service || 'Uncategorized' }}
+                            </dd>
+                        </div>
+                        <div class="min-w-0">
+                            <dt class="text-xs text-muted-foreground">
+                                Updated
+                            </dt><dd class="mt-2">
+                                {{ new Date(activeSecret.updated_at).toLocaleString() }}
+                            </dd>
+                        </div>
+                    </dl>
+                    <OpenTargetButton
+                        v-if="activeSecret.management_url"
+                        :id="activeSecret.id"
+                        :project-id="project.id"
+                        kind="secrets"
+                        :native="native"
+                        :href="activeSecret.management_url"
+                        :label="activeSecret.service ? `Manage in ${activeSecret.service}` : 'Manage service'" />
+                </section>
+                <div
+                    v-else
+                    class="flex min-h-80 flex-col items-center justify-center px-6 py-14 text-center lg:min-h-[32rem]">
+                    <h3 class="text-sm font-normal">
+                        {{ secrets.length ? 'No matching secrets' : 'No secrets yet' }}
+                    </h3><p class="mt-1 text-sm text-muted-foreground">
+                        {{ secrets.length ? 'Try another search or change the filters.' : 'Add a secret to keep a credential with this project.' }}
+                    </p><Button
+                        v-if="!secrets.length && native"
+                        variant="outline"
+                        class="mt-5"
+                        @click="edit()">
+                        <PlusIcon aria-hidden="true" />Add secret
+                    </Button>
+                </div>
+            </div>
+        </div>
+
+        <Dialog
+            :open="editorOpen"
+            @update:open="open => { if (!open && !form.processing) closeEditor(); }">
+            <DialogContent
+                :aria-describedby="undefined"
+                class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle class="pr-6 break-all">
+                        {{ metadataOnly ? `Context for ${editing?.name}` : editing ? 'Edit secret' : 'Add secret' }}
+                    </DialogTitle>
+                </DialogHeader>
+                <form
+                    class="grid grid-cols-1 gap-4"
+                    @submit.prevent="save">
+                    <template v-if="!metadataOnly">
+                        <Field :data-invalid="!!form.errors.name">
+                            <FieldLabel for="secret-editor-name">
+                                Name
+                            </FieldLabel>
+                            <Input
+                                id="secret-editor-name"
+                                v-model="form.name"
+                                maxlength="255"
+                                pattern="[A-Za-z_][A-Za-z0-9_]*"
+                                placeholder="API_KEY"
+                                required
+                                :aria-invalid="!!form.errors.name" />
+                            <FieldError v-if="form.errors.name">
+                                {{ form.errors.name }}
+                            </FieldError>
+                        </Field>
+                        <Field :data-invalid="!!form.errors.value">
+                            <FieldLabel for="secret-editor-value">
+                                Value
+                            </FieldLabel>
+                            <Textarea
+                                id="secret-editor-value"
+                                v-model="form.value"
+                                autocomplete="off"
+                                :spellcheck="false"
+                                :rows="4"
+                                class="max-h-64 min-h-28 resize-y font-mono"
+                                :disabled="!editorReady"
+                                :placeholder="editorValue.processing ? 'Loading value…' : 'Paste the secret value…'"
+                                :aria-invalid="!!form.errors.value" />
+                            <FieldError v-if="form.errors.value">
+                                {{ form.errors.value }}
+                            </FieldError>
+                        </Field>
+                    </template>
+                    <div
+                        class="grid grid-cols-1 gap-4"
+                        :class="!metadataOnly ? 'border-t pt-4 sm:grid-cols-2' : undefined">
+                        <Field
+                            v-if="!metadataOnly"
+                            :data-invalid="!!form.errors.environment">
+                            <FieldLabel for="secret-editor-environment">
+                                Environment
+                            </FieldLabel>
+                            <ChoiceSelect
+                                id="secret-editor-environment"
+                                class="min-w-0 w-full"
+                                :model-value="formEnvironmentChoice"
+                                :options="[...environmentOptions, { value: '__new__', label: 'New…' }]"
+                                :aria-invalid="!!form.errors.environment"
+                                @update:model-value="chooseFormEnvironment" />
+                            <Input
+                                v-if="formEnvironmentChoice === '__new__'"
+                                v-model="form.environment"
+                                aria-label="New environment name"
+                                placeholder="Environment name"
+                                maxlength="100"
+                                required
+                                :aria-invalid="!!form.errors.environment" />
+                            <FieldError v-if="form.errors.environment">
+                                {{ form.errors.environment }}
+                            </FieldError>
+                        </Field>
+                        <Field :data-invalid="!!form.errors.service">
+                            <FieldLabel for="secret-editor-service">
+                                Service / category
+                            </FieldLabel>
+                            <Input
+                                id="secret-editor-service"
+                                v-model="form.service"
+                                list="secret-categories"
+                                maxlength="100"
+                                placeholder="Optional"
+                                :aria-invalid="!!form.errors.service" />
+                            <FieldError v-if="form.errors.service">
+                                {{ form.errors.service }}
+                            </FieldError>
+                        </Field>
+                    </div>
+                    <Field :data-invalid="!!form.errors.management_url">
+                        <FieldLabel for="secret-editor-url">
+                            Management URL
+                        </FieldLabel>
+                        <Input
+                            id="secret-editor-url"
+                            v-model="form.management_url"
+                            maxlength="2048"
+                            placeholder="https://… (optional)"
+                            :aria-invalid="!!form.errors.management_url" />
+                        <FieldError v-if="form.errors.management_url">
+                            {{ form.errors.management_url }}
+                        </FieldError>
+                    </Field>
+                    <Alert
+                        v-if="error"
+                        variant="destructive">
+                        <AlertDescription>{{ error }}</AlertDescription>
+                    </Alert>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            :disabled="form.processing"
+                            @click="closeEditor">
+                            Cancel
+                        </Button><Button
+                            type="submit"
+                            :disabled="form.processing || !editorReady">
+                            <TextTransition :text="form.processing ? 'Saving…' : metadataOnly ? 'Save context' : 'Save secret'" />
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+        <Dialog
+            :open="pasteOpen"
+            @update:open="open => { if (!open && !pasteForm.processing) closePaste(); }">
+            <DialogContent class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+                <DialogHeader><DialogTitle>Paste .env entries</DialogTitle><DialogDescription>Supports comments, optional export, quoted values, and multiline quoted values. Expressions remain literal.</DialogDescription></DialogHeader>
+                <form
+                    class="grid gap-4"
+                    @submit.prevent="paste">
+                    <Field :data-invalid="!!pasteForm.errors.environment">
+                        <FieldLabel for="secret-paste-environment">
+                            Environment
+                        </FieldLabel><Input
+                            id="secret-paste-environment"
+                            v-model="pasteForm.environment"
+                            maxlength="100"
+                            required
+                            :aria-invalid="!!pasteForm.errors.environment" /><FieldError v-if="pasteForm.errors.environment">
+                                {{ pasteForm.errors.environment }}
+                            </FieldError>
+                    </Field>
+                    <Field :data-invalid="!!pasteForm.errors.service">
+                        <FieldLabel for="secret-paste-service">
+                            Service / category
+                        </FieldLabel><Input
+                            id="secret-paste-service"
+                            v-model="pasteForm.service"
+                            list="secret-categories"
+                            maxlength="100"
+                            placeholder="Optional"
+                            :aria-invalid="!!pasteForm.errors.service" /><FieldError v-if="pasteForm.errors.service">
+                                {{ pasteForm.errors.service }}
+                            </FieldError>
+                    </Field>
+                    <Field :data-invalid="!!pasteForm.errors.entries">
+                        <FieldLabel for="secret-paste-entries">
+                            Entries
+                        </FieldLabel><Textarea
+                            id="secret-paste-entries"
+                            v-model="pasteForm.entries"
+                            autocomplete="off"
+                            :spellcheck="false"
+                            :rows="8"
+                            :aria-invalid="!!pasteForm.errors.entries"
+                            placeholder="APP_LOCALE=en&#10;APP_FALLBACK_LOCALE=en&#10;APP_FAKER_LOCALE=en_US" /><FieldError v-if="pasteForm.errors.entries">
+                                {{ pasteForm.errors.entries }}
+                            </FieldError>
+                    </Field>
+                    <Alert
+                        v-if="error"
+                        variant="destructive">
+                        <AlertDescription>{{ error }}</AlertDescription>
+                    </Alert>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            :disabled="pasteForm.processing"
+                            @click="closePaste">
+                            Cancel
+                        </Button><Button
+                            type="submit"
+                            :disabled="pasteForm.processing">
+                            <TextTransition :text="pasteForm.processing ? 'Saving…' : 'Save entries'" />
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+        <datalist id="secret-categories">
+            <option
+                v-for="item in services"
+                :key="item"
+                :value="item" />
+        </datalist>
+        <Dialog
+            :open="bulkOpen"
+            @update:open="open => { if (!open && !bulkForm.processing) bulkOpen = false; }">
+            <DialogContent>
+                <DialogHeader><DialogTitle>Update {{ selectedIds.length }} secrets</DialogTitle><DialogDescription>Changes apply to all selected secrets in this project.</DialogDescription></DialogHeader><form
+                    class="space-y-4"
+                    @submit.prevent="saveBulk">
+                    <Field v-if="bulkField === 'environment'">
+                        <FieldLabel for="secret-bulk-environment">
+                            Environment
+                        </FieldLabel><Input
+                            id="secret-bulk-environment"
+                            v-model="bulkEnvironment"
+                            list="secret-environments"
+                            maxlength="100"
+                            required /><FieldError v-if="bulkForm.errors.environment">
+                                {{ bulkForm.errors.environment }}
+                            </FieldError>
+                    </Field><Field v-else>
+                        <FieldLabel for="secret-bulk-service">
+                            Service / category
+                        </FieldLabel><Input
+                            id="secret-bulk-service"
+                            v-model="bulkService"
+                            list="secret-categories"
+                            maxlength="100"
+                            placeholder="Leave empty to clear category" /><FieldError v-if="bulkForm.errors.service">
+                                {{ bulkForm.errors.service }}
+                            </FieldError>
+                    </Field><FieldError v-if="bulkForm.errors.secrets">
+                        {{ bulkForm.errors.secrets }}
+                    </FieldError><DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            @click="bulkOpen = false">
+                            Cancel
+                        </Button><Button
+                            type="submit"
+                            :disabled="bulkForm.processing">
+                            Update secrets
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+        <datalist id="secret-environments">
+            <option
+                v-for="item in environmentOptions"
+                :key="item"
+                :value="item" />
+        </datalist>
+        <Dialog
+            :open="importOpen"
+            @update:open="open => { if (!open && !importPreviewForm.processing && !importForm.processing) closeImport(); }">
+            <DialogContent class="max-h-[85vh] overflow-y-auto">
+                <DialogHeader><DialogTitle>Import .env file</DialogTitle><DialogDescription>Orbit previews names only. Existing names are skipped; selected values never enter this page.</DialogDescription></DialogHeader>
+                <form
+                    class="grid gap-4"
+                    @submit.prevent="importPreview ? importEntries() : previewImport()">
+                    <Field :data-invalid="!!importPreviewForm.errors.environment">
+                        <FieldLabel for="secret-import-environment">
+                            Environment
+                        </FieldLabel><Input
+                            id="secret-import-environment"
+                            v-model="importPreviewForm.environment"
+                            maxlength="100"
+                            required
+                            :disabled="!!importPreview"
+                            :aria-invalid="!!importPreviewForm.errors.environment" /><FieldError v-if="importPreviewForm.errors.environment">
+                                {{ importPreviewForm.errors.environment }}
+                            </FieldError>
+                    </Field>
+                    <template v-if="importPreview">
+                        <p class="text-sm text-muted-foreground">
+                            {{ importPreview.source }} · {{ importPreview.entries.length }} entries
+                        </p><div class="max-h-64 overflow-y-auto rounded-md border">
+                            <div
+                                v-for="entry in importPreview.entries"
+                                :key="entry.name"
+                                class="flex items-center justify-between gap-4 border-b px-3 py-2 text-sm last:border-0">
+                                <span class="break-all font-medium">{{ entry.name }}</span><Badge
+                                    v-if="entry.collision"
+                                    variant="secondary">
+                                    Existing · skip
+                                </Badge><Badge
+                                    v-else
+                                    variant="outline">
+                                    Import
+                                </Badge>
+                            </div>
+                        </div><FieldError v-if="importForm.errors.entries">
+                            {{ importForm.errors.entries }}
+                        </FieldError>
+                    </template>
+                    <FieldError v-if="importPreviewForm.errors.entries">
+                        {{ importPreviewForm.errors.entries }}
+                    </FieldError>
+                    <Button
+                        v-if="importPreview"
+                        type="button"
+                        variant="outline"
+                        :disabled="importForm.processing"
+                        @click="importPreview = null; importForm.clearErrors(); error = ''">
+                        Choose another file
+                    </Button>
+                    <Alert
+                        v-if="error"
+                        variant="destructive">
+                        <AlertDescription>{{ error }}</AlertDescription>
+                    </Alert>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            :disabled="importPreviewForm.processing || importForm.processing"
+                            @click="closeImport">
+                            Cancel
+                        </Button><Button
+                            type="submit"
+                            :disabled="importPreviewForm.processing || importForm.processing || (!!importPreview && !importPreview.entries.some(entry => !entry.collision))">
+                            <TextTransition :text="importPreview ? (importForm.processing ? 'Importing…' : 'Import new entries') : (importPreviewForm.processing ? 'Opening…' : 'Choose file')" />
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+        <Dialog
+            :open="exportOpen"
+            @update:open="open => { if (!open && !exportPreviewForm.processing && !exportForm.processing) closeExport(); }">
+            <DialogContent class="max-h-[85vh] overflow-y-auto">
+                <DialogHeader><DialogTitle>Export .env file</DialogTitle><DialogDescription>Export writes plaintext values to the selected file. Choose only the entries you need.</DialogDescription></DialogHeader>
+                <form
+                    class="grid gap-4"
+                    @submit.prevent="exportPreview ? exportEntries() : previewExport()">
+                    <Field>
+                        <FieldLabel for="secret-export-environment">
+                            Environment
+                        </FieldLabel><ChoiceSelect
+                            id="secret-export-environment"
+                            :model-value="exportEnvironment"
+                            :options="environments"
+                            :disabled="!!exportPreview"
+                            @update:model-value="value => { exportEnvironment = value; changeExportEnvironment(); }" />
+                    </Field>
+                    <Field :data-invalid="!!exportPreviewForm.errors.names">
+                        <FieldLabel>Secrets</FieldLabel><div class="max-h-64 overflow-y-auto rounded-md border">
+                            <label
+                                v-for="secret in secrets.filter(item => item.environment === exportEnvironment)"
+                                :key="secret.id"
+                                class="flex items-center gap-3 border-b px-3 py-2 text-sm last:border-0"><Checkbox
+                                    :model-value="exportNames.includes(secret.name)"
+                                    :disabled="!!exportPreview"
+                                    @update:model-value="toggleExport(secret.name)" /><span class="break-all font-medium">{{ secret.name }}</span></label>
+                        </div><FieldError v-if="exportPreviewForm.errors.names">
+                            {{ exportPreviewForm.errors.names }}
+                        </FieldError><FieldError v-if="exportForm.errors.names">
+                            {{ exportForm.errors.names }}
+                        </FieldError>
+                    </Field>
+                    <template v-if="exportPreview">
+                        <Alert>
+                            <AlertDescription>
+                                Destination: {{ exportPreview.destination }}<template v-if="exportPreview.exists">
+                                    already exists.
+                                </template>
+                            </AlertDescription>
+                        </Alert><Field
+                            v-if="exportPreview.exists"
+                            :data-invalid="!!exportForm.errors.overwrite">
+                            <label class="flex items-center gap-3 text-sm"><Checkbox v-model="exportForm.overwrite" />Replace the existing file</label><FieldError v-if="exportForm.errors.overwrite">
+                                {{ exportForm.errors.overwrite }}
+                            </FieldError>
+                        </Field>
+                    </template>
+                    <Alert
+                        v-if="error"
+                        variant="destructive">
+                        <AlertDescription>{{ error }}</AlertDescription>
+                    </Alert>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            :disabled="exportPreviewForm.processing || exportForm.processing"
+                            @click="closeExport">
+                            Cancel
+                        </Button><Button
+                            type="submit"
+                            :disabled="exportPreviewForm.processing || exportForm.processing || !exportNames.length || (!!exportPreview && exportPreview.exists && !exportForm.overwrite)">
+                            <TextTransition :text="exportPreview ? (exportForm.processing ? 'Exporting…' : 'Export plaintext .env') : (exportPreviewForm.processing ? 'Opening…' : 'Choose destination')" />
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+        <Dialog
+            :open="bulkRemoveOpen"
+            @update:open="open => { if (!open && !bulkRemoval.processing) bulkRemoveOpen = false; }">
+            <DialogContent>
+                <DialogHeader><DialogTitle>Delete {{ bulkRemoval.secrets.length }} selected {{ bulkRemoval.secrets.length === 1 ? 'secret' : 'secrets' }}?</DialogTitle><DialogDescription>This permanently removes the selected secrets from this project.</DialogDescription></DialogHeader><DialogFooter>
+                    <Button
+                        variant="outline"
+                        :disabled="bulkRemoval.processing"
+                        @click="bulkRemoveOpen = false">
+                        Cancel
+                    </Button><Button
+                        variant="destructive"
+                        :disabled="bulkRemoval.processing || !unlocked"
+                        @click="removeSelected">
+                        <TextTransition :text="bulkRemoval.processing ? 'Deleting…' : 'Delete selected secrets'" />
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        <Dialog
+            :open="!!removing"
+            @update:open="open => { if (!open) removing = null; }">
+            <DialogContent>
+                <DialogHeader><DialogTitle>Delete {{ removing?.name }}?</DialogTitle><DialogDescription>This permanently removes the secret from the {{ removing?.environment }} environment.</DialogDescription></DialogHeader><DialogFooter>
+                    <Button
+                        variant="outline"
+                        @click="removing = null">
+                        Cancel
+                    </Button><Button
+                        variant="destructive"
+                        :disabled="removal.processing"
+                        @click="remove">
+                        Delete secret
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     </div>
 </template>

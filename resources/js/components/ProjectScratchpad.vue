@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onScopeDispose, ref, watch } from 'vue';
-import { router, useForm, useHttp, usePage } from '@inertiajs/vue3';
-import { SparklesIcon } from '@lucide/vue';
-import { toast } from 'vue-sonner';
+import TextTransition from '@/components/TextTransition.vue';
 import ScratchpadActionsReview from '@/components/ScratchpadActionsReview.vue';
+import { toast } from 'vue-sonner';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import type { Project, ScratchpadAction } from '@/types';
+import { LoaderCircleIcon, SparklesIcon } from '@lucide/vue';
+import { router, useForm, useHttp, usePage } from '@inertiajs/vue3';
+import { computed, nextTick, onScopeDispose, ref, watch } from 'vue';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 
 const props = defineProps<{ project: Project }>();
 const project = computed(() => props.project);
@@ -180,22 +181,99 @@ function actionsSaved() {
 </script>
 
 <template>
-    <Card as="section" aria-labelledby="scratchpad-title">
-        <CardHeader><h2 id="scratchpad-title" class="text-sm font-semibold">Scratchpad</h2></CardHeader>
-        <CardContent class="focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50" :class="scratchpadForm.errors.scratchpad ? 'border-destructive focus-within:border-destructive focus-within:ring-destructive/20' : undefined">
-            <form class="space-y-3" @submit.prevent="saveScratchpad()">
-                <label for="project-scratchpad" class="sr-only">Scratchpad notes</label>
-                <Textarea id="project-scratchpad" v-model="scratchpadForm.scratchpad" maxlength="50000" :rows="4" placeholder="Jot down ideas, reminders, and rough notes…" class="min-h-24 resize-none rounded-none border-0 bg-transparent p-0 font-mono shadow-none focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 dark:bg-transparent" :aria-invalid="!!scratchpadForm.errors.scratchpad" :aria-describedby="scratchpadForm.errors.scratchpad ? 'scratchpad-error' : undefined" />
+    <Card
+        as="section"
+        aria-labelledby="scratchpad-title">
+        <CardHeader>
+            <h2
+                id="scratchpad-title"
+                class="text-sm font-normal">
+                Scratchpad
+            </h2>
+        </CardHeader>
+        <CardContent
+            class="focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50"
+            :class="scratchpadForm.errors.scratchpad ? 'border-destructive focus-within:border-destructive focus-within:ring-destructive/20' : undefined">
+            <form
+                class="space-y-3"
+                @submit.prevent="saveScratchpad()">
+                <label
+                    for="project-scratchpad"
+                    class="sr-only">Scratchpad notes</label>
+                <Textarea
+                    id="project-scratchpad"
+                    v-model="scratchpadForm.scratchpad"
+                    maxlength="50000"
+                    :rows="4"
+                    placeholder="Jot down ideas, reminders, and rough notes…"
+                    class="min-h-24 resize-none rounded-none border-0 bg-transparent p-0 font-mono shadow-none focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 dark:bg-transparent"
+                    :aria-invalid="!!scratchpadForm.errors.scratchpad"
+                    :aria-describedby="scratchpadForm.errors.scratchpad ? 'scratchpad-error' : undefined" />
                 <div class="flex items-center gap-2">
-<!--                    <Button type="submit" size="sm" :disabled="scratchpadSave.processing || !scratchpadForm.isDirty || !!scratchpadForm.errors.revision">Save notes</Button>-->
-                    <span role="status" class="text-xs text-muted-foreground">{{ scratchpadSave.processing ? 'Saving…' : '' }}</span>
-                    <Button type="button" size="icon-sm" variant="ghost" class="ml-auto" :aria-label="actionButtonLabel" :title="actionButtonLabel" :disabled="scratchpadSave.processing || actionPreview.processing || !!scratchpadForm.errors.revision || !scratchpadForm.scratchpad.trim()" @click="generateActions()"><SparklesIcon aria-hidden="true" :class="actionPreview.processing ? 'animate-pulse' : undefined" /></Button>
+                    <!--                    <Button type="submit" size="sm" :disabled="scratchpadSave.processing || !scratchpadForm.isDirty || !!scratchpadForm.errors.revision">Save notes</Button>-->
+                    <span
+                        role="status"
+                        class="text-xs text-muted-foreground"><TextTransition
+                            :text="scratchpadSave.processing ? 'Saving…' : ''"
+                            shimmer /></span>
+                    <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        class="ml-auto"
+                        :aria-label="actionButtonLabel"
+                        :title="actionButtonLabel"
+                        :disabled="scratchpadSave.processing || actionPreview.processing || !!scratchpadForm.errors.revision || !scratchpadForm.scratchpad.trim()"
+                        @click="generateActions()">
+                        <span
+                            class="t-icon-swap"
+                            :data-state="actionPreview.processing ? 'b' : 'a'"
+                            aria-hidden="true"><span
+                                class="t-icon"
+                                data-icon="a"><SparklesIcon /></span><span
+                                    class="t-icon"
+                                    data-icon="b"><LoaderCircleIcon :class="actionPreview.processing ? 'animate-spin motion-reduce:animate-none' : undefined" /></span></span>
+                    </Button>
                 </div>
-                <p v-if="scratchpadForm.errors.scratchpad" id="scratchpad-error" role="alert" class="text-sm text-destructive">{{ scratchpadForm.errors.scratchpad }}</p>
-                <div v-if="scratchpadForm.errors.revision" role="alert" class="flex flex-wrap items-center gap-2 text-sm text-destructive"><span>{{ scratchpadForm.errors.revision }}</span><Button type="button" size="sm" variant="outline" @click="reloadProject">Reload project</Button></div>
-                <div v-if="actionNotice" role="alert" class="flex flex-wrap items-center gap-2 text-sm text-destructive"><span>{{ actionNotice }}</span><Button v-if="actionNeedsReload" type="button" size="sm" variant="outline" @click="reloadProject">Reload project</Button></div>
+                <p
+                    v-if="scratchpadForm.errors.scratchpad"
+                    id="scratchpad-error"
+                    role="alert"
+                    class="text-sm text-destructive">
+                    {{ scratchpadForm.errors.scratchpad }}
+                </p>
+                <div
+                    v-if="scratchpadForm.errors.revision"
+                    role="alert"
+                    class="flex flex-wrap items-center gap-2 text-sm text-destructive">
+                    <span>{{ scratchpadForm.errors.revision }}</span><Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        @click="reloadProject">
+                        Reload project
+                    </Button>
+                </div>
+                <div
+                    v-if="actionNotice"
+                    role="alert"
+                    class="flex flex-wrap items-center gap-2 text-sm text-destructive">
+                    <span>{{ actionNotice }}</span><Button
+                        v-if="actionNeedsReload"
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        @click="reloadProject">
+                        Reload project
+                    </Button>
+                </div>
             </form>
-            <ScratchpadActionsReview ref="actionReview" :key="project.id" :project="project" :statuses="actionStatuses" @saved="actionsSaved" />
+            <ScratchpadActionsReview
+                ref="actionReview"
+                :key="project.id"
+                :project="project"
+                :statuses="actionStatuses"
+                @saved="actionsSaved" />
         </CardContent>
     </Card>
 </template>

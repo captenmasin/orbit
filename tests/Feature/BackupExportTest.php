@@ -127,6 +127,14 @@ class BackupExportTest extends TestCase
     {
         config(['nativephp-internal.running' => true]);
         $pinHash = null;
+        $recovery = null;
+        Settings::shouldReceive('get')->with('secrets.recovery')->andReturnUsing(function () use (&$recovery): ?array {
+            return $recovery;
+        });
+        Settings::shouldReceive('set')->with('secrets.recovery', \Mockery::type('array'))
+            ->andReturnUsing(function (string $key, array $value) use (&$recovery): void {
+                $recovery = $value;
+            });
         Settings::shouldReceive('get')->with('secrets.pin_hash')->andReturnUsing(function () use (&$pinHash): ?string {
             return $pinHash;
         });

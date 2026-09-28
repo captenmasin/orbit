@@ -431,6 +431,24 @@ test('edit forms retain dirty names and tags when the saved revision changes', a
     assert.equal(create.state.tab.value, 'overview');
 });
 
+test('new projects and archive restoration use the first configured status', t => {
+    const mount = harness(t);
+    const requests = [];
+    t.mock.method(inertia.router, 'post', (url, data) => requests.push({ url, data }));
+    const statuses = ['Planning', 'Review', 'Archived'];
+    const create = mount('components/ProjectForm', { statuses, native: false });
+    assert.equal(create.state.form.status, 'Planning');
+    const archived = mount('components/ProjectForm', { project: { id: 'archived', name: 'Archived project', status: 'Archived', previous_status: null, tags: [], revision: 2 }, statuses, native: false });
+
+    archived.state.archive();
+
+    assert.equal(requests[0].url, '/projects/archived');
+    assert.equal(requests[0].data.status, 'Planning');
+    archived.props.project.previous_status = 'Review';
+    archived.state.archive();
+    assert.equal(requests[1].data.status, 'Review');
+});
+
 test('edit navigation opens the requested section despite a saved tab', t => {
     let url = '/projects/project-a/edit';
     const mount = harness(t, { usePage: () => ({ url }) });

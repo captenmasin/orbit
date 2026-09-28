@@ -841,3 +841,29 @@ test('manual lock clears values, rejects delayed reveals and revokes the session
     assert.equal(requests[1].url, '/secrets/lock');
     assert.equal(requests[1].options.method, 'POST');
 });
+
+test('PIN recovery clears old unlock errors and staged files before refreshing secret metadata', async t => {
+    const state = mount(t);
+    const reloads = [];
+    t.mock.method(inertia.router, 'reload', options => reloads.push(options));
+    state.pinForm.pin = '012';
+    await vue.nextTick();
+    state.pinForm.setError('pin', 'Incorrect PIN.');
+    state.error.value = 'Incorrect PIN.';
+    state.importOpen.value = true;
+    state.importPreview.value = { source: '.env', entries: [] };
+    state.exportOpen.value = true;
+    state.exportPreview.value = { destination: '.env', exists: false };
+
+    state.recoveredPin();
+
+    assert.equal(state.unlocked.value, false);
+    assert.equal(state.pinForm.pin, '');
+    assert.equal(state.pinForm.hasErrors, false);
+    assert.equal(state.error.value, '');
+    assert.equal(state.importOpen.value, false);
+    assert.equal(state.importPreview.value, null);
+    assert.equal(state.exportOpen.value, false);
+    assert.equal(state.exportPreview.value, null);
+    assert.deepEqual(Array.from(reloads[0].only), ['selectedProject']);
+});

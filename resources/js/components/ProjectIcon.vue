@@ -5,8 +5,13 @@ defineProps<{ name: string; type?: string; emoji?: string | null; image?: string
 </script>
 
 <template>
-    <Avatar :size="size" aria-hidden="true">
-        <AvatarImage v-if="type === 'image' && image" :src="image" alt="" />
+    <Avatar
+        :size="size"
+        aria-hidden="true">
+        <AvatarImage
+            v-if="type === 'image' && image"
+            :src="image"
+            alt="" />
         <AvatarFallback>{{ type === 'emoji' && emoji ? emoji : name.trim().split(/\s+/).slice(0, 2).map(word => Array.from(word)[0]).join('').toLocaleUpperCase() || '?' }}</AvatarFallback>
     </Avatar>
 </template>

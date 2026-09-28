@@ -1,0 +1,301 @@
+@layer components {
+.t-dropdown {
+  transform-origin: top left;
+  transform: scale(var(--dropdown-pre-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-open-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-open-dur) var(--dropdown-ease);
+  will-change: transform, opacity;
+}
+.t-dropdown[data-origin="top-right"]     { transform-origin: top right; }
+.t-dropdown[data-origin="top-center"]    { transform-origin: top center; }
+.t-dropdown[data-origin="bottom-left"]   { transform-origin: bottom left; }
+.t-dropdown[data-origin="bottom-center"] { transform-origin: bottom center; }
+.t-dropdown[data-origin="bottom-right"]  { transform-origin: bottom right; }
+
+.t-dropdown.is-open {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+.t-dropdown.is-closing {
+  transform: scale(var(--dropdown-closing-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-close-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-close-dur) var(--dropdown-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-dropdown { transition: none !important; }
+}
+
+.t-modal {
+  transform-origin: center;
+  transform: scale(var(--modal-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--modal-open-dur) var(--modal-ease),
+    opacity   var(--modal-open-dur) var(--modal-ease);
+  will-change: transform, opacity;
+}
+.t-modal.is-open {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+.t-modal.is-closing {
+  transform: scale(var(--modal-scale-close));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--modal-close-dur) var(--modal-ease),
+    opacity   var(--modal-close-dur) var(--modal-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-modal { transition: none !important; }
+}
+
+.t-panel-slide {
+  transform: translateY(var(--panel-translate-y));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  pointer-events: none;
+  transition:
+    transform var(--panel-close-dur) var(--panel-ease),
+    opacity   var(--panel-close-dur) var(--panel-ease),
+    filter    var(--panel-close-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+.t-panel-slide[data-open="true"] {
+  transform: translateY(0);
+  opacity: 1;
+  filter: blur(0);
+  pointer-events: auto;
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity   var(--panel-open-dur) var(--panel-ease),
+    filter    var(--panel-open-dur) var(--panel-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-panel-slide { transition: none !important; }
+}
+
+.t-tt-group {
+  position: relative;
+  display: inline-flex;
+}
+.t-tt {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0;                 /* the JS writes the measured width */
+  overflow: hidden;
+  /* Individual transform properties: the travel (translate) and the
+     appear (scale) run on their own clocks. */
+  translate: var(--tt-x, 0px) 0;
+  scale: var(--tt-scale);
+  transform-origin: 50% 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--tt-bg);
+  color: var(--tt-fg);
+  white-space: nowrap;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 2px 6px 0 rgba(0, 0, 0, 0.05),
+    0 4px 42px 0 rgba(0, 0, 0, 0.06);
+  opacity: 0;
+  pointer-events: none;
+  /* Default rule controls the LEAVE state: no delay, so hiding plays
+     immediately. The move lanes are always live. */
+  transition:
+    opacity   var(--tt-out-dur) var(--tt-out-ease),
+    scale     var(--tt-out-dur) var(--tt-out-ease),
+    translate var(--tt-move-dur) var(--tt-move-ease),
+    width     var(--tt-move-dur) var(--tt-move-ease);
+}
+/* The appear delay belongs ONLY to the show rule, so hiding snaps it
+   back to 0. A retarget while showing carries no delay at all. */
+.t-tt[data-show="true"] {
+  opacity: 1;
+  scale: 1;
+  transition:
+    opacity   var(--tt-in-dur) var(--tt-in-ease) var(--tt-delay),
+    scale     var(--tt-in-dur) var(--tt-in-ease) var(--tt-delay),
+    translate var(--tt-move-dur) var(--tt-move-ease),
+    width     var(--tt-move-dur) var(--tt-move-ease);
+}
+.t-tt-text { white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .t-tt { transition: none !important; }
+}
+
+/* Reka Presence retains closing surfaces until their CSS animation ends. */
+.t-dropdown[data-state],
+.t-modal[data-state],
+.t-panel-slide[data-state],
+.t-tt[data-state],
+.t-surface-overlay[data-state] {
+  transition: none;
+  animation-fill-mode: both;
+}
+
+.t-dropdown[data-state] {
+  --surface-open-scale: var(--dropdown-pre-scale);
+  --surface-close-scale: var(--dropdown-closing-scale);
+  --surface-open-dur: var(--dropdown-open-dur);
+  --surface-close-dur: var(--dropdown-close-dur);
+  --surface-ease: var(--dropdown-ease);
+  transform-origin: var(--reka-popper-transform-origin, top left);
+}
+
+/* Item-aligned selects measure their content while opening. */
+.t-dropdown[data-align-trigger="true"] {
+  --surface-open-scale: 1;
+  --surface-close-scale: 1;
+}
+
+.t-modal[data-state] {
+  --surface-open-scale: var(--modal-scale);
+  --surface-close-scale: var(--modal-scale-close);
+  --surface-open-dur: var(--modal-open-dur);
+  --surface-close-dur: var(--modal-close-dur);
+  --surface-ease: var(--modal-ease);
+}
+
+.t-tt[data-state] {
+  --surface-open-scale: var(--tt-scale);
+  --surface-close-scale: var(--tt-scale);
+  --surface-open-dur: var(--tt-in-dur);
+  --surface-close-dur: var(--tt-out-dur);
+  --surface-ease: var(--tt-in-ease);
+  position: relative;
+  bottom: auto;
+  left: auto;
+  width: max-content;
+  overflow: visible;
+  white-space: normal;
+  translate: none;
+  scale: 1;
+  transform-origin: var(--reka-popper-transform-origin, center);
+  box-shadow: none;
+}
+
+:is(.t-dropdown, .t-modal, .t-tt):is([data-state="open"], [data-state="delayed-open"], [data-state="instant-open"]) {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+  animation-name: t-surface-in;
+  animation-duration: var(--surface-open-dur);
+  animation-timing-function: var(--surface-ease);
+}
+
+:is(.t-dropdown, .t-modal, .t-tt)[data-state="closed"] {
+  opacity: 0;
+  transform: scale(var(--surface-close-scale));
+  pointer-events: none;
+  animation-name: t-surface-out;
+  animation-duration: var(--surface-close-dur);
+  animation-timing-function: var(--surface-ease);
+}
+
+.t-panel-slide[data-side="left"] { --panel-translate-x: -100%; --panel-translate-y: 0px; }
+.t-panel-slide[data-side="right"] { --panel-translate-x: 100%; --panel-translate-y: 0px; }
+.t-panel-slide[data-side="top"] { --panel-translate-y: -100%; }
+.t-panel-slide[data-side="bottom"] { --panel-translate-y: 100%; }
+
+.t-panel-slide[data-state="open"] {
+  transform: translate(0, 0);
+  opacity: 1;
+  filter: blur(0);
+  pointer-events: auto;
+  animation-name: t-panel-in;
+  animation-duration: var(--panel-open-dur);
+  animation-timing-function: var(--panel-ease);
+}
+
+.t-panel-slide[data-state="closed"] {
+  transform: translate(var(--panel-translate-x, 0px), var(--panel-translate-y));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  pointer-events: none;
+  animation-name: t-panel-out;
+  animation-duration: var(--panel-close-dur);
+  animation-timing-function: var(--panel-ease);
+}
+
+.t-surface-overlay {
+  --surface-open-dur: var(--modal-open-dur);
+  --surface-close-dur: var(--modal-close-dur);
+}
+
+.t-surface-overlay[data-slot="sheet-overlay"] {
+  --surface-open-dur: var(--panel-open-dur);
+  --surface-close-dur: var(--panel-close-dur);
+}
+
+.t-surface-overlay[data-state="open"] {
+  animation-name: t-overlay-in;
+  animation-duration: var(--surface-open-dur);
+  animation-timing-function: var(--ease-smooth-out);
+}
+
+.t-surface-overlay[data-state="closed"] {
+  opacity: 0;
+  animation-name: t-overlay-out;
+  animation-duration: var(--surface-close-dur);
+  animation-timing-function: var(--ease-smooth-out);
+}
+
+@keyframes t-surface-in {
+  from { opacity: 0; transform: scale(var(--surface-open-scale)); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes t-surface-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(var(--surface-close-scale)); }
+}
+
+@keyframes t-panel-in {
+  from { opacity: 0; transform: translate(var(--panel-translate-x, 0px), var(--panel-translate-y)); filter: blur(var(--panel-blur)); }
+  to { opacity: 1; transform: translate(0, 0); filter: blur(0); }
+}
+
+@keyframes t-panel-out {
+  from { opacity: 1; transform: translate(0, 0); filter: blur(0); }
+  to { opacity: 0; transform: translate(var(--panel-translate-x, 0px), var(--panel-translate-y)); filter: blur(var(--panel-blur)); }
+}
+
+@keyframes t-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes t-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-orbit-motion="off"]) :is(.t-dropdown, .t-modal, .t-panel-slide, .t-tt, .t-surface-overlay)[data-state] {
+    animation: none !important;
+  }
+}
+
+html.reduce-motion :is(.t-dropdown, .t-modal, .t-panel-slide, .t-tt, .t-surface-overlay)[data-state] {
+  animation: none !important;
+}
+}

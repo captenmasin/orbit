@@ -115,7 +115,7 @@ class WorkspaceRestoreTest extends TestCase
         $snapshot = $preferences->snapshot();
         $crypto = app(ProtectCredential::class);
         $records = app(WorkspaceBackup::class)->records(false, $crypto);
-        $records[1]['data'] = $incoming;
+        $records[1]['data'] = [...$incoming, 'project_statuses' => WorkspacePreferences::defaults()['project_statuses']];
 
         try {
             app(WorkspaceRestore::class)->stage($records, $crypto);

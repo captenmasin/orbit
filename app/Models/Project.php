@@ -17,6 +17,8 @@ class Project extends Model
 
     public const STATUSES = ['Idea', 'In Progress', 'Live', 'Paused', 'Maintenance', 'Archived'];
 
+    public const STATUS_COLORS = [...BoardColumn::COLORS, 'orange'];
+
     public const PREVIEWABLE_ASSET_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/svg+xml'];
 
     protected $fillable = ['name', 'description', 'notes', 'scratchpad', 'status', 'icon_type', 'icon_emoji', 'icon_path', 'archived_at', 'previous_status', 'reviewed_at'];
@@ -25,9 +27,16 @@ class Project extends Model
 
     protected $appends = ['icon_url', 'assets'];
 
+    /** @return list<string> */
+    public static function statuses(): array
+    {
+        return [...app(WorkspacePreferences::class)->get('project_statuses.names'), 'Archived'];
+    }
+
     protected static function booted(): void
     {
         static::creating(function (Project $project): void {
+            $project->status ??= static::statuses()[0];
             $project->position = (static::max('position') ?? -1) + 1;
         });
         static::created(function (Project $project): void {

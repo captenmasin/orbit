@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue';
-import { useHttp } from '@inertiajs/vue3';
-import { toast } from 'vue-sonner';
 import SecretPinInput from '@/components/SecretPinInput.vue';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import SecretPinRecovery from '@/components/SecretPinRecovery.vue';
+import SecretRecoveryCode from '@/components/SecretRecoveryCode.vue';
+import { toast } from 'vue-sonner';
+import { useHttp } from '@inertiajs/vue3';
+import { onBeforeUnmount, ref } from 'vue';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 
 const props = defineProps<{ native: boolean; pinSet: boolean }>();
 const emit = defineEmits<{ saved: [revision: number] }>();
 const pinSet = ref(props.pinSet);
-const form = useHttp<{ current_pin: string; pin: string; pin_confirmation: string }, { revision?: number }>({ current_pin: '', pin: '', pin_confirmation: '' });
+const form = useHttp<{ current_pin: string; pin: string; pin_confirmation: string }, { revision?: number; recovery_code: string }>({ current_pin: '', pin: '', pin_confirmation: '' });
 const error = ref('');
+const recoveryCode = ref('');
+let disposed = false;
 
 function clearPin() {
     form.current_pin = '';
@@ -20,15 +24,17 @@ function clearPin() {
     form.defaults('current_pin', '');
     form.defaults('pin', '');
     form.defaults('pin_confirmation', '');
+    form.response = null;
 }
 async function savePin() {
-    if (!props.native || form.processing) return;
+    if (!props.native || form.processing || recoveryCode.value) return;
     error.value = '';
     form.clearErrors();
     try {
         const options = { onHttpException: (response: { data: string }) => { error.value = JSON.parse(response.data).message ?? 'Your PIN could not be saved.'; } };
         const result = pinSet.value ? await form.put('/secrets/pin', options) : await form.post('/secrets/pin', options);
-        if (!result) return;
+        if (!result || disposed) return;
+        recoveryCode.value = result.recovery_code;
         if (typeof result.revision === 'number') emit('saved', result.revision);
         toast.success(pinSet.value ? 'PIN changed. Secrets are locked.' : 'PIN saved.');
         pinSet.value = true;
@@ -38,36 +44,110 @@ async function savePin() {
         clearPin();
     }
 }
-onBeforeUnmount(() => { form.cancel(); clearPin(); });
+function recovered(revision: number) { clearPin(); error.value = ''; emit('saved', revision); }
+onBeforeUnmount(() => { disposed = true; form.cancel(); clearPin(); recoveryCode.value = ''; });
 </script>
 
 <template>
-    <section class="grid gap-4" aria-labelledby="settings-pin-title">
+    <section
+        class="grid gap-4"
+        aria-labelledby="settings-pin-title">
         <div>
-            <h3 id="settings-pin-title" class="text-sm font-semibold">Secrets PIN</h3>
-            <p class="mt-1 text-sm leading-6 text-muted-foreground">One PIN unlocks secrets in every project.</p>
+            <h3
+                id="settings-pin-title"
+                class="text-sm font-normal">
+                Secrets PIN
+            </h3>
+            <p class="mt-1 text-sm leading-6 text-muted-foreground">
+                One PIN unlocks secrets in every project.
+            </p>
         </div>
-        <Alert v-if="!native"><AlertDescription>Open the desktop app to manage your PIN.</AlertDescription></Alert>
-        <form v-else class="grid w-full max-w-md justify-items-start gap-4" @submit.prevent="savePin">
-            <Field v-if="pinSet" class="w-auto gap-2" :data-invalid="!!form.errors.current_pin">
-                <FieldLabel for="settings-current-pin">Current PIN</FieldLabel>
-                <SecretPinInput id="settings-current-pin" v-model="form.current_pin" :disabled="form.processing" :invalid="!!form.errors.current_pin" aria-describedby="settings-current-pin-error" />
-                <FieldError v-if="form.errors.current_pin" id="settings-current-pin-error">{{ form.errors.current_pin }}</FieldError>
+        <Alert v-if="!native">
+            <AlertDescription>Open the desktop app to manage your PIN.</AlertDescription>
+        </Alert>
+        <SecretRecoveryCode
+            v-else-if="recoveryCode"
+            :code="recoveryCode"
+            @saved="recoveryCode = ''" />
+        <form
+            v-else
+            class="grid w-full max-w-md justify-items-start gap-4"
+            @submit.prevent="savePin">
+            <Field
+                v-if="pinSet"
+                class="w-auto gap-2"
+                :data-invalid="!!form.errors.current_pin">
+                <FieldLabel for="settings-current-pin">
+                    Current PIN
+                </FieldLabel>
+                <SecretPinInput
+                    id="settings-current-pin"
+                    v-model="form.current_pin"
+                    :disabled="form.processing"
+                    :invalid="!!form.errors.current_pin"
+                    aria-describedby="settings-current-pin-error" />
+                <FieldError
+                    v-if="form.errors.current_pin"
+                    id="settings-current-pin-error">
+                    {{ form.errors.current_pin }}
+                </FieldError>
             </Field>
             <div class="flex max-w-full flex-wrap items-start gap-x-6 gap-y-4">
-                <Field class="w-auto gap-2" :data-invalid="!!form.errors.pin">
-                    <FieldLabel for="settings-new-pin">{{ pinSet ? 'New PIN' : 'PIN' }}</FieldLabel>
-                    <SecretPinInput id="settings-new-pin" v-model="form.pin" :disabled="form.processing" :invalid="!!form.errors.pin" aria-describedby="settings-new-pin-error" />
-                    <FieldError v-if="form.errors.pin" id="settings-new-pin-error">{{ form.errors.pin }}</FieldError>
+                <Field
+                    class="w-auto gap-2"
+                    :data-invalid="!!form.errors.pin">
+                    <FieldLabel for="settings-new-pin">
+                        {{ pinSet ? 'New PIN' : 'PIN' }}
+                    </FieldLabel>
+                    <SecretPinInput
+                        id="settings-new-pin"
+                        v-model="form.pin"
+                        :disabled="form.processing"
+                        :invalid="!!form.errors.pin"
+                        aria-describedby="settings-new-pin-error" />
+                    <FieldError
+                        v-if="form.errors.pin"
+                        id="settings-new-pin-error">
+                        {{ form.errors.pin }}
+                    </FieldError>
                 </Field>
-                <Field class="w-auto gap-2" :data-invalid="!!form.errors.pin_confirmation">
-                    <FieldLabel for="settings-confirm-pin">Confirm {{ pinSet ? 'new PIN' : 'PIN' }}</FieldLabel>
-                    <SecretPinInput id="settings-confirm-pin" v-model="form.pin_confirmation" :disabled="form.processing" :invalid="!!form.errors.pin_confirmation" aria-describedby="settings-confirm-pin-error" />
-                    <FieldError v-if="form.errors.pin_confirmation" id="settings-confirm-pin-error">{{ form.errors.pin_confirmation }}</FieldError>
+                <Field
+                    class="w-auto gap-2"
+                    :data-invalid="!!form.errors.pin_confirmation">
+                    <FieldLabel for="settings-confirm-pin">
+                        Confirm {{ pinSet ? 'new PIN' : 'PIN' }}
+                    </FieldLabel>
+                    <SecretPinInput
+                        id="settings-confirm-pin"
+                        v-model="form.pin_confirmation"
+                        :disabled="form.processing"
+                        :invalid="!!form.errors.pin_confirmation"
+                        aria-describedby="settings-confirm-pin-error" />
+                    <FieldError
+                        v-if="form.errors.pin_confirmation"
+                        id="settings-confirm-pin-error">
+                        {{ form.errors.pin_confirmation }}
+                    </FieldError>
                 </Field>
             </div>
-            <Alert v-if="error" variant="destructive"><AlertDescription>{{ error }}</AlertDescription></Alert>
-            <Button type="submit" :disabled="form.processing || form.pin.length !== 4 || form.pin_confirmation.length !== 4 || (pinSet && form.current_pin.length !== 4)">{{ form.processing ? 'Saving…' : pinSet ? 'Change PIN' : 'Save PIN' }}</Button>
+            <Alert
+                v-if="error"
+                variant="destructive">
+                <AlertDescription>{{ error }}</AlertDescription>
+            </Alert>
+            <Button
+                type="submit"
+                :disabled="form.processing || form.pin.length !== 4 || form.pin_confirmation.length !== 4 || (pinSet && form.current_pin.length !== 4)">
+                {{ form.processing ? 'Saving…' : pinSet ? 'Change PIN' : 'Save PIN' }}
+            </Button>
+            <p class="text-sm leading-6 text-muted-foreground">
+                {{ pinSet ? 'Changing your PIN creates a new recovery code and replaces the previous code.' : 'After saving, keep your recovery code somewhere safe so you can reset a forgotten PIN.' }}
+            </p>
         </form>
+        <div v-if="native && pinSet && !recoveryCode">
+            <SecretPinRecovery
+                :disabled="form.processing"
+                @saved="recovered" />
+        </div>
     </section>
 </template>

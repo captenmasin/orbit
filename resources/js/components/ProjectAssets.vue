@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { router, useForm } from '@inertiajs/vue3';
-import { toast } from 'vue-sonner';
-import { ArrowLeftIcon, ChevronRightIcon, DownloadIcon, EllipsisVerticalIcon, FileArchiveIcon, FileAudioIcon, FileCode2Icon, FileIcon, FileTextIcon, FileVideoIcon, FolderIcon, FolderPlusIcon, LayoutGridIcon, ListIcon, PencilIcon, SearchIcon, Trash2Icon, UploadIcon } from '@lucide/vue';
-import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import ChoiceSelect from '@/components/ChoiceSelect.vue';
 import FilterSelect from '@/components/FilterSelect.vue';
-import { Field, FieldLabel, FieldError } from '@/components/ui/field';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
+import TextTransition from '@/components/TextTransition.vue';
+import { toast } from 'vue-sonner';
 import type { Project } from '@/types';
+import { computed, ref, watch } from 'vue';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { router, useForm } from '@inertiajs/vue3';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Field, FieldLabel, FieldError } from '@/components/ui/field';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ArrowLeftIcon, ChevronRightIcon, DownloadIcon, EllipsisVerticalIcon, FileArchiveIcon, FileAudioIcon, FileCode2Icon, FileIcon, FileTextIcon, FileVideoIcon, FolderIcon, FolderPlusIcon, LayoutGridIcon, ListIcon, PencilIcon, SearchIcon, Trash2Icon, UploadIcon } from '@lucide/vue';
 const props = defineProps<{ project: Project }>();
 type AssetFolder = NonNullable<Project['asset_folders']>[number];
 type AssetSelection = { type: 'file' | 'folder'; id: string };
@@ -409,94 +410,631 @@ function renameFile() {
 
 <template>
     <div>
-    <section class="-m-3 space-y-5 p-3" :class="dropTarget === (selectedFolder || '__root__') ? 'rounded-xl bg-primary/5' : ''" aria-labelledby="assets-title" @dragover="allowDrop($event, selectedFolder)" @dragleave="leaveDrop" @drop.prevent="dropOn($event, selectedFolder)" @keydown="onExplorerKeydown">
-        <input ref="uploadPicker" type="file" multiple class="hidden" :disabled="busy" @change="selectUploadFiles" />
-        <div class="flex flex-wrap items-start justify-between gap-4">
-            <div><h2 id="assets-title" class="text-xl font-semibold tracking-[-0.025em]">Assets</h2></div>
-            <div class="flex flex-wrap gap-2"><Button variant="outline" :disabled="busy" @click="editFolder()"><FolderPlusIcon aria-hidden="true" />New folder</Button><Button :disabled="busy" @click="uploadPicker?.click()"><UploadIcon aria-hidden="true" />{{ upload.processing ? `Uploading ${upload.progress?.percentage ?? 0}%` : 'Upload files' }}</Button></div>
-        </div>
-        <Alert v-if="Object.keys(errors).length" variant="destructive"><AlertDescription><p v-for="(error, key) in errors" :key="key">{{ error }}</p><Button v-if="errors.revision" variant="outline" @click="router.reload()">Reload project</Button></AlertDescription></Alert>
-        <div v-if="currentFolder" class="flex flex-wrap items-center gap-3">
-            <div class="flex min-w-0 flex-wrap items-center gap-2">
-                <Button variant="ghost" size="sm" :disabled="busy" @click="selectedFolder = currentFolder.parent_id ?? ''"><ArrowLeftIcon aria-hidden="true" />Back to parent folder</Button>
-                <nav aria-label="Current asset folder" class="flex min-w-0 flex-wrap items-center gap-2 text-sm">
-                    <Button variant="link" size="sm" class="px-0" :class="dropTarget === '__root__' ? 'rounded bg-primary/10' : ''" @click="selectedFolder = ''" @dragover.stop="allowDrop($event, '')" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, '')">Assets</Button>
-                    <template v-for="(folder, index) in breadcrumbs" :key="folder.id"><ChevronRightIcon class="size-4 text-muted-foreground" aria-hidden="true" /><Button v-if="index < breadcrumbs.length - 1" variant="link" size="sm" class="px-0" @click="selectedFolder = folder.id" @dragover.stop="allowDrop($event, folder.id)" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, folder.id)">{{ folder.name }}</Button><span v-else class="min-w-0 truncate font-medium" aria-current="page">{{ folder.name }}</span></template>
-                </nav>
+        <section
+            class="-m-3 space-y-5 p-3"
+            :class="dropTarget === (selectedFolder || '__root__') ? 'rounded-xl bg-primary/5' : ''"
+            aria-labelledby="assets-title"
+            @dragover="allowDrop($event, selectedFolder)"
+            @dragleave="leaveDrop"
+            @drop.prevent="dropOn($event, selectedFolder)"
+            @keydown="onExplorerKeydown">
+            <input
+                ref="uploadPicker"
+                type="file"
+                multiple
+                class="hidden"
+                :disabled="busy"
+                @change="selectUploadFiles">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h2
+                        id="assets-title"
+                        class="text-xl font-normal tracking-[-0.025em]">
+                        Assets
+                    </h2>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <Button
+                        variant="outline"
+                        :disabled="busy"
+                        @click="editFolder()">
+                        <FolderPlusIcon aria-hidden="true" />New folder
+                    </Button><Button
+                        :disabled="busy"
+                        @click="uploadPicker?.click()">
+                        <UploadIcon aria-hidden="true" /><TextTransition :text="upload.processing ? 'Uploading' : 'Upload files'" /><span
+                            v-if="upload.processing"
+                            class="tabular-nums">{{ upload.progress?.percentage ?? 0 }}%</span>
+                    </Button>
+                </div>
             </div>
-        </div>
-        <div class="grid">
-        <div role="search" class="col-start-1 row-start-1 flex flex-wrap items-center gap-2.5" :class="selectedKeys.length ? 'invisible' : ''" :inert="selectedKeys.length > 0" aria-label="Filter assets">
-            <div class="relative min-w-[240px] max-w-[28rem] flex-[1_1_20rem]"><label for="asset-search" class="sr-only">Search files in this folder</label><SearchIcon class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /><Input id="asset-search" v-model="search" placeholder="Search files" maxlength="255" class="h-9 rounded-full border-0 bg-muted pl-9 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]" /></div>
-            <div v-if="folderAssets.length || selectedType" class="min-w-[155px] flex-1 sm:flex-none"><label for="asset-type" class="sr-only">Type</label><FilterSelect id="asset-type" label="Type" :model-value="selectedType" :options="typeFilters.map(filter => ({ value: filter.type, label: filter.type + ' (' + filter.count + ')' }))" :all-label="'All types (' + folderAssets.length + ')'" @update:model-value="selectedType = $event" /></div>
-            <div class="min-w-[155px] flex-1 sm:flex-none"><label for="asset-sort" class="sr-only">Sort</label><FilterSelect id="asset-sort" label="Sort" :model-value="sortBy === 'default' ? '' : sortBy" :options="[{ value: 'name', label: 'Name A–Z' }, { value: 'size', label: 'Largest first' }]" all-label="Upload order" @update:model-value="sortBy = $event || 'default'" /></div>
-            <div class="ml-auto flex rounded-full bg-muted p-0.5" role="group" aria-label="File view"><Button variant="ghost" size="icon-sm" class="rounded-full" :class="view === 'list' ? 'bg-background shadow-sm hover:bg-background dark:hover:bg-background' : ''" :aria-pressed="view === 'list'" aria-label="List view" @click="view = 'list'"><ListIcon aria-hidden="true" /></Button><Button variant="ghost" size="icon-sm" class="rounded-full" :class="view === 'tiles' ? 'bg-background shadow-sm hover:bg-background dark:hover:bg-background' : ''" :aria-pressed="view === 'tiles'" aria-label="Tile view" @click="view = 'tiles'"><LayoutGridIcon aria-hidden="true" /></Button></div>
-        </div>
-        <div class="col-start-1 row-start-1 flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-sm" :class="selectedKeys.length ? '' : 'invisible'" :inert="selectedKeys.length === 0" role="status">
-            <span class="mr-auto font-medium">{{ selectedKeys.length }} selected</span>
-            <Button v-if="selectedItems.length === 1" variant="outline" size="sm" @click="renameSelected"><PencilIcon aria-hidden="true" />Rename</Button>
-            <Button variant="outline" size="sm" @click="showMove()"><FolderIcon aria-hidden="true" />Move</Button>
-            <Button variant="outline" size="sm" @click="showRemove()"><Trash2Icon aria-hidden="true" />Remove</Button>
-            <Button variant="ghost" size="sm" @click="clearSelection">Clear</Button>
-        </div>
-        </div>
-        <p class="sr-only" role="status">Showing {{ filteredAssets.length }} of {{ folderAssets.length }} files in {{ currentFolder?.name ?? 'Assets' }}.</p>
-        <div ref="canvas" class="relative min-h-48 space-y-4 pb-24" @pointerdown="canvasPointerDown" @pointermove="canvasPointerMove" @pointerup="canvasPointerUp" @pointercancel="canvasPointerUp">
-            <ul v-if="childFolders.length" :class="view === 'tiles' ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5' : 'grid gap-2'" aria-label="Folders">
-                <ContextMenu v-for="folder in childFolders" :key="folder.id">
-                <ContextMenuTrigger as-child><li :data-asset-item="selectionKey('folder', folder.id)" draggable="true" class="group relative min-w-0 rounded-xl border border-black/8 bg-muted/40 transition-colors dark:border-white/10" :class="[selectedKeys.includes(selectionKey('folder', folder.id)) ? 'ring-2 ring-ring' : 'hover:bg-muted/70', dropTarget === folder.id ? 'border-primary bg-primary/10' : '']" @dragstart="startDrag($event, 'folder', folder.id)" @dragend="dropTarget = null" @dragover.stop="allowDrop($event, folder.id)" @dragleave.stop="leaveDrop" @drop.stop.prevent="dropOn($event, folder.id)" @contextmenu="selectForMenu(selectionKey('folder', folder.id))">
-                    <button type="button" :data-asset-select="selectionKey('folder', folder.id)" class="flex h-12 w-full min-w-0 items-center gap-3 px-3 pr-11 text-left text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" :aria-label="'Select ' + folder.name + ' folder; press Enter to open'" :aria-pressed="selectedKeys.includes(selectionKey('folder', folder.id))" @click="selectItem($event, selectionKey('folder', folder.id))" @dblclick="openItem('folder', folder.id)" @keydown="onItemKeydown($event, selectionKey('folder', folder.id))"><FolderIcon class="size-5 shrink-0 fill-current text-muted-foreground" aria-hidden="true" /><span class="truncate">{{ folder.name }}</span></button>
-                    <DropdownMenuRoot><DropdownMenuTrigger as-child><Button variant="ghost" size="icon-sm" class="absolute top-1/2 right-2 -translate-y-1/2" :aria-label="'Actions for ' + folder.name" @click.stop="selectForMenu(selectionKey('folder', folder.id))"><EllipsisVerticalIcon aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end" :side-offset="4" class="z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
-                        <DropdownMenuItem :class="menuItemClass" @select="openItem('folder', folder.id)">Open</DropdownMenuItem><DropdownMenuItem :class="menuItemClass" :disabled="selectedKeys.length !== 1" @select="editFolder(folder)">Rename</DropdownMenuItem><DropdownMenuItem :class="menuItemClass" @select="showMove(selectionKey('folder', folder.id))">Move</DropdownMenuItem><DropdownMenuItem :class="menuItemClass" @select="showRemove(selectionKey('folder', folder.id))">Remove</DropdownMenuItem>
-                    </DropdownMenuContent></DropdownMenuPortal></DropdownMenuRoot>
-                </li></ContextMenuTrigger>
-                <ContextMenuContent><ContextMenuItem @select="openItem('folder', folder.id)">Open</ContextMenuItem><ContextMenuItem :disabled="selectedKeys.length !== 1" @select="editFolder(folder)">Rename</ContextMenuItem><ContextMenuItem @select="showMove(selectionKey('folder', folder.id))">Move</ContextMenuItem><ContextMenuItem variant="destructive" @select="showRemove(selectionKey('folder', folder.id))">Remove</ContextMenuItem></ContextMenuContent>
-                </ContextMenu>
-            </ul>
-            <ul v-if="filteredAssets.length" :class="view === 'tiles' ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5' : 'grid gap-2'" aria-label="Files">
-                <ContextMenu v-for="file in filteredAssets" :key="file.id">
-                <ContextMenuTrigger as-child><li :data-asset-item="selectionKey('file', file.id)" draggable="true" class="group relative min-w-0 overflow-hidden rounded-xl border border-black/8 bg-background transition-colors dark:border-white/10" :class="selectedKeys.includes(selectionKey('file', file.id)) ? 'ring-2 ring-ring bg-primary/5' : 'hover:bg-muted/40'" @dragstart="startDrag($event, 'file', file.id)" @dragend="dropTarget = null" @contextmenu="selectForMenu(selectionKey('file', file.id))">
-                    <button type="button" :data-asset-select="selectionKey('file', file.id)" class="flex h-full w-full min-w-0 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring" :class="view === 'tiles' ? 'flex-col' : 'items-center'" :aria-label="'Select ' + file.name + '; press Enter to open'" :aria-pressed="selectedKeys.includes(selectionKey('file', file.id))" @click="selectItem($event, selectionKey('file', file.id))" @dblclick="openItem('file', file.id)" @keydown="onItemKeydown($event, selectionKey('file', file.id))">
-                        <span class="flex w-full min-w-0 items-center gap-2 px-3 pr-11 text-[13px] font-medium" :class="view === 'tiles' ? 'h-14' : 'h-16'"><component :is="fileIcon(file.mime_type)" class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span class="truncate">{{ file.name }}</span></span>
-                        <span class="flex shrink-0 items-center justify-center overflow-hidden bg-muted/40" :class="view === 'tiles' ? 'aspect-[4/3] w-full p-2' : 'order-first ml-2 size-12 rounded-md'"><img v-if="file.preview_url && !failedPreviews.includes(file.id)" :src="file.preview_url" alt="" loading="lazy" class="size-full object-contain" @error="failedPreviews.push(file.id)" /><component :is="fileIcon(file.mime_type)" v-else class="text-muted-foreground stroke-[1.25]" :class="view === 'tiles' ? 'size-16 sm:size-20' : 'size-6'" aria-hidden="true" /></span>
-                        <span v-if="view === 'list'" class="ml-auto shrink-0 pr-12 text-xs text-muted-foreground">{{ size(file.size) }}</span>
-                    </button>
-                    <DropdownMenuRoot><DropdownMenuTrigger as-child><Button variant="ghost" size="icon-sm" class="absolute top-2 right-2" :aria-label="'Actions for ' + file.name" @click.stop="selectForMenu(selectionKey('file', file.id))"><EllipsisVerticalIcon aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end" :side-offset="4" class="z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
-                        <DropdownMenuItem v-if="file.preview_url" :class="menuItemClass" @select="preview = file">Preview</DropdownMenuItem><DropdownMenuItem as-child :class="menuItemClass"><a :href="file.url" download>Download</a></DropdownMenuItem><DropdownMenuItem :class="menuItemClass" :disabled="selectedKeys.length !== 1" @select="renamingFile = file; fileName = file.name">Rename</DropdownMenuItem><DropdownMenuItem :class="menuItemClass" @select="showMove(selectionKey('file', file.id))">Move</DropdownMenuItem><DropdownMenuItem :class="menuItemClass" @select="showRemove(selectionKey('file', file.id))">Remove</DropdownMenuItem>
-                    </DropdownMenuContent></DropdownMenuPortal></DropdownMenuRoot>
-                </li></ContextMenuTrigger>
-                <ContextMenuContent><ContextMenuItem v-if="file.preview_url" @select="preview = file">Preview</ContextMenuItem><ContextMenuItem as-child><a :href="file.url" download>Download</a></ContextMenuItem><ContextMenuItem :disabled="selectedKeys.length !== 1" @select="renamingFile = file; fileName = file.name">Rename</ContextMenuItem><ContextMenuItem @select="showMove(selectionKey('file', file.id))">Move</ContextMenuItem><ContextMenuItem variant="destructive" @select="showRemove(selectionKey('file', file.id))">Remove</ContextMenuItem></ContextMenuContent>
-                </ContextMenu>
-            </ul>
-            <div v-else-if="search || selectedType" class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><p>No files match these filters in this folder.</p><Button variant="link" size="sm" @click="search = ''; selectedType = ''">Clear filters</Button></div>
-            <div v-else-if="!childFolders.length" class="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-black/10 px-6 py-12 text-center dark:border-white/10"><FolderIcon class="size-8 text-muted-foreground" aria-hidden="true" /><p class="mt-3 text-sm font-medium">{{ currentFolder ? 'This folder is empty' : 'No assets yet' }}</p><p class="mt-1 text-sm text-muted-foreground">{{ currentFolder ? 'Upload files here or move existing assets into this folder.' : 'Add designs, screenshots, documents, or other project files.' }}</p><Button variant="outline" class="mt-4" :disabled="busy" @click="uploadPicker?.click()"><UploadIcon aria-hidden="true" />Upload files</Button></div>
-            <div v-if="marquee" class="pointer-events-none absolute z-10 border border-primary bg-primary/10" :style="{ left: marquee.x + 'px', top: marquee.y + 'px', width: marquee.width + 'px', height: marquee.height + 'px' }" aria-hidden="true" />
-        </div>
-    </section>
-    <Dialog :open="folderEditorOpen" @update:open="value => { if (!folderForm.processing) folderEditorOpen = value; }"><DialogContent :aria-describedby="undefined"><DialogHeader><DialogTitle>{{ editingFolder ? 'Rename folder' : 'New asset folder' }}</DialogTitle></DialogHeader>
-        <form class="space-y-4" @submit.prevent="saveFolder"><Field><FieldLabel for="asset-folder-name">Folder name</FieldLabel><Input id="asset-folder-name" v-model="folderForm.name" placeholder="logo" maxlength="100" required :aria-invalid="!!folderForm.errors.name" /><FieldError v-if="folderForm.errors.name">{{ folderForm.errors.name }}</FieldError></Field><Field><FieldLabel for="asset-folder-parent">Inside</FieldLabel><ChoiceSelect id="asset-folder-parent" :model-value="folderForm.parent_id ?? ''" :options="[{ value: '', label: 'Assets' }, ...folders.filter(item => item.id !== editingFolder?.id).map(folder => ({ value: folder.id, label: folder.name }))]" @update:model-value="folderForm.parent_id = $event || null" /><FieldError v-if="folderForm.errors.parent_id">{{ folderForm.errors.parent_id }}</FieldError></Field><FieldError v-if="folderForm.errors.revision">{{ folderForm.errors.revision }}</FieldError><DialogFooter><Button type="button" variant="outline" :disabled="folderForm.processing" @click="folderEditorOpen = false">Cancel</Button><Button type="submit" :disabled="folderForm.processing">{{ folderForm.processing ? 'Saving…' : 'Save folder' }}</Button></DialogFooter></form>
-    </DialogContent></Dialog>
-    <Dialog :open="!!renamingFile" @update:open="value => { if (!value && !movement.processing) renamingFile = null; }"><DialogContent><DialogHeader><DialogTitle>Rename file</DialogTitle><DialogDescription>Change the name shown in Orbit and used for downloads.</DialogDescription></DialogHeader><form class="space-y-4" @submit.prevent="renameFile"><Field><FieldLabel for="asset-file-name">File name</FieldLabel><Input id="asset-file-name" v-model="fileName" maxlength="255" required /><FieldError v-if="movement.errors.name">{{ movement.errors.name }}</FieldError></Field><DialogFooter><Button type="button" variant="outline" @click="renamingFile = null">Cancel</Button><Button type="submit" :disabled="movement.processing">Rename</Button></DialogFooter></form></DialogContent></Dialog>
-    <Dialog :open="!!preview" @update:open="value => { if (!value) preview = null; }">
-        <DialogContent v-if="preview" class="max-h-[90dvh] overflow-y-auto sm:max-w-4xl">
-            <DialogHeader><DialogTitle class="break-all pr-8">{{ preview.name }}</DialogTitle><DialogDescription>{{ size(preview.size) }}</DialogDescription></DialogHeader>
-            <img v-if="preview.preview_url && !failedPreviews.includes(preview.id)" :src="preview.preview_url" :alt="preview.name" class="mx-auto max-h-[65dvh] max-w-full object-contain" @error="failedPreviews.push(preview.id)" />
-            <p v-else class="text-sm text-muted-foreground" role="status">This image could not be previewed. You can download it instead.</p>
-            <DialogFooter><Button as-child variant="outline"><a :href="preview.url" download><DownloadIcon aria-hidden="true" />Download</a></Button></DialogFooter>
-        </DialogContent>
-    </Dialog>
-    <Dialog :open="moveOpen" @update:open="value => { if (!bulkMovement.processing) moveOpen = value; }">
-        <DialogContent :aria-describedby="undefined"><DialogHeader><DialogTitle>Move {{ selectedItems.length }} {{ selectedItems.length === 1 ? 'item' : 'items' }}</DialogTitle></DialogHeader>
-            <Field><FieldLabel for="asset-move-destination">Move to</FieldLabel><ChoiceSelect id="asset-move-destination" :model-value="moveDestination" :options="[{ value: '', label: 'Assets' }, ...moveDestinations.map(node => ({ value: node.folder.id, label: node.path }))]" @update:model-value="moveDestination = $event" /></Field>
-            <FieldError v-for="(error, key) in bulkMovement.errors" :key="key">{{ error }}</FieldError>
-            <DialogFooter><Button variant="outline" :disabled="bulkMovement.processing" @click="moveOpen = false">Cancel</Button><Button :disabled="bulkMovement.processing || moveDestination === selectedFolder" @click="moveSelection">Move</Button></DialogFooter>
-        </DialogContent>
-    </Dialog>
-    <Dialog :open="removeOpen" @update:open="value => { if (!bulkRemoval.processing) removeOpen = value; }">
-        <DialogContent><DialogHeader><DialogTitle>Remove {{ selectedItems.length }} {{ selectedItems.length === 1 ? 'item' : 'items' }}?</DialogTitle><DialogDescription>Selected files will be deleted from Orbit. Contents of removed folders will move to the nearest remaining parent folder.</DialogDescription></DialogHeader>
-            <FieldError v-for="(error, key) in bulkRemoval.errors" :key="key">{{ error }}</FieldError>
-            <DialogFooter><Button variant="outline" :disabled="bulkRemoval.processing" @click="removeOpen = false">Cancel</Button><Button variant="destructive" :disabled="bulkRemoval.processing" @click="removeSelection">Remove</Button></DialogFooter>
-        </DialogContent>
-    </Dialog>
+            <Alert
+                v-if="Object.keys(errors).length"
+                variant="destructive">
+                <AlertDescription>
+                    <p
+                        v-for="(error, key) in errors"
+                        :key="key">
+                        {{ error }}
+                    </p><Button
+                        v-if="errors.revision"
+                        variant="outline"
+                        @click="router.reload()">
+                        Reload project
+                    </Button>
+                </AlertDescription>
+            </Alert>
+            <div
+                v-if="currentFolder"
+                class="flex flex-wrap items-center gap-3">
+                <div class="flex min-w-0 flex-wrap items-center gap-2">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        :disabled="busy"
+                        @click="selectedFolder = currentFolder.parent_id ?? ''">
+                        <ArrowLeftIcon aria-hidden="true" />Back to parent folder
+                    </Button>
+                    <nav
+                        aria-label="Current asset folder"
+                        class="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+                        <Button
+                            variant="link"
+                            size="sm"
+                            class="px-0"
+                            :class="dropTarget === '__root__' ? 'rounded bg-primary/10' : ''"
+                            @click="selectedFolder = ''"
+                            @dragover.stop="allowDrop($event, '')"
+                            @dragleave.stop="leaveDrop"
+                            @drop.stop.prevent="dropOn($event, '')">
+                            Assets
+                        </Button>
+                        <template
+                            v-for="(folder, index) in breadcrumbs"
+                            :key="folder.id">
+                            <ChevronRightIcon
+                                class="size-4 text-muted-foreground"
+                                aria-hidden="true" /><Button
+                                    v-if="index < breadcrumbs.length - 1"
+                                    variant="link"
+                                    size="sm"
+                                    class="px-0"
+                                    @click="selectedFolder = folder.id"
+                                    @dragover.stop="allowDrop($event, folder.id)"
+                                    @dragleave.stop="leaveDrop"
+                                    @drop.stop.prevent="dropOn($event, folder.id)">
+                                    {{ folder.name }}
+                                </Button><span
+                                v-else
+                                class="min-w-0 truncate font-medium"
+                                aria-current="page">{{ folder.name }}</span>
+                        </template>
+                    </nav>
+                </div>
+            </div>
+            <div class="grid">
+                <div
+                    role="search"
+                    class="col-start-1 row-start-1 flex flex-wrap items-center gap-2.5"
+                    :class="selectedKeys.length ? 'invisible' : ''"
+                    :inert="selectedKeys.length > 0"
+                    aria-label="Filter assets">
+                    <div class="relative min-w-[240px] max-w-[28rem] flex-[1_1_20rem]">
+                        <label
+                            for="asset-search"
+                            class="sr-only">Search files in this folder</label><SearchIcon
+                                class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                                aria-hidden="true" /><Input
+                                    id="asset-search"
+                                    v-model="search"
+                                    placeholder="Search files"
+                                    maxlength="255"
+                                    class="h-9 rounded-full border-0 bg-muted pl-9 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]" />
+                    </div>
+                    <div
+                        v-if="folderAssets.length || selectedType"
+                        class="min-w-[155px] flex-1 sm:flex-none">
+                        <label
+                            for="asset-type"
+                            class="sr-only">Type</label><FilterSelect
+                                id="asset-type"
+                                label="Type"
+                                :model-value="selectedType"
+                                :options="typeFilters.map(filter => ({ value: filter.type, label: filter.type + ' (' + filter.count + ')' }))"
+                                :all-label="'All types (' + folderAssets.length + ')'"
+                                @update:model-value="selectedType = $event" />
+                    </div>
+                    <div class="min-w-[155px] flex-1 sm:flex-none">
+                        <label
+                            for="asset-sort"
+                            class="sr-only">Sort</label><FilterSelect
+                                id="asset-sort"
+                                label="Sort"
+                                :model-value="sortBy === 'default' ? '' : sortBy"
+                                :options="[{ value: 'name', label: 'Name A–Z' }, { value: 'size', label: 'Largest first' }]"
+                                all-label="Upload order"
+                                @update:model-value="sortBy = $event || 'default'" />
+                    </div>
+                    <div
+                        class="ml-auto flex rounded-full bg-muted p-0.5"
+                        role="group"
+                        aria-label="File view">
+                        <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            class="rounded-full"
+                            :class="view === 'list' ? 'bg-background shadow-sm hover:bg-background dark:hover:bg-background' : ''"
+                            :aria-pressed="view === 'list'"
+                            aria-label="List view"
+                            @click="view = 'list'">
+                            <ListIcon aria-hidden="true" />
+                        </Button><Button
+                            variant="ghost"
+                            size="icon-sm"
+                            class="rounded-full"
+                            :class="view === 'tiles' ? 'bg-background shadow-sm hover:bg-background dark:hover:bg-background' : ''"
+                            :aria-pressed="view === 'tiles'"
+                            aria-label="Tile view"
+                            @click="view = 'tiles'">
+                            <LayoutGridIcon aria-hidden="true" />
+                        </Button>
+                    </div>
+                </div>
+                <div
+                    class="col-start-1 row-start-1 flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-sm"
+                    :class="selectedKeys.length ? '' : 'invisible'"
+                    :inert="selectedKeys.length === 0"
+                    role="status">
+                    <span class="mr-auto font-medium">{{ selectedKeys.length }} selected</span>
+                    <Button
+                        v-if="selectedItems.length === 1"
+                        variant="outline"
+                        size="sm"
+                        @click="renameSelected">
+                        <PencilIcon aria-hidden="true" />Rename
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        @click="showMove()">
+                        <FolderIcon aria-hidden="true" />Move
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        @click="showRemove()">
+                        <Trash2Icon aria-hidden="true" />Remove
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        @click="clearSelection">
+                        Clear
+                    </Button>
+                </div>
+            </div>
+            <p
+                class="sr-only"
+                role="status">
+                Showing {{ filteredAssets.length }} of {{ folderAssets.length }} files in {{ currentFolder?.name ?? 'Assets' }}.
+            </p>
+            <div
+                ref="canvas"
+                class="relative min-h-48 space-y-4 pb-24"
+                @pointerdown="canvasPointerDown"
+                @pointermove="canvasPointerMove"
+                @pointerup="canvasPointerUp"
+                @pointercancel="canvasPointerUp">
+                <ul
+                    v-if="childFolders.length"
+                    :class="view === 'tiles' ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5' : 'grid gap-2'"
+                    aria-label="Folders">
+                    <ContextMenu
+                        v-for="folder in childFolders"
+                        :key="folder.id">
+                        <ContextMenuTrigger as-child>
+                            <li
+                                :data-asset-item="selectionKey('folder', folder.id)"
+                                draggable="true"
+                                class="group relative min-w-0 rounded-xl border border-black/8 bg-muted/40 transition-colors dark:border-white/10"
+                                :class="[selectedKeys.includes(selectionKey('folder', folder.id)) ? 'ring-2 ring-ring' : 'hover:bg-muted/70', dropTarget === folder.id ? 'border-primary bg-primary/10' : '']"
+                                @dragstart="startDrag($event, 'folder', folder.id)"
+                                @dragend="dropTarget = null"
+                                @dragover.stop="allowDrop($event, folder.id)"
+                                @dragleave.stop="leaveDrop"
+                                @drop.stop.prevent="dropOn($event, folder.id)"
+                                @contextmenu="selectForMenu(selectionKey('folder', folder.id))">
+                                <button
+                                    type="button"
+                                    :data-asset-select="selectionKey('folder', folder.id)"
+                                    class="flex h-12 w-full min-w-0 items-center gap-3 px-3 pr-11 text-left text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                                    :aria-label="'Select ' + folder.name + ' folder; press Enter to open'"
+                                    :aria-pressed="selectedKeys.includes(selectionKey('folder', folder.id))"
+                                    @click="selectItem($event, selectionKey('folder', folder.id))"
+                                    @dblclick="openItem('folder', folder.id)"
+                                    @keydown="onItemKeydown($event, selectionKey('folder', folder.id))">
+                                    <FolderIcon
+                                        class="size-5 shrink-0 fill-current text-muted-foreground"
+                                        aria-hidden="true" /><span class="truncate">{{ folder.name }}</span>
+                                </button>
+                                <DropdownMenuRoot>
+                                    <DropdownMenuTrigger as-child>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            class="absolute top-1/2 right-2 -translate-y-1/2"
+                                            :aria-label="'Actions for ' + folder.name"
+                                            @click.stop="selectForMenu(selectionKey('folder', folder.id))">
+                                            <EllipsisVerticalIcon aria-hidden="true" />
+                                        </Button>
+                                    </DropdownMenuTrigger><DropdownMenuPortal>
+                                        <DropdownMenuContent
+                                            align="end"
+                                            :side-offset="4"
+                                            class="t-dropdown z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                                            <DropdownMenuItem
+                                                :class="menuItemClass"
+                                                @select="openItem('folder', folder.id)">
+                                                Open
+                                            </DropdownMenuItem><DropdownMenuItem
+                                                :class="menuItemClass"
+                                                :disabled="selectedKeys.length !== 1"
+                                                @select="editFolder(folder)">
+                                                Rename
+                                            </DropdownMenuItem><DropdownMenuItem
+                                                :class="menuItemClass"
+                                                @select="showMove(selectionKey('folder', folder.id))">
+                                                Move
+                                            </DropdownMenuItem><DropdownMenuItem
+                                                :class="menuItemClass"
+                                                @select="showRemove(selectionKey('folder', folder.id))">
+                                                Remove
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenuPortal>
+                                </DropdownMenuRoot>
+                            </li>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                            <ContextMenuItem @select="openItem('folder', folder.id)">
+                                Open
+                            </ContextMenuItem><ContextMenuItem
+                                :disabled="selectedKeys.length !== 1"
+                                @select="editFolder(folder)">
+                                Rename
+                            </ContextMenuItem><ContextMenuItem @select="showMove(selectionKey('folder', folder.id))">
+                                Move
+                            </ContextMenuItem><ContextMenuItem
+                                variant="destructive"
+                                @select="showRemove(selectionKey('folder', folder.id))">
+                                Remove
+                            </ContextMenuItem>
+                        </ContextMenuContent>
+                    </ContextMenu>
+                </ul>
+                <ul
+                    v-if="filteredAssets.length"
+                    :class="view === 'tiles' ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5' : 'grid gap-2'"
+                    aria-label="Files">
+                    <ContextMenu
+                        v-for="file in filteredAssets"
+                        :key="file.id">
+                        <ContextMenuTrigger as-child>
+                            <li
+                                :data-asset-item="selectionKey('file', file.id)"
+                                draggable="true"
+                                class="group relative min-w-0 overflow-hidden rounded-xl border border-black/8 bg-background transition-colors dark:border-white/10"
+                                :class="selectedKeys.includes(selectionKey('file', file.id)) ? 'ring-2 ring-ring bg-primary/5' : 'hover:bg-muted/40'"
+                                @dragstart="startDrag($event, 'file', file.id)"
+                                @dragend="dropTarget = null"
+                                @contextmenu="selectForMenu(selectionKey('file', file.id))">
+                                <button
+                                    type="button"
+                                    :data-asset-select="selectionKey('file', file.id)"
+                                    class="flex h-full w-full min-w-0 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+                                    :class="view === 'tiles' ? 'flex-col' : 'items-center'"
+                                    :aria-label="'Select ' + file.name + '; press Enter to open'"
+                                    :aria-pressed="selectedKeys.includes(selectionKey('file', file.id))"
+                                    @click="selectItem($event, selectionKey('file', file.id))"
+                                    @dblclick="openItem('file', file.id)"
+                                    @keydown="onItemKeydown($event, selectionKey('file', file.id))">
+                                    <span
+                                        class="flex w-full min-w-0 items-center gap-2 px-3 pr-11 text-[13px] font-medium"
+                                        :class="view === 'tiles' ? 'h-14' : 'h-16'"><component
+                                            :is="fileIcon(file.mime_type)"
+                                            class="size-4 shrink-0 text-muted-foreground"
+                                            aria-hidden="true" /><span class="truncate">{{ file.name }}</span></span>
+                                    <span
+                                        class="flex shrink-0 items-center justify-center overflow-hidden bg-muted/40"
+                                        :class="view === 'tiles' ? 'aspect-[4/3] w-full p-2' : 'order-first ml-2 size-12 rounded-md'"><img
+                                            v-if="file.preview_url && !failedPreviews.includes(file.id)"
+                                            :src="file.preview_url"
+                                            alt=""
+                                            loading="lazy"
+                                            class="size-full object-contain"
+                                            @error="failedPreviews.push(file.id)"><component
+                                                :is="fileIcon(file.mime_type)"
+                                                v-else
+                                                class="text-muted-foreground stroke-[1.25]"
+                                                :class="view === 'tiles' ? 'size-16 sm:size-20' : 'size-6'"
+                                                aria-hidden="true" /></span>
+                                    <span
+                                        v-if="view === 'list'"
+                                        class="ml-auto shrink-0 pr-12 text-xs text-muted-foreground">{{ size(file.size) }}</span>
+                                </button>
+                                <DropdownMenuRoot>
+                                    <DropdownMenuTrigger as-child>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            class="absolute top-2 right-2"
+                                            :aria-label="'Actions for ' + file.name"
+                                            @click.stop="selectForMenu(selectionKey('file', file.id))">
+                                            <EllipsisVerticalIcon aria-hidden="true" />
+                                        </Button>
+                                    </DropdownMenuTrigger><DropdownMenuPortal>
+                                        <DropdownMenuContent
+                                            align="end"
+                                            :side-offset="4"
+                                            class="t-dropdown z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                                            <DropdownMenuItem
+                                                v-if="file.preview_url"
+                                                :class="menuItemClass"
+                                                @select="preview = file">
+                                                Preview
+                                            </DropdownMenuItem><DropdownMenuItem
+                                                as-child
+                                                :class="menuItemClass">
+                                                <a
+                                                    :href="file.url"
+                                                    download>Download</a>
+                                            </DropdownMenuItem><DropdownMenuItem
+                                                :class="menuItemClass"
+                                                :disabled="selectedKeys.length !== 1"
+                                                @select="renamingFile = file; fileName = file.name">
+                                                Rename
+                                            </DropdownMenuItem><DropdownMenuItem
+                                                :class="menuItemClass"
+                                                @select="showMove(selectionKey('file', file.id))">
+                                                Move
+                                            </DropdownMenuItem><DropdownMenuItem
+                                                :class="menuItemClass"
+                                                @select="showRemove(selectionKey('file', file.id))">
+                                                Remove
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenuPortal>
+                                </DropdownMenuRoot>
+                            </li>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                            <ContextMenuItem
+                                v-if="file.preview_url"
+                                @select="preview = file">
+                                Preview
+                            </ContextMenuItem><ContextMenuItem as-child>
+                                <a
+                                    :href="file.url"
+                                    download>Download</a>
+                            </ContextMenuItem><ContextMenuItem
+                                :disabled="selectedKeys.length !== 1"
+                                @select="renamingFile = file; fileName = file.name">
+                                Rename
+                            </ContextMenuItem><ContextMenuItem @select="showMove(selectionKey('file', file.id))">
+                                Move
+                            </ContextMenuItem><ContextMenuItem
+                                variant="destructive"
+                                @select="showRemove(selectionKey('file', file.id))">
+                                Remove
+                            </ContextMenuItem>
+                        </ContextMenuContent>
+                    </ContextMenu>
+                </ul>
+                <div
+                    v-else-if="search || selectedType"
+                    class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <p>No files match these filters in this folder.</p><Button
+                        variant="link"
+                        size="sm"
+                        @click="search = ''; selectedType = ''">
+                        Clear filters
+                    </Button>
+                </div>
+                <div
+                    v-else-if="!childFolders.length"
+                    class="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-black/10 px-6 py-12 text-center dark:border-white/10">
+                    <FolderIcon
+                        class="size-8 text-muted-foreground"
+                        aria-hidden="true" /><p class="mt-3 text-sm font-medium">
+                            {{ currentFolder ? 'This folder is empty' : 'No assets yet' }}
+                        </p><p class="mt-1 text-sm text-muted-foreground">
+                        {{ currentFolder ? 'Upload files here or move existing assets into this folder.' : 'Add designs, screenshots, documents, or other project files.' }}
+                    </p><Button
+                        variant="outline"
+                        class="mt-4"
+                        :disabled="busy"
+                        @click="uploadPicker?.click()">
+                        <UploadIcon aria-hidden="true" />Upload files
+                    </Button>
+                </div>
+                <div
+                    v-if="marquee"
+                    class="pointer-events-none absolute z-10 border border-primary bg-primary/10"
+                    :style="{ left: marquee.x + 'px', top: marquee.y + 'px', width: marquee.width + 'px', height: marquee.height + 'px' }"
+                    aria-hidden="true" />
+            </div>
+        </section>
+        <Dialog
+            :open="folderEditorOpen"
+            @update:open="value => { if (!folderForm.processing) folderEditorOpen = value; }">
+            <DialogContent :aria-describedby="undefined">
+                <DialogHeader><DialogTitle>{{ editingFolder ? 'Rename folder' : 'New asset folder' }}</DialogTitle></DialogHeader>
+                <form
+                    class="space-y-4"
+                    @submit.prevent="saveFolder">
+                    <Field>
+                        <FieldLabel for="asset-folder-name">
+                            Folder name
+                        </FieldLabel><Input
+                            id="asset-folder-name"
+                            v-model="folderForm.name"
+                            placeholder="logo"
+                            maxlength="100"
+                            required
+                            :aria-invalid="!!folderForm.errors.name" /><FieldError v-if="folderForm.errors.name">
+                                {{ folderForm.errors.name }}
+                            </FieldError>
+                    </Field><Field>
+                        <FieldLabel for="asset-folder-parent">
+                            Inside
+                        </FieldLabel><ChoiceSelect
+                            id="asset-folder-parent"
+                            :model-value="folderForm.parent_id ?? ''"
+                            :options="[{ value: '', label: 'Assets' }, ...folders.filter(item => item.id !== editingFolder?.id).map(folder => ({ value: folder.id, label: folder.name }))]"
+                            @update:model-value="folderForm.parent_id = $event || null" /><FieldError v-if="folderForm.errors.parent_id">
+                                {{ folderForm.errors.parent_id }}
+                            </FieldError>
+                    </Field><FieldError v-if="folderForm.errors.revision">
+                        {{ folderForm.errors.revision }}
+                    </FieldError><DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            :disabled="folderForm.processing"
+                            @click="folderEditorOpen = false">
+                            Cancel
+                        </Button><Button
+                            type="submit"
+                            :disabled="folderForm.processing">
+                            <TextTransition :text="folderForm.processing ? 'Saving…' : 'Save folder'" />
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+        <Dialog
+            :open="!!renamingFile"
+            @update:open="value => { if (!value && !movement.processing) renamingFile = null; }">
+            <DialogContent>
+                <DialogHeader><DialogTitle>Rename file</DialogTitle><DialogDescription>Change the name shown in Orbit and used for downloads.</DialogDescription></DialogHeader><form
+                    class="space-y-4"
+                    @submit.prevent="renameFile">
+                    <Field>
+                        <FieldLabel for="asset-file-name">
+                            File name
+                        </FieldLabel><Input
+                            id="asset-file-name"
+                            v-model="fileName"
+                            maxlength="255"
+                            required /><FieldError v-if="movement.errors.name">
+                                {{ movement.errors.name }}
+                            </FieldError>
+                    </Field><DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            @click="renamingFile = null">
+                            Cancel
+                        </Button><Button
+                            type="submit"
+                            :disabled="movement.processing">
+                            Rename
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+        <Dialog
+            :open="!!preview"
+            @update:open="value => { if (!value) preview = null; }">
+            <DialogContent
+                v-if="preview"
+                class="max-h-[90dvh] overflow-y-auto sm:max-w-4xl">
+                <DialogHeader>
+                    <DialogTitle class="break-all pr-8">
+                        {{ preview.name }}
+                    </DialogTitle><DialogDescription>{{ size(preview.size) }}</DialogDescription>
+                </DialogHeader>
+                <img
+                    v-if="preview.preview_url && !failedPreviews.includes(preview.id)"
+                    :src="preview.preview_url"
+                    :alt="preview.name"
+                    class="mx-auto max-h-[65dvh] max-w-full object-contain"
+                    @error="failedPreviews.push(preview.id)">
+                <p
+                    v-else
+                    class="text-sm text-muted-foreground"
+                    role="status">
+                    This image could not be previewed. You can download it instead.
+                </p>
+                <DialogFooter>
+                    <Button
+                        as-child
+                        variant="outline">
+                        <a
+                            :href="preview.url"
+                            download><DownloadIcon aria-hidden="true" />Download</a>
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        <Dialog
+            :open="moveOpen"
+            @update:open="value => { if (!bulkMovement.processing) moveOpen = value; }">
+            <DialogContent :aria-describedby="undefined">
+                <DialogHeader><DialogTitle>Move {{ selectedItems.length }} {{ selectedItems.length === 1 ? 'item' : 'items' }}</DialogTitle></DialogHeader>
+                <Field>
+                    <FieldLabel for="asset-move-destination">
+                        Move to
+                    </FieldLabel><ChoiceSelect
+                        id="asset-move-destination"
+                        :model-value="moveDestination"
+                        :options="[{ value: '', label: 'Assets' }, ...moveDestinations.map(node => ({ value: node.folder.id, label: node.path }))]"
+                        @update:model-value="moveDestination = $event" />
+                </Field>
+                <FieldError
+                    v-for="(error, key) in bulkMovement.errors"
+                    :key="key">
+                    {{ error }}
+                </FieldError>
+                <DialogFooter>
+                    <Button
+                        variant="outline"
+                        :disabled="bulkMovement.processing"
+                        @click="moveOpen = false">
+                        Cancel
+                    </Button><Button
+                        :disabled="bulkMovement.processing || moveDestination === selectedFolder"
+                        @click="moveSelection">
+                        Move
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        <Dialog
+            :open="removeOpen"
+            @update:open="value => { if (!bulkRemoval.processing) removeOpen = value; }">
+            <DialogContent>
+                <DialogHeader><DialogTitle>Remove {{ selectedItems.length }} {{ selectedItems.length === 1 ? 'item' : 'items' }}?</DialogTitle><DialogDescription>Selected files will be deleted from Orbit. Contents of removed folders will move to the nearest remaining parent folder.</DialogDescription></DialogHeader>
+                <FieldError
+                    v-for="(error, key) in bulkRemoval.errors"
+                    :key="key">
+                    {{ error }}
+                </FieldError>
+                <DialogFooter>
+                    <Button
+                        variant="outline"
+                        :disabled="bulkRemoval.processing"
+                        @click="removeOpen = false">
+                        Cancel
+                    </Button><Button
+                        variant="destructive"
+                        :disabled="bulkRemoval.processing"
+                        @click="removeSelection">
+                        Remove
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     </div>
 </template>

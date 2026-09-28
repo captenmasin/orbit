@@ -1,15 +1,15 @@
 <script setup lang="ts">
+import ChoiceSelect from '@/components/ChoiceSelect.vue';
 import { computed, ref } from 'vue';
+import type { Project } from '@/types';
 import { useForm } from '@inertiajs/vue3';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Field, FieldLabel } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import ChoiceSelect from '@/components/ChoiceSelect.vue';
-import type { Project } from '@/types';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 const props = defineProps<{ project: Project; showTrigger?: boolean }>();
 const open = ref(false);
 const generated = ref(false);
@@ -40,19 +40,114 @@ function save() {
 </script>
 
 <template>
-    <Button v-if="showTrigger !== false" variant="outline" size="input" :disabled="!project.board_columns?.length" @click="begin()">Paste ideas</Button>
-    <Dialog :open="open" @update:open="value => { if (!form.processing) open = value; }"><DialogContent v-bind="items.length ? { 'aria-describedby': undefined } : {}" class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
-        <DialogHeader><DialogTitle>{{ generated ? 'Review suggested actions' : 'Paste ideas' }}</DialogTitle><DialogDescription v-if="!items.length">One card title per line.</DialogDescription></DialogHeader>
-        <form class="grid gap-4" @submit.prevent="save">
-            <Alert v-if="form.hasErrors" variant="destructive" role="alert"><AlertDescription><p v-for="message in form.errors" :key="message">{{ message }}</p></AlertDescription></Alert>
-            <template v-if="!items.length"><Field><FieldLabel for="bulk-ideas-source">Idea list</FieldLabel><Textarea id="bulk-ideas-source" v-model="pasted" :rows="8" maxlength="52000" placeholder="- First idea&#10;- Second idea" /></Field><Button type="button" :disabled="!pasted.trim()" @click="preview">Preview titles</Button></template>
-            <template v-else>
-                <Field><FieldLabel for="bulk-ideas-column">Column</FieldLabel><ChoiceSelect id="bulk-ideas-column" v-model="form.column_id" :options="(project.board_columns ?? []).map(column => ({ value: column.id, label: column.name }))" :disabled="form.processing" /></Field>
-                <p class="text-sm text-muted-foreground">{{ selected.length }} selected · maximum 200.</p>
-                <ol class="grid gap-3"><li v-for="(item, index) in items" :key="index" class="grid gap-1"><div class="flex items-center gap-2"><Checkbox v-model="item.selected" :aria-label="`Include idea ${index + 1}`" :disabled="form.processing" /><Input v-model="item.title" :aria-label="`Idea ${index + 1} title`" maxlength="255" :disabled="form.processing" /></div><p v-if="item.selected && (existing.has(item.title.trim()) || items.slice(0, index).some(previous => previous.selected && previous.title.trim() === item.title.trim()))" class="text-sm text-destructive">This title already exists in the project or list.</p></li></ol>
-                <DialogFooter><Button v-if="!generated" type="button" variant="outline" :disabled="form.processing" @click="items = []">Back to list</Button><Button type="submit" :disabled="invalid || form.processing || !form.column_id">{{ form.processing ? 'Saving…' : 'Create selected cards' }}</Button></DialogFooter>
-            </template>
-            <Button type="button" variant="ghost" :disabled="form.processing" @click="open = false">Cancel</Button>
-        </form>
-    </DialogContent></Dialog>
+    <Button
+        v-if="showTrigger !== false"
+        variant="outline"
+        size="input"
+        :disabled="!project.board_columns?.length"
+        @click="begin()">
+        Paste ideas
+    </Button>
+    <Dialog
+        :open="open"
+        @update:open="value => { if (!form.processing) open = value; }">
+        <DialogContent
+            v-bind="items.length ? { 'aria-describedby': undefined } : {}"
+            class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+            <DialogHeader>
+                <DialogTitle>{{ generated ? 'Review suggested actions' : 'Paste ideas' }}</DialogTitle><DialogDescription v-if="!items.length">
+                    One card title per line.
+                </DialogDescription>
+            </DialogHeader>
+            <form
+                class="grid gap-4"
+                @submit.prevent="save">
+                <Alert
+                    v-if="form.hasErrors"
+                    variant="destructive"
+                    role="alert">
+                    <AlertDescription>
+                        <p
+                            v-for="message in form.errors"
+                            :key="message">
+                            {{ message }}
+                        </p>
+                    </AlertDescription>
+                </Alert>
+                <template v-if="!items.length">
+                    <Field>
+                        <FieldLabel for="bulk-ideas-source">
+                            Idea list
+                        </FieldLabel><Textarea
+                            id="bulk-ideas-source"
+                            v-model="pasted"
+                            :rows="8"
+                            maxlength="52000"
+                            placeholder="- First idea&#10;- Second idea" />
+                    </Field><Button
+                        type="button"
+                        :disabled="!pasted.trim()"
+                        @click="preview">
+                        Preview titles
+                    </Button>
+                </template>
+                <template v-else>
+                    <Field>
+                        <FieldLabel for="bulk-ideas-column">
+                            Column
+                        </FieldLabel><ChoiceSelect
+                            id="bulk-ideas-column"
+                            v-model="form.column_id"
+                            :options="(project.board_columns ?? []).map(column => ({ value: column.id, label: column.name }))"
+                            :disabled="form.processing" />
+                    </Field>
+                    <p class="text-sm text-muted-foreground">
+                        {{ selected.length }} selected · maximum 200.
+                    </p>
+                    <ol class="grid gap-3">
+                        <li
+                            v-for="(item, index) in items"
+                            :key="index"
+                            class="grid gap-1">
+                            <div class="flex items-center gap-2">
+                                <Checkbox
+                                    v-model="item.selected"
+                                    :aria-label="`Include idea ${index + 1}`"
+                                    :disabled="form.processing" /><Input
+                                        v-model="item.title"
+                                        :aria-label="`Idea ${index + 1} title`"
+                                        maxlength="255"
+                                        :disabled="form.processing" />
+                            </div><p
+                                v-if="item.selected && (existing.has(item.title.trim()) || items.slice(0, index).some(previous => previous.selected && previous.title.trim() === item.title.trim()))"
+                                class="text-sm text-destructive">
+                                This title already exists in the project or list.
+                            </p>
+                        </li>
+                    </ol>
+                    <DialogFooter>
+                        <Button
+                            v-if="!generated"
+                            type="button"
+                            variant="outline"
+                            :disabled="form.processing"
+                            @click="items = []">
+                            Back to list
+                        </Button><Button
+                            type="submit"
+                            :disabled="invalid || form.processing || !form.column_id">
+                            {{ form.processing ? 'Saving…' : 'Create selected cards' }}
+                        </Button>
+                    </DialogFooter>
+                </template>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    :disabled="form.processing"
+                    @click="open = false">
+                    Cancel
+                </Button>
+            </form>
+        </DialogContent>
+    </Dialog>
 </template>

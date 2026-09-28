@@ -993,7 +993,7 @@ function addLink() {
                     </component>
                 </TabsContent>
                 <FieldDescription v-if="project">
-                    {{ form.isDirty ? 'Archive or restore saves all entered project changes. ' : '' }}Archived projects remain visible in Dashboard and the Archived sidebar group. Use the Status filter to narrow the list.
+                    {{ form.isDirty ? 'Archive or restore saves all entered project changes. ' : '' }}
                 </FieldDescription>
                 <Field
                     orientation="horizontal"

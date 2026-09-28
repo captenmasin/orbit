@@ -110,7 +110,7 @@ test('shared project duplicate requires confirmation and prevents repeat request
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ProjectContextMenu.vue', import.meta.url), 'utf8'));
     const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'project-actions' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
     const requests = [];
-    const modules = { vue, '@inertiajs/vue3': { ...inertia, usePage: () => ({ props: { statuses: ['Idea'] } }), router: { post: (...args) => requests.push(args) } } };
+    const modules = { vue, '@vueuse/core': vueuse, '@inertiajs/vue3': { ...inertia, usePage: () => ({ props: { statuses: ['Idea'] } }), router: { post: (...args) => requests.push(args) } } };
     const context = { exports: {}, require: name => modules[name] ?? {} };
     runInNewContext(outputText, context);
     const scope = vue.effectScope(); t.after(() => scope.stop());

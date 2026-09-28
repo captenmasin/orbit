@@ -4,6 +4,9 @@ import ProjectStatusDot from '@/components/ProjectStatusDot.vue';
 import ProjectContextMenu from '@/components/ProjectContextMenu.vue';
 import { Link } from '@inertiajs/vue3';
 import type { Project } from '@/types';
+import { DropdownMenuTrigger } from 'reka-ui';
+import { Button } from '@/components/ui/button';
+import { EllipsisVerticalIcon } from '@lucide/vue';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 
 defineProps<{ project: Project; selectedTags: string[] }>();
@@ -14,6 +17,7 @@ const date = (value: string) => new Date(value).toLocaleDateString();
 <template>
     <ProjectContextMenu
         :project="project"
+        class="grid [&>[data-slot=context-menu-trigger]]:grid"
         visible>
         <Card as="article">
             <CardHeader class="flex min-w-0 items-center px-3 pt-2 sm:px-3 gap-3">
@@ -34,7 +38,7 @@ const date = (value: string) => new Date(value).toLocaleDateString();
                     :status="project.status"
                     class="size-2" />{{ project.status }}</span>
             </CardHeader>
-            <CardContent class="min-h-32">
+            <CardContent class="min-h-32 pb-2">
                 <p
                     v-if="project.description"
                     class="line-clamp-2 text-sm leading-6 text-muted-foreground">
@@ -71,11 +75,14 @@ const date = (value: string) => new Date(value).toLocaleDateString();
                             class="text-xs">Last commit {{ date(project.last_commit_at) }}</time><span
                                 v-else
                                 class="text-xs">No commit data</span>
-                        <Link
-                            :href="`/projects/${project.id}/edit`"
-                            class="text-sm hover:text-foreground hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-                            Edit
-                        </Link>
+                        <DropdownMenuTrigger as-child>
+                            <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                :aria-label="`Actions for ${project.name}`">
+                                <EllipsisVerticalIcon aria-hidden="true" />
+                            </Button>
+                        </DropdownMenuTrigger>
                     </div>
                 </CardFooter>
             </CardContent>

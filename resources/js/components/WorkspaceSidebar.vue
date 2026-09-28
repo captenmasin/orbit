@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { reducedMotion } from '@/lib/appearance';
 import { VueDraggable } from 'vue-draggable-plus';
 import type { Project, SidebarProject } from '@/types';
-import { GripVerticalIcon, LayoutGridIcon, SettingsIcon, OrbitIcon, PlusIcon, ChevronRightIcon, SearchIcon } from '@lucide/vue';
+import { GripVerticalIcon, LayoutGridIcon, SettingsIcon, PlusIcon, ChevronRightIcon, SearchIcon } from '@lucide/vue';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, useSidebar } from '@/components/ui/sidebar';
 
 const props = defineProps<{ projects: SidebarProject[]; selectedProject: Project | null; page: string; statuses?: string[] }>();
@@ -71,15 +71,19 @@ function setGroupOpen(status: string, event: Event) {
                         size="lg"
                         as-child
                         tooltip="Orbit"
-                        class="h-10! gap-2.5 px-1! text-lg font-normal hover:bg-transparent! group-data-[collapsible=icon]:size-8!">
+                        class="h-10! px-1! hover:bg-transparent! group-data-[collapsible=icon]:size-8!">
                         <Link
                             href="/"
                             aria-label="Orbit"
                             @click="setOpenMobile(false)">
-                            <OrbitIcon
-                                class="size-5!"
-                                aria-hidden="true" />
-                            <span class="truncate tracking-[-0.01em] group-data-[collapsible=icon]:hidden">Orbit</span>
+                            <img
+                                :src="'/orbit-logo.svg'"
+                                alt=""
+                                class="h-5 w-auto shrink-0 dark:invert group-data-[collapsible=icon]:hidden">
+                            <img
+                                :src="'/orbit-mark.svg'"
+                                alt=""
+                                class="hidden size-8 shrink-0 dark:invert group-data-[collapsible=icon]:block">
                         </Link>
                     </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -97,32 +101,33 @@ function setGroupOpen(status: string, event: Event) {
         <SidebarContent class="gap-0">
             <SidebarGroup class="gap-1 px-3 pt-1 pb-6 group-data-[collapsible=icon]:px-2">
                 <SidebarMenu class="gap-1">
-                    <SidebarMenuItem>
+                    <SidebarMenuItem class="flex items-center gap-1 group-data-[collapsible=icon]:flex-col">
                         <SidebarMenuButton
                             as-child
-                            tooltip="Dashboard"
+                            tooltip="Projects"
                             :is-active="page === 'Dashboard'"
-                            class="h-10 rounded-xl px-3 text-sm">
+                            class="h-9 min-w-0 flex-1 rounded-md px-3 text-sm group-data-[collapsible=icon]:flex-none">
                             <Link
                                 href="/"
                                 :aria-current="page === 'Dashboard' ? 'page' : undefined"
                                 @click="setOpenMobile(false)">
-                                <LayoutGridIcon aria-hidden="true" /><span>Dashboard</span>
+                                <LayoutGridIcon aria-hidden="true" /><span>Projects</span>
                             </Link>
                         </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                        <SidebarMenuButton
+                        <Button
                             as-child
-                            tooltip="New project"
-                            :is-active="page === 'CreateProject'"
-                            class="h-10 rounded-xl px-3 text-sm">
+                            variant="ghost"
+                            size="icon-sm"
+                            class="text-sidebar-foreground/60">
                             <Link
                                 href="/projects/create"
+                                aria-label="New project"
+                                title="New project"
+                                :aria-current="page === 'CreateProject' ? 'page' : undefined"
                                 @click="setOpenMobile(false)">
-                                <PlusIcon aria-hidden="true" /><span>New project</span>
+                                <PlusIcon aria-hidden="true" />
                             </Link>
-                        </SidebarMenuButton>
+                        </Button>
                     </SidebarMenuItem>
                 </SidebarMenu>
             </SidebarGroup>
@@ -178,7 +183,7 @@ function setGroupOpen(status: string, event: Event) {
                                 <SidebarMenuButton
                                     as-child
                                     :is-active="selectedProject?.id === project.id"
-                                    class="h-9 gap-2.5 rounded-xl px-3 pr-8 text-sm">
+                                    class="h-9 gap-2.5 rounded-md px-3 pr-8 text-sm">
                                     <Link
                                         :href="`/projects/${project.id}`"
                                         :aria-current="selectedProject?.id === project.id ? 'page' : undefined"
@@ -235,7 +240,7 @@ function setGroupOpen(status: string, event: Event) {
                         as-child
                         tooltip="Settings"
                         :is-active="page === 'Settings'"
-                        class="h-10 rounded-xl px-3 text-sm">
+                        class="h-9 rounded-md px-3 text-sm">
                         <Link
                             href="/settings"
                             :aria-current="page === 'Settings' ? 'page' : undefined"

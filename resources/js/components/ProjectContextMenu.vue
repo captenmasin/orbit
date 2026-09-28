@@ -4,13 +4,15 @@ import { ref } from 'vue';
 import { toast } from 'vue-sonner';
 import type { SidebarProject } from '@/types';
 import { Button } from '@/components/ui/button';
+import { createReusableTemplate } from '@vueuse/core';
 import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ArchiveIcon, ArrowUpRightIcon, CheckIcon, ChevronRightIcon, CopyIcon, CircleDotIcon, PencilIcon, Trash2Icon } from '@lucide/vue';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, contextMenuContentClass, contextMenuItemClass } from '@/components/ui/context-menu';
-import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger , ContextMenuPortal, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger } from 'reka-ui';
+import { DropdownMenuContent, DropdownMenuPortal, DropdownMenuRoot, ContextMenuPortal, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger } from 'reka-ui';
 
 const props = defineProps<{ project: SidebarProject; disabled?: boolean; visible?: boolean }>();
+const { define: DefineProjectActions, reuse: ProjectActions } = createReusableTemplate();
 const page = usePage<{ statuses: string[] }>();
 const projectAction = useForm({ revision: 0 });
 const duplicating = ref(false);
@@ -45,70 +47,83 @@ function removeProject() {
 
 <template>
     <div>
+        <DefineProjectActions>
+            <ContextMenuItem as-child>
+                <Link :href="`/projects/${project.id}`">
+                    <ArrowUpRightIcon aria-hidden="true" />Open project
+                </Link>
+            </ContextMenuItem>
+            <ContextMenuItem as-child>
+                <Link :href="`/projects/${project.id}/edit`">
+                    <PencilIcon aria-hidden="true" />Edit project
+                </Link>
+            </ContextMenuItem>
+            <ContextMenuItem
+                :disabled="projectAction.processing || disabled || duplicateBusy"
+                @select="duplicating = true">
+                <CopyIcon aria-hidden="true" />Duplicate project
+            </ContextMenuItem>
+            <ContextMenuSeparator class="mx-2.5 my-1.5 h-px bg-border/80" />
+            <ContextMenuSub>
+                <ContextMenuSubTrigger
+                    :disabled="projectAction.processing || disabled"
+                    :class="contextMenuItemClass">
+                    <CircleDotIcon aria-hidden="true" />Change status<ChevronRightIcon
+                        class="ml-auto size-3.5"
+                        aria-hidden="true" />
+                </ContextMenuSubTrigger>
+                <ContextMenuPortal>
+                    <ContextMenuSubContent
+                        :class="contextMenuContentClass"
+                        class="max-h-(--reka-context-menu-content-available-height)">
+                        <ContextMenuItem
+                            v-for="status in page.props.statuses"
+                            :key="status"
+                            :disabled="projectAction.processing || disabled || status === project.status"
+                            @select="changeStatus(status)">
+                            <ProjectStatusDot
+                                :status="status"
+                                class="size-2" />{{ status }}<CheckIcon
+                                    v-if="status === project.status"
+                                    class="ml-auto size-4"
+                                    aria-hidden="true" />
+                        </ContextMenuItem>
+                    </ContextMenuSubContent>
+                </ContextMenuPortal>
+            </ContextMenuSub>
+            <ContextMenuItem
+                v-if="project.status !== 'Archived'"
+                :disabled="projectAction.processing || disabled"
+                @select="changeStatus('Archived')">
+                <ArchiveIcon aria-hidden="true" />Mark archived
+            </ContextMenuItem>
+            <ContextMenuSeparator class="mx-2.5 my-1.5 h-px bg-border/80" />
+            <ContextMenuItem
+                variant="destructive"
+                :disabled="projectAction.processing || disabled"
+                @select="removing = project">
+                <Trash2Icon aria-hidden="true" />Delete project
+            </ContextMenuItem>
+        </DefineProjectActions>
         <ContextMenu>
             <ContextMenuTrigger as-child>
-                <slot />
+                <div>
+                    <DropdownMenuRoot>
+                        <slot />
+                        <DropdownMenuPortal v-if="visible">
+                            <DropdownMenuContent
+                                align="end"
+                                :side-offset="4"
+                                :class="contextMenuContentClass"
+                                class="w-56">
+                                <ProjectActions />
+                            </DropdownMenuContent>
+                        </DropdownMenuPortal>
+                    </DropdownMenuRoot>
+                </div>
             </ContextMenuTrigger>
             <ContextMenuContent class="w-56">
-                <ContextMenuItem as-child>
-                    <Link :href="`/projects/${project.id}`">
-                        <ArrowUpRightIcon aria-hidden="true" />Open project
-                    </Link>
-                </ContextMenuItem>
-                <ContextMenuItem as-child>
-                    <Link :href="`/projects/${project.id}/edit`">
-                        <PencilIcon aria-hidden="true" />Edit project
-                    </Link>
-                </ContextMenuItem>
-                <ContextMenuItem
-                    :disabled="projectAction.processing || disabled || duplicateBusy"
-                    @select="duplicating = true">
-                    <CopyIcon aria-hidden="true" />Duplicate project
-                </ContextMenuItem>
-                <ContextMenuSeparator class="mx-2.5 my-1.5 h-px bg-border/80" />
-                <ContextMenuSub>
-                    <ContextMenuSubTrigger
-                        :disabled="projectAction.processing || disabled"
-                        :class="contextMenuItemClass">
-                        <CircleDotIcon aria-hidden="true" />Change status<ChevronRightIcon
-                            class="ml-auto size-3.5"
-                            aria-hidden="true" />
-                    </ContextMenuSubTrigger>
-                    <ContextMenuPortal>
-                        <ContextMenuSubContent
-                            :class="contextMenuContentClass"
-                            class="max-h-(--reka-context-menu-content-available-height)">
-                            <ContextMenuItem
-                                v-for="status in page.props.statuses"
-                                :key="status"
-                                :disabled="projectAction.processing || disabled || status === project.status"
-                                @select="changeStatus(status)">
-                                <ProjectStatusDot
-                                    :status="status"
-                                    class="size-2" />{{ status }}<CheckIcon
-                                        v-if="status === project.status"
-                                        class="ml-auto size-4"
-                                        aria-hidden="true" />
-                            </ContextMenuItem>
-                        </ContextMenuSubContent>
-                    </ContextMenuPortal>
-                </ContextMenuSub>
-                <ContextMenuItem
-                    v-if="project.status !== 'Archived'"
-                    :disabled="projectAction.processing || disabled"
-                    @select="changeStatus('Archived')">
-                    <ArchiveIcon aria-hidden="true" />Mark archived
-                </ContextMenuItem>
-                <p class="px-3 py-2 text-xs text-muted-foreground">
-                    Archived projects remain visible in Dashboard and the Archived sidebar group. Use the Status filter to narrow the list.
-                </p>
-                <ContextMenuSeparator class="mx-2.5 my-1.5 h-px bg-border/80" />
-                <ContextMenuItem
-                    variant="destructive"
-                    :disabled="projectAction.processing || disabled"
-                    @select="removing = project">
-                    <Trash2Icon aria-hidden="true" />Delete project
-                </ContextMenuItem>
+                <ProjectActions />
             </ContextMenuContent>
             <Dialog v-model:open="duplicating">
                 <DialogContent>
@@ -149,53 +164,5 @@ function removeProject() {
                 </DialogContent>
             </Dialog>
         </ContextMenu>
-        <div
-            v-if="visible"
-            class="mt-1 flex justify-end">
-            <DropdownMenuRoot>
-                <DropdownMenuTrigger as-child>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        :aria-label="`Actions for ${project.name}`">
-                        Project actions
-                    </Button>
-                </DropdownMenuTrigger><DropdownMenuPortal>
-                    <DropdownMenuContent
-                        :class="contextMenuContentClass"
-                        class="w-64">
-                        <DropdownMenuItem
-                            as-child
-                            :class="contextMenuItemClass">
-                            <Link :href="`/projects/${project.id}/edit`">
-                                Edit project
-                            </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            :class="contextMenuItemClass"
-                            :disabled="disabled || projectAction.processing || duplicateBusy"
-                            @select="duplicating = true">
-                            Duplicate project
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            v-if="project.status !== 'Archived'"
-                            :class="contextMenuItemClass"
-                            :disabled="disabled || projectAction.processing"
-                            @select="changeStatus('Archived')">
-                            Mark archived
-                        </DropdownMenuItem>
-                        <p class="px-3 py-2 text-xs text-muted-foreground">
-                            Archived projects remain visible in Dashboard and the Archived sidebar group. Use the Status filter to narrow the list.
-                        </p>
-                        <DropdownMenuItem
-                            :class="contextMenuItemClass"
-                            :disabled="disabled || projectAction.processing"
-                            @select="removing = project">
-                            Delete project
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenuPortal>
-            </DropdownMenuRoot>
-        </div>
     </div>
 </template>

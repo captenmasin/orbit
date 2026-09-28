@@ -6,11 +6,12 @@ import { Input } from '@/components/ui/input';
 import { Link, useHttp } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
 import type { ProviderConnection } from '@/types';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue';
 import { CheckIcon, GitBranchIcon, LoaderCircleIcon } from '@lucide/vue';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface ConnectedRepository {
     id: string;
@@ -20,20 +21,23 @@ interface ConnectedRepository {
     private: boolean;
     description: string | null;
 }
+type SelectedRepository = ConnectedRepository & { connection_id: string };
 
 const props = withDefaults(defineProps<{ connections: ProviderConnection[]; existingUrls: string[]; native: boolean; clone?: boolean; busy?: boolean }>(), { clone: false, busy: false });
-const emit = defineEmits<{ select: [repository: ConnectedRepository & { connection_id: string }] }>();
+const emit = defineEmits<{ select: [repository: SelectedRepository] }>();
 const fieldId = useId();
 const open = ref(false);
 const connectionId = ref(props.connections[0]?.id ?? '');
 const query = ref('');
 const repositories = ref<ConnectedRepository[]>([]);
+const selectedRepositories = ref<SelectedRepository[]>([]);
 const nextPage = ref<number | null>(null);
 const error = ref('');
 const listing = useHttp<{ page: number }, { repositories: ConnectedRepository[]; next_page: number | null }>({ page: 1 });
 const visible = computed(() => repositories.value.filter(repository => repository.full_name.toLowerCase().includes(query.value.trim().toLowerCase())));
 const normalize = (url: string) => url.trim().replace(/\.git\/?$/i, '').replace(/\/$/, '').toLowerCase();
 const added = (repository: ConnectedRepository) => props.existingUrls.some(url => normalize(url) === normalize(repository.remote_url));
+const selected = (repository: ConnectedRepository) => selectedRepositories.value.some(item => normalize(item.remote_url) === normalize(repository.remote_url));
 const providerName = computed(() => props.connections.find(connection => connection.id === connectionId.value)?.provider === 'gitlab' ? 'GitLab' : 'GitHub');
 
 async function load(page = 1) {
@@ -58,13 +62,28 @@ async function load(page = 1) {
 }
 
 function choose(repository: ConnectedRepository) {
-    if (added(repository)) return;
+    if (props.busy || added(repository)) return;
+    if (!props.clone) {
+        if (selected(repository)) selectedRepositories.value = selectedRepositories.value.filter(item => normalize(item.remote_url) !== normalize(repository.remote_url));
+        else selectedRepositories.value.push({ ...repository, connection_id: connectionId.value });
+        return;
+    }
     emit('select', { ...repository, connection_id: connectionId.value });
     open.value = false;
-    query.value = '';
 }
 
-watch(open, value => { if (value) void load(); else listing.cancel(); });
+function addSelected() {
+    if (props.busy || !selectedRepositories.value.length) return;
+    for (const repository of selectedRepositories.value) {
+        if (!added(repository)) emit('select', repository);
+    }
+    open.value = false;
+}
+
+watch(open, value => {
+    if (value) void load();
+    else { listing.cancel(); selectedRepositories.value = []; query.value = ''; }
+});
 watch(connectionId, () => { if (open.value) void load(); });
 onBeforeUnmount(() => listing.cancel());
 </script>
@@ -79,8 +98,11 @@ onBeforeUnmount(() => listing.cancel());
             <GitBranchIcon aria-hidden="true" />{{ clone ? 'Choose repository' : 'From connected account' }}
         </Button>
         <Dialog v-model:open="open">
-            <DialogContent class="max-h-[calc(100dvh-2rem)] overflow-hidden sm:max-w-xl">
-                <DialogHeader><DialogTitle>Choose a repository</DialogTitle><DialogDescription>{{ clone ? 'Choose a repository, then select where to clone it.' : 'Choose from a connected GitHub or GitLab account. It will be linked when you save the project.' }}</DialogDescription></DialogHeader>
+            <DialogContent class="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden">
+                <DialogHeader>
+                    <DialogTitle>{{ clone ? 'Choose a repository' : 'Add repositories' }}</DialogTitle>
+                    <DialogDescription>{{ clone ? 'Choose a repository, then select where to clone it.' : 'Select repositories from your connected accounts. They’ll be linked when you save the project.' }}</DialogDescription>
+                </DialogHeader>
                 <p
                     v-if="!native"
                     class="text-sm text-muted-foreground">
@@ -102,22 +124,26 @@ onBeforeUnmount(() => listing.cancel());
                         </Button>
                     </div>
                 </div>
-                <template v-else>
-                    <Field
-                        class="gap-2">
+                <div
+                    v-else
+                    class="-m-1 grid min-h-0 grid-cols-1 gap-4 overflow-y-auto overscroll-contain p-1">
+                    <Field>
                         <FieldLabel :for="`${fieldId}-connection`">
                             Connected account
                         </FieldLabel><ChoiceSelect
                             :id="`${fieldId}-connection`"
                             v-model="connectionId"
+                            variant="filled"
+                            class="min-w-0 w-full"
                             :options="connections.map(connection => ({ value: connection.id, label: `${connection.label} · ${connection.login} · ${connection.provider === 'gitlab' ? 'GitLab' : 'GitHub'}` }))" />
                     </Field>
-                    <Field class="gap-2">
+                    <Field>
                         <FieldLabel :for="`${fieldId}-search`">
                             Search {{ providerName }} repositories
                         </FieldLabel><Input
                             :id="`${fieldId}-search`"
                             v-model="query"
+                            variant="filled"
                             placeholder="Filter loaded repositories" />
                     </Field>
                     <Alert
@@ -144,32 +170,44 @@ onBeforeUnmount(() => listing.cancel());
                     </div>
                     <div
                         v-else-if="!repositories.length && !error"
-                        class="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                        class="rounded-lg bg-muted/50 px-4 py-6 text-center text-sm text-muted-foreground">
                         No repositories are available to this connection. Check its repository access in {{ providerName }}.
                     </div>
                     <div
                         v-if="repositories.length"
-                        class="max-h-[min(45vh,22rem)] overflow-y-auto rounded-xl border">
-                        <ul class="divide-y">
+                        class="max-h-[min(45vh,22rem)] overflow-y-auto overscroll-contain">
+                        <ul class="grid grid-cols-1 gap-1">
                             <li
                                 v-for="repository in visible"
                                 :key="repository.id">
-                                <button
-                                    type="button"
-                                    class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-55"
-                                    :disabled="added(repository)"
-                                    @click="choose(repository)">
-                                    <span class="min-w-0"><span class="flex flex-wrap items-center gap-2 font-medium"><span class="truncate">{{ repository.full_name }}</span><Badge
+                                <component
+                                    :is="clone ? 'button' : 'label'"
+                                    :type="clone ? 'button' : undefined"
+                                    class="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                                    :class="[selected(repository) ? 'bg-muted' : 'hover:bg-muted/50', added(repository) ? 'cursor-default opacity-55' : 'cursor-pointer']"
+                                    :disabled="clone ? added(repository) || busy : undefined"
+                                    @click="clone && choose(repository)">
+                                    <Checkbox
+                                        v-if="!clone"
+                                        :model-value="selected(repository) || added(repository)"
+                                        :disabled="added(repository) || busy"
+                                        :aria-label="repository.full_name"
+                                        @update:model-value="choose(repository)" />
+                                    <GitBranchIcon
+                                        v-else
+                                        class="size-4 shrink-0 text-muted-foreground"
+                                        aria-hidden="true" />
+                                    <span class="min-w-0 flex-1"><span class="flex flex-wrap items-center gap-2 font-medium"><span class="truncate">{{ repository.full_name }}</span><Badge
                                         v-if="repository.private"
                                         variant="secondary">Private</Badge></span><span
                                             v-if="repository.description"
                                             class="mt-1 block truncate text-xs text-muted-foreground">{{ repository.description }}</span></span>
                                     <span
                                         v-if="added(repository)"
-                                        class="flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><CheckIcon
+                                        class="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><CheckIcon
                                             class="size-3.5"
                                             aria-hidden="true" />Added</span>
-                                </button>
+                                </component>
                             </li>
                         </ul>
                         <p
@@ -190,7 +228,26 @@ onBeforeUnmount(() => listing.cancel());
                             <TextTransition :text="listing.processing ? 'Loading…' : 'Load more repositories'" />
                         </Button>
                     </div>
-                </template>
+                </div>
+                <DialogFooter v-if="native && connections.length && !clone">
+                    <p
+                        class="mr-auto self-center text-sm text-muted-foreground"
+                        role="status">
+                        {{ selectedRepositories.length }} selected
+                    </p>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        @click="open = false">
+                        Cancel
+                    </Button>
+                    <Button
+                        type="button"
+                        :disabled="!selectedRepositories.length || busy"
+                        @click="addSelected">
+                        Add {{ selectedRepositories.length || '' }} {{ selectedRepositories.length === 1 ? 'repository' : 'repositories' }}
+                    </Button>
+                </DialogFooter>
             </DialogContent>
         </Dialog>
     </div>

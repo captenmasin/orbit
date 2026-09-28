@@ -4,6 +4,7 @@ const {
 } = require('eslint/config')
 
 const globals = require('globals')
+const { fixupPluginRules } = require('@eslint/compat')
 const js = require('@eslint/js')
 const { FlatCompat } = require('@eslint/eslintrc')
 const vue = require('eslint-plugin-vue')
@@ -49,7 +50,7 @@ module.exports = defineConfig([
         },
         plugins: {
             import: importPlugin,
-            'pretty-imports': prettyImports,
+            'pretty-imports': fixupPluginRules(prettyImports),
             sonarjs,
             'optimize-regex': optimizeRegex,
             '@typescript-eslint': typescriptEslint

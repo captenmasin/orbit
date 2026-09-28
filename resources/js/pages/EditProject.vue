@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import ProjectForm from '@/components/ProjectForm.vue';
-import type { Project, ProviderConnection } from '@/types';
 import { Head, Link } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
+import type { Project, ProviderConnection } from '@/types';
 defineProps<{ selectedProject: Project; statuses: string[]; native: boolean; connections: ProviderConnection[] }>();
 </script>
 

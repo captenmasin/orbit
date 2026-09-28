@@ -301,9 +301,6 @@ function addLink() {
                                 <h2 class="text-sm font-normal tracking-[-0.025em]">
                                     Project details
                                 </h2>
-                                <p class="text-sm text-muted-foreground">
-                                    The basics that make this project easy to find.
-                                </p>
                             </CardHeader>
                             <component
                                 :is="CardContent"
@@ -518,44 +515,31 @@ function addLink() {
                     </div>
                 </TabsContent>
                 <TabsContent value="repositories">
-                    <component :is="Card">
-                        <CardHeader
-                            class="px-5 pb-3 pt-3 sm:px-7">
+                    <Card>
+                        <CardHeader>
                             <h2 class="text-sm font-normal tracking-[-0.025em]">
                                 Connect your work
                             </h2>
-                            <p class="text-sm text-muted-foreground">
-                                Add a repository or a local folder now. You can add more later.
-                            </p>
                         </CardHeader>
-                        <div>
-                            <FieldGroup class="grid gap-4 lg:grid-cols-2">
-                                <component
-                                    :is="CardContent"
-                                    class="p-5 sm:p-6">
-                                    <FieldSet>
-                                        <FieldLegend :class="!project ? 'mb-0 flex items-center gap-3 font-normal' : undefined">
-                                            <span
-                                                v-if="!project"
-                                                class="flex size-9 items-center justify-center rounded-xl bg-muted text-muted-foreground dark:bg-[#303030]"><GitBranchIcon
-                                                    class="size-4"
-                                                    aria-hidden="true" /></span>Repositories
+                        <CardContent>
+                            <FieldGroup class="grid gap-6 lg:grid-cols-2">
+                                <div class="min-w-0">
+                                    <FieldSet class="gap-4">
+                                        <FieldLegend
+                                            variant="label"
+                                            class="mb-0 flex items-center gap-2 font-normal">
+                                            <GitBranchIcon
+                                                class="size-4 text-muted-foreground"
+                                                aria-hidden="true" />Repositories
                                         </FieldLegend>
-                                        <p
-                                            v-if="!project"
-                                            class="text-sm leading-6 text-muted-foreground">
-                                            Connect a Git remote to keep its code close to this project.
-                                        </p>
-                                        <FieldDescription v-else-if="!form.repositories.length">
-                                            No repositories linked.
+                                        <FieldDescription>
+                                            Choose from a connected account or add a remote URL.
                                         </FieldDescription>
                                         <FieldGroup
                                             v-for="(repo, index) in form.repositories"
                                             :key="repo.id"
-                                            :class="!project ? 'gap-4 border-t border-black/8 pt-5 dark:border-white/10' : undefined">
-                                            <div
-                                                v-if="!project"
-                                                class="flex min-w-0 items-center justify-between gap-3">
+                                            class="gap-3 border-t pt-4">
+                                            <div class="flex min-w-0 items-center justify-between gap-3">
                                                 <span class="flex min-w-0 items-center gap-2"><span class="truncate text-sm font-normal">{{ repo.name || `Repository ${index + 1}` }}</span><Badge
                                                     v-if="repo.provider_connection_id"
                                                     variant="secondary"
@@ -569,7 +553,7 @@ function addLink() {
                                                     <Trash2Icon aria-hidden="true" />
                                                 </Button>
                                             </div>
-                                            <FieldDescription v-if="project && repo.provider_connection_id">
+                                            <FieldDescription v-if="project?.repositories.some(saved => saved.id === repo.id) && repo.provider_connection_id">
                                                 Connected provider. Changing this URL disconnects its provider and clears cached activity. You can reconnect it from Sources.
                                             </FieldDescription>
                                             <Field>
@@ -581,7 +565,7 @@ function addLink() {
                                                     :model-value="repo.remote_url"
                                                     placeholder="https://github.com/owner/repository.git"
                                                     maxlength="2048"
-                                                    :readonly="!project && !!repo.provider_connection_id"
+                                                    :readonly="!!repo.provider_full_name"
                                                     :aria-invalid="!!form.errors[`repositories.${index}.remote_url`]"
                                                     @update:model-value="updateRemote(repo, String($event))" />
                                             </Field>
@@ -591,60 +575,45 @@ function addLink() {
                                                 {{ form.errors[`repositories.${index}.provider_connection_id`] || form.errors[`repositories.${index}.provider_full_name`] }}
                                             </FieldError>
                                             <div
-                                                v-if="project"
+                                                v-if="project?.repositories.some(saved => saved.id === repo.id)"
                                                 class="flex flex-wrap gap-2">
                                                 <OpenTargetButton
-                                                    v-if="project.repositories.some(saved => saved.id === repo.id)"
                                                     :id="repo.id"
                                                     :project-id="project.id"
                                                     kind="repositories"
                                                     :native="native"
                                                     :href="repo.web_url"
                                                     label="Open repository" />
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    @click="removeRepository(repo.id)">
-                                                    <Trash2Icon aria-hidden="true" />Remove repository
-                                                </Button>
                                             </div>
                                         </FieldGroup>
-                                        <div :class="!project ? 'mt-auto flex flex-wrap gap-2 pt-1' : undefined">
+                                        <div class="flex flex-wrap gap-2">
                                             <Button
                                                 type="button"
                                                 variant="outline"
                                                 @click="addRepository">
-                                                <PlusIcon aria-hidden="true" />Add repository
+                                                <PlusIcon aria-hidden="true" />Add remote URL
                                             </Button><ConnectedRepositoryPicker
-                                                v-if="!project"
                                                 :connections="connections ?? []"
                                                 :existing-urls="form.repositories.map(existing => existing.remote_url)"
                                                 :native="native"
+                                                :busy="form.processing"
                                                 @select="addConnectedRepository" />
                                         </div>
                                     </FieldSet>
-                                </component>
-                                <component
-                                    :is="CardContent"
-                                    class="p-5 sm:p-6">
-                                    <FieldSet>
-                                        <FieldLegend :class="!project ? 'mb-0 flex items-center gap-3 font-normal' : undefined">
-                                            <span
-                                                v-if="!project"
-                                                class="flex size-9 items-center justify-center rounded-xl bg-muted text-muted-foreground dark:bg-[#303030]"><FolderOpenIcon
-                                                    class="size-4"
-                                                    aria-hidden="true" /></span>Local folders
+                                </div>
+                                <div class="min-w-0">
+                                    <FieldSet class="gap-4">
+                                        <FieldLegend
+                                            variant="label"
+                                            class="mb-0 flex items-center gap-2 font-normal">
+                                            <FolderOpenIcon
+                                                class="size-4 text-muted-foreground"
+                                                aria-hidden="true" />Local folders
                                         </FieldLegend>
-                                        <p
-                                            v-if="!project"
-                                            class="text-sm leading-6 text-muted-foreground">
+                                        <FieldDescription>
                                             Choose a folder to bring in its name and Git details.
-                                        </p>
-                                        <FieldDescription v-else-if="!form.folders.length">
-                                            No folders linked.
                                         </FieldDescription>
-                                        <Field :class="!project ? 'mt-auto gap-3 pt-0 dark:border-white/10' : undefined">
+                                        <Field class="gap-3">
                                             <FieldLabel
                                                 v-if="!native"
                                                 :for="`${formId}-sources-folder-path`">
@@ -680,7 +649,7 @@ function addLink() {
                                         <FieldGroup
                                             v-for="(folder, index) in form.folders"
                                             :key="folder.id"
-                                            :class="!project ? 'gap-3 border-t border-black/8 pt-5 dark:border-white/10' : 'gap-3'">
+                                            class="gap-3 border-t pt-4">
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <span class="break-all font-medium">{{ folder.path }}</span>
                                                 <Badge :variant="folder.availability === 'Available' ? 'secondary' : 'destructive'">
@@ -795,10 +764,10 @@ function addLink() {
                                             </div>
                                         </FieldGroup>
                                     </FieldSet>
-                                </component>
+                                </div>
                             </FieldGroup>
-                        </div>
-                    </component>
+                        </CardContent>
+                    </Card>
                 </TabsContent>
                 <TabsContent value="links">
                     <component :is="Card">
@@ -807,9 +776,6 @@ function addLink() {
                             <h2 class="text-sm font-normal tracking-[-0.025em]">
                                 Useful links
                             </h2>
-                            <p class="text-sm text-muted-foreground">
-                                Keep the places you visit for this project close at hand.
-                            </p>
                         </CardHeader>
                         <component
                             :is="CardContent"

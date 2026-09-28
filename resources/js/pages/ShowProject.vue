@@ -269,13 +269,13 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                         @click="tab = 'board'">
                         <span :class="summaryValueClass"><NumberTransition :value="taskCount" /></span>Cards
                     </button>
-                    <a
+                    <button
                         v-if="needsAttention"
-                        href="#attention-title"
+                        @click="tab = 'dependencies'"
                         :class="summaryPillClass"
                         class="transition-colors hover:bg-neutral-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-neutral-700"><span
                             :class="summaryValueClass"
-                            class="text-destructive"><NumberTransition :value="dependencies.issueCount + folderIssueCount" /></span>Needs attention</a>
+                            class="text-destructive"><NumberTransition :value="dependencies.issueCount + folderIssueCount" /></span>Needs attention</button>
                 </div>
                 <div class="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(19rem,1fr)]">
                     <div class="min-w-0 space-y-5">

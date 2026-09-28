@@ -175,6 +175,9 @@ class SecretVaultController extends Controller
 
     private function touchIdAvailable(): bool
     {
+        if (PHP_OS_FAMILY !== 'Darwin') {
+            return false;
+        }
         try {
             return System::canPromptTouchID();
         } catch (Throwable) {

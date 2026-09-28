@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Native\Desktop\Facades\Settings;
 use Native\Desktop\Facades\System;
+use PHPUnit\Framework\Attributes\RequiresOperatingSystemFamily;
 use PHPUnit\Framework\Attributes\TestWith;
 use RuntimeException;
 use Tests\TestCase;
@@ -44,7 +45,7 @@ class SecretRecoveryTest extends TestCase
         $this->assertMatchesRegularExpression('/\A[A-F0-9]{8}(?:-[A-F0-9]{8}){7}\z/', $code);
         $this->assertStringNotContainsString($code, json_encode($this->nativeSettings));
         $this->getJson('/secrets/recovery/status')
-            ->assertExactJson(['touch_id_available' => true, 'recovery_code_set' => true])
+            ->assertExactJson(['touch_id_available' => PHP_OS_FAMILY === 'Darwin', 'recovery_code_set' => true])
             ->assertHeader('Cache-Control', 'no-store, private');
         $oldSession = session()->all();
         RateLimiter::hit('secret-vault-pin', 300);
@@ -78,6 +79,7 @@ class SecretRecoveryTest extends TestCase
             ->assertOk()->assertJsonPath('unlocked', false);
     }
 
+    #[RequiresOperatingSystemFamily('Darwin')]
     public function test_touch_id_recovers_an_existing_pin_without_a_recovery_code(): void
     {
         $this->mockNativeSettings();
@@ -97,6 +99,7 @@ class SecretRecoveryTest extends TestCase
     #[TestWith(['unavailable'])]
     #[TestWith(['cancelled'])]
     #[TestWith(['transport'])]
+    #[RequiresOperatingSystemFamily('Darwin')]
     public function test_failed_touch_id_does_not_change_the_pin_or_secrets(string $failure): void
     {
         $this->mockNativeSettings();
@@ -119,6 +122,7 @@ class SecretRecoveryTest extends TestCase
         $this->assertSame('fixture-ciphertext', $secret->fresh()->ciphertext);
     }
 
+    #[RequiresOperatingSystemFamily('Darwin')]
     public function test_touch_id_capability_errors_leave_recovery_code_available(): void
     {
         $this->mockNativeSettings();
@@ -128,6 +132,23 @@ class SecretRecoveryTest extends TestCase
         $this->getJson('/secrets/recovery/status')->assertExactJson(['touch_id_available' => false, 'recovery_code_set' => true]);
     }
 
+    public function test_non_macos_recovery_keeps_recovery_codes_without_calling_touch_id(): void
+    {
+        if (PHP_OS_FAMILY === 'Darwin') {
+            $this->markTestSkipped('The non-macOS native capability guard runs on Windows and Linux.');
+        }
+        $this->mockNativeSettings();
+        $this->postJson('/secrets/pin', ['pin' => '1234', 'pin_confirmation' => '1234'])->assertOk();
+        System::shouldReceive('canPromptTouchID')->never();
+        System::shouldReceive('promptTouchID')->never();
+
+        $this->getJson('/secrets/recovery/status')->assertExactJson(['touch_id_available' => false, 'recovery_code_set' => true]);
+        $this->postJson('/secrets/recover', ['method' => 'touch_id', 'pin' => '4567', 'pin_confirmation' => '4567'])
+            ->assertInvalid(['method' => 'Touch ID was cancelled or is unavailable. Try again or use your recovery code.']);
+        $this->assertTrue(Hash::check('1234', $this->nativeSettings['secrets.pin_hash']));
+    }
+
+    #[RequiresOperatingSystemFamily('Darwin')]
     public function test_touch_id_cannot_overwrite_a_pin_changed_during_the_prompt(): void
     {
         $this->mockNativeSettings();

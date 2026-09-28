@@ -95,10 +95,26 @@ function handleNavigation() {
         });
     }
 }
+function handleNativeMenu(event: MessageEvent) {
+    if (event.source !== window || event.origin !== window.location.origin || event.data?.type !== 'native-event' || event.data.event !== 'Native\\Desktop\\Events\\Menu\\MenuItemClicked') return;
+    const id = event.data.payload?.item?.id;
+    if (id === 'search') {
+        searchOpen.value = true;
+        return;
+    }
+    const destinations: Record<string, string> = {
+        'new-project': '/projects/create', dashboard: '/', settings: '/settings', backups: '/settings/backups',
+        connections: '/settings/connections', tools: '/settings?section=tools', about: '/settings?section=about',
+    };
+    if (typeof id !== 'string' || !Object.hasOwn(destinations, id) || page.url === destinations[id] || (id === 'new-project' && page.component === 'CreateProject')) return;
+    searchOpen.value = false;
+    router.visit(destinations[id]);
+}
 onMounted(() => {
     handleNavigation();
     window.addEventListener('keydown', handleWorkspaceShortcut);
     stopTrackingHistory = router.on('navigate', handleNavigation);
+    if (page.props.native) window.addEventListener('message', handleNativeMenu);
     if (nativeMac) {
         window.addEventListener('wheel', handleTrackpadSwipe, { passive: false });
     }
@@ -106,6 +122,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
     stopTrackingHistory?.();
     window.removeEventListener('keydown', handleWorkspaceShortcut);
+    window.removeEventListener('message', handleNativeMenu);
     window.removeEventListener('wheel', handleTrackpadSwipe);
     clearTimeout(resetSwipe);
 });

@@ -79,7 +79,10 @@ class RepositoryCloneTest extends TestCase
         Http::fake(['https://gitlab.com/api/v4/projects/*' => Http::response([
             'id' => 42, 'path_with_namespace' => 'group/repo', 'default_branch' => 'main', 'web_url' => 'https://gitlab.com/group/repo',
         ])]);
-        $this->mock(Dialog::class, fn ($mock) => $mock->shouldReceive('folders->title->button->asSheet->open')->once()->andReturn(null));
+        $this->mock(Dialog::class, function ($mock): void {
+            $mock->shouldReceive('properties')->once()->with(['openDirectory', 'createDirectory'])->andReturnSelf();
+            $mock->shouldReceive('title->button->asSheet->open')->once()->andReturn(null);
+        });
 
         $this->postJson('/repositories/clone', ['connection_id' => $connection->id, 'full_name' => 'group/repo'])
             ->assertExactJson(['folder' => null]);
@@ -100,7 +103,10 @@ class RepositoryCloneTest extends TestCase
         Http::fake(['https://gitlab.com/api/v4/projects/*' => Http::response([
             'id' => 42, 'path_with_namespace' => 'group/repo', 'default_branch' => 'main', 'web_url' => 'https://gitlab.com/group/repo',
         ])]);
-        $this->mock(Dialog::class, fn ($mock) => $mock->shouldReceive('folders->title->button->asSheet->open')->once()->andReturn($parent));
+        $this->mock(Dialog::class, function ($mock) use ($parent): void {
+            $mock->shouldReceive('properties')->once()->with(['openDirectory', 'createDirectory'])->andReturnSelf();
+            $mock->shouldReceive('title->button->asSheet->open')->once()->andReturn($parent);
+        });
         $preview = ['path' => $parent.'/repo', 'name' => 'repo', 'remote_url' => 'https://gitlab.com/group/repo.git'];
         $this->mock(CloneRepository::class, fn ($mock) => $mock->shouldReceive('handle')->once()
             ->with('https://gitlab.com/group/repo.git', $parent, 'gitlab', 'DUMMY-PRIVATE-TOKEN')->andReturn($preview));
@@ -125,7 +131,10 @@ class RepositoryCloneTest extends TestCase
         Http::fake(['https://api.github.com/repos/team/repo' => Http::response([
             'id' => 42, 'full_name' => 'team/repo', 'default_branch' => 'main', 'html_url' => 'https://github.com/team/repo',
         ])]);
-        $this->mock(Dialog::class, fn ($mock) => $mock->shouldReceive('folders->title->button->asSheet->open')->once()->andReturn($parent));
+        $this->mock(Dialog::class, function ($mock) use ($parent): void {
+            $mock->shouldReceive('properties')->once()->with(['openDirectory', 'createDirectory'])->andReturnSelf();
+            $mock->shouldReceive('title->button->asSheet->open')->once()->andReturn($parent);
+        });
 
         $this->postJson('/repositories/clone', ['connection_id' => $connection->id, 'full_name' => 'team/repo'])
             ->assertUnprocessable()->assertJsonValidationErrors(['repository' => 'A folder with this repository name already exists.']);
@@ -143,7 +152,7 @@ class RepositoryCloneTest extends TestCase
         Http::fake(['https://api.github.com/repos/team/repo' => Http::response([
             'id' => 42, 'full_name' => 'other/repo', 'default_branch' => 'main', 'html_url' => 'https://github.com/other/repo',
         ])]);
-        $this->mock(Dialog::class, fn ($mock) => $mock->shouldReceive('folders')->never());
+        $this->mock(Dialog::class, fn ($mock) => $mock->shouldReceive('properties')->never());
 
         $this->postJson('/repositories/clone', ['connection_id' => $connection->id, 'full_name' => 'team/repo'])
             ->assertUnprocessable()->assertJsonValidationErrors(['repository' => 'Provider returned a different repository. Choose it again.']);

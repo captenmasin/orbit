@@ -203,11 +203,11 @@ function actionsSaved() {
                     :aria-invalid="!!scratchpadForm.errors.scratchpad"
                     :aria-describedby="scratchpadForm.errors.scratchpad ? 'scratchpad-error' : undefined" />
                 <div class="flex items-center gap-2">
-                    <span
-                        role="status"
-                        class="text-xs text-muted-foreground"><TextTransition
-                            :text="scratchpadSave.processing ? 'Saving…' : scratchpadForm.isDirty ? 'Unsaved' : 'Saved'"
-                            shimmer /></span>
+<!--                    <span-->
+<!--                        role="status"-->
+<!--                        class="text-xs text-muted-foreground"><TextTransition-->
+<!--                            :text="scratchpadSave.processing ? 'Saving…' : scratchpadForm.isDirty ? 'Unsaved' : 'Saved'"-->
+<!--                            shimmer /></span>-->
                     <Button
                         type="button"
                         size="icon-sm"

@@ -346,7 +346,8 @@ class ProjectCatalogTest extends TestCase
     {
         config(['nativephp-internal.running' => true]);
         $this->mock(Dialog::class, function ($mock) {
-            $mock->shouldReceive('folders->title->button->asSheet->open')->once()->andReturn(null);
+            $mock->shouldReceive('properties')->once()->with(['openDirectory', 'createDirectory'])->andReturnSelf();
+            $mock->shouldReceive('title->button->asSheet->open')->once()->andReturn(null);
         });
         $this->postJson('/folders/inspect')->assertExactJson(['folder' => null]);
         $this->assertDatabaseCount('project_folders', 0);

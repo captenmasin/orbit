@@ -9,6 +9,42 @@ import * as vue from 'vue';
 
 const { http } = inertia;
 
+test('token creation links use the external browser bridge without sending credentials and preserve browser navigation', async t => {
+    const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ProviderConnections.vue', import.meta.url), 'utf8'));
+    const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'token-page-test' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
+    const errors = [];
+    const context = { exports: {}, require: name => name === 'vue' ? { ...vue, onBeforeUnmount: vue.onScopeDispose } : name === '@inertiajs/vue3' ? inertia : name === 'vue-sonner' ? { toast: { error: message => errors.push(message) } } : {} };
+    runInNewContext(outputText, context);
+    const scope = vue.effectScope(); t.after(() => scope.stop());
+    const props = { connections: [], native: true };
+    const state = scope.run(() => context.exports.default.setup(props, { expose() {} }));
+    const requests = [];
+    let status = 200;
+    t.mock.method(http.getClient(), 'request', async request => {
+        requests.push({ url: request.url, data: JSON.parse(request.data) });
+        return { status, data: JSON.stringify(status === 200 ? { opened: true } : { errors: { provider: 'Unavailable' } }), headers: {} };
+    });
+    state.edit(null); state.form.label = 'Work'; state.credential.value = 'DUMMY-UNSENT-TOKEN';
+    for (const provider of ['github', 'gitlab']) {
+        state.form.provider = provider;
+        const event = new Event('click', { cancelable: true });
+        await state.openTokenPage(event);
+        assert.equal(event.defaultPrevented, true);
+        assert.deepEqual(requests.at(-1), { url: '/connections/token-page', data: { provider } });
+    }
+    assert.equal(state.credential.value, 'DUMMY-UNSENT-TOKEN');
+    assert.equal(state.form.label, 'Work');
+    assert.equal(state.open.value, true);
+    status = 422;
+    await state.openTokenPage(new Event('click', { cancelable: true }));
+    assert.match(errors[0], /could not be opened/);
+    props.native = false;
+    const event = new Event('click', { cancelable: true });
+    await state.openTokenPage(event);
+    assert.equal(event.defaultPrevented, false);
+    assert.equal(requests.length, 3);
+});
+
 test('credential forms retain failures and clear token values and defaults after every submission', async t => {
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ProviderConnections.vue', import.meta.url), 'utf8'));
     const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'provider-test' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });

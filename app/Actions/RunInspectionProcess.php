@@ -14,7 +14,7 @@ class RunInspectionProcess
     {
         $clean = [];
         foreach (array_keys(getenv()) as $key) {
-            if (preg_match('/^(GIT_|NODE_|NPM_|npm_|COMPOSER|YARN_|PNPM_|COREPACK_|DYLD_|LD_|PHPRC$|PHP_INI_SCAN_DIR$|BASH_ENV$|ENV$)/', $key)) {
+            if (preg_match('/^(GIT_|NODE_|NPM_|COMPOSER|YARN_|PNPM_|COREPACK_|DYLD_|LD_|PHPRC$|PHP_INI_SCAN_DIR$|BASH_ENV$|ENV$)/i', $key)) {
                 $clean[$key] = false;
             }
         }

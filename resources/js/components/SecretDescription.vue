@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner';
 import { Button } from '@/components/ui/button';
+import { FieldLabel } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/textarea';
 import type { Project, ProjectSecret } from '@/types';
 import { computed, onScopeDispose, ref, watch } from 'vue';
@@ -151,15 +152,12 @@ onScopeDispose(() => {
 
 <template>
     <div class="space-y-2">
-        <p
-            role="status"
-            class="text-xs text-muted-foreground">
-            {{ saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved' }}
-        </p>
+        <FieldLabel :for="inputId">
+            Description
+        </FieldLabel>
         <Textarea
             :id="inputId"
             v-model="draft"
-            aria-label="Description"
             maxlength="2000"
             :rows="4"
             :readonly="!native"

@@ -78,10 +78,14 @@ class LocalInspectionTest extends TestCase
         Storage::fake('local');
         $this->freezeTime();
         $folder = ProjectFolder::factory()->create(['path' => $this->folder('plain')]);
+        $folder->forceFill(['scan_state' => 'Stale', 'scan_error' => 'Git metadata unavailable'])->save();
         $project = $folder->project;
         $url = '/projects/'.$project->id.'/inspection';
         $input = ['kind' => 'folder', 'id' => $folder->id];
         $this->postJson($url, $input)->assertExactJson(['queued' => 1]);
+        $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page) => $page
+            ->where('inspection.0.scan_state', 'Queued')
+            ->where('inspection.0.scan_error', 'Git metadata unavailable'));
         $this->postJson($url, $input)->assertExactJson(['queued' => 0]);
         $this->assertDatabaseCount('jobs', 1);
         $payload = json_decode(DB::table('jobs')->sole()->payload, true);
@@ -89,6 +93,7 @@ class LocalInspectionTest extends TestCase
         $firstToken = $folder->fresh()->scan_token;
         $this->workOnce();
         $this->assertSame('Current', $folder->fresh()->scan_state);
+        $this->assertNull($folder->fresh()->scan_error);
         $this->assertSame(1, $project->fresh()->revision);
         $this->postJson($url, [...$input, 'only_stale' => true])->assertExactJson(['queued' => 0]);
         $folder->refresh()->forceFill(['scan_state' => 'Scanning', 'scan_started_at' => now()->subSeconds(91)])->save();

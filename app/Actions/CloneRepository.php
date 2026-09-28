@@ -38,12 +38,12 @@ class CloneRepository
             }
             $environment = [];
             foreach (array_keys(getenv()) as $key) {
-                if (preg_match('/^(GIT_|DYLD_|LD_|BASH_ENV$|ENV$)/', $key)) {
+                if (preg_match('/^(GIT_|DYLD_|LD_|BASH_ENV$|ENV$)/i', $key)) {
                     $environment[$key] = false;
                 }
             }
             $environment = array_replace($environment, [
-                'GIT_CONFIG_NOSYSTEM' => '1', 'GIT_CONFIG_GLOBAL' => '/dev/null', 'GIT_TERMINAL_PROMPT' => '0',
+                'GIT_CONFIG_NOSYSTEM' => '1', 'GIT_CONFIG_GLOBAL' => PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null', 'GIT_TERMINAL_PROMPT' => '0',
                 'GIT_CONFIG_COUNT' => $token === '' ? '2' : '3',
                 'GIT_CONFIG_KEY_0' => 'credential.helper', 'GIT_CONFIG_VALUE_0' => '',
                 'GIT_CONFIG_KEY_1' => 'http.followRedirects', 'GIT_CONFIG_VALUE_1' => 'false',
@@ -52,7 +52,7 @@ class CloneRepository
                 $environment['GIT_CONFIG_KEY_2'] = 'http.'.$remoteUrl.'.extraHeader';
                 $environment['GIT_CONFIG_VALUE_2'] = 'Authorization: Basic '.base64_encode(($provider === 'github' ? 'x-access-token' : 'oauth2').':'.$token);
             }
-            $process = new Process([$git, '-c', 'core.hooksPath=/dev/null', 'clone', '--quiet', '--', $remoteUrl, $destination], $parent, $environment, null, 300);
+            $process = new Process([$git, '-c', 'core.hooksPath='.$environment['GIT_CONFIG_GLOBAL'], 'clone', '--quiet', '--', $remoteUrl, $destination], $parent, $environment, null, 300);
             $process->disableOutput();
             $process->run();
             if (! $process->isSuccessful()) {

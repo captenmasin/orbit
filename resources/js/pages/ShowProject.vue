@@ -516,12 +516,6 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                             v-if="needsAttention"
                             as="section"
                             aria-labelledby="attention-title">
-                            <p
-                                v-if="pending"
-                                role="status"
-                                class="px-5 pt-4 text-sm text-muted-foreground">
-                                Updating sources…
-                            </p>
                             <CardHeader>
                                 <h2
                                     id="attention-title"
@@ -529,7 +523,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                     Needs attention
                                 </h2>
                             </CardHeader>
-                            <CardContent class="min-h-32 gap-2">
+                            <CardContent class="gap-2">
                                 <button
                                     v-if="dependencies.issueCount"
                                     type="button"

@@ -42,7 +42,7 @@ class CatalogController extends Controller
                 throw ValidationException::withMessages(['path' => 'Enter the absolute folder path.']);
             }
             try {
-                $path = $dialog->folders()->title('Select a project folder')->button('Choose folder')->asSheet()->open();
+                $path = $dialog->properties(['openDirectory', 'createDirectory'])->title('Select a project folder')->button('Choose folder')->asSheet()->open();
             } catch (Throwable) {
                 throw ValidationException::withMessages(['path' => 'The folder picker could not open. Try again.']);
             }
@@ -73,7 +73,7 @@ class CatalogController extends Controller
         }
 
         try {
-            $parent = $dialog->folders()->title('Choose where to clone the repository')->button('Choose folder')->asSheet()->open();
+            $parent = $dialog->properties(['openDirectory', 'createDirectory'])->title('Choose where to clone the repository')->button('Choose folder')->asSheet()->open();
         } catch (Throwable) {
             throw ValidationException::withMessages(['folder' => 'The folder picker could not open. Try again.']);
         }

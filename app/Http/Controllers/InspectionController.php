@@ -9,11 +9,13 @@ use App\Actions\QueueInspection;
 use App\Actions\ReadDependencies;
 use App\Models\PackageRoot;
 use App\Models\Project;
+use App\Rules\AbsoluteLocalPath;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\Filesystem\Path;
 
 class InspectionController extends Controller
 {
@@ -66,9 +68,9 @@ class InspectionController extends Controller
         $data = $request->validate([
             'action' => ['required', Rule::in(['save', 'delete'])], 'folder_id' => ['required', 'uuid'],
             'id' => ['nullable', 'uuid'], 'revision' => ['nullable', 'integer', 'min:1', 'required_with:id'],
-            'path' => ['required_if:action,save', 'nullable', 'string', 'max:4096', 'starts_with:/', 'not_regex:/\x00/'],
+            'path' => ['required_if:action,save', 'nullable', 'string', 'max:4096', new AbsoluteLocalPath],
             'executable_overrides' => ['sometimes', 'array:'.implode(',', ProbeRuntimes::TOOLS)],
-            'executable_overrides.*' => ['nullable', 'string', 'max:4096', 'starts_with:/', 'not_regex:/\x00/'],
+            'executable_overrides.*' => ['nullable', 'string', 'max:4096', new AbsoluteLocalPath],
         ]);
         $folder = $project->folders()->findOrFail($data['folder_id']);
         $root = isset($data['id']) ? $folder->packageRoots()->findOrFail($data['id']) : null;
@@ -80,10 +82,10 @@ class InspectionController extends Controller
             if (! $base || ! $path || ! is_dir($path) || ! is_readable($path)) {
                 throw ValidationException::withMessages(['path' => 'Choose a readable folder.']);
             }
-            if ($path !== $base && ! str_starts_with($path, rtrim($base, '/').'/')) {
+            if (! Path::isBasePath($base, $path)) {
                 throw ValidationException::withMessages(['path' => 'Choose a root inside this linked folder, or link it as a separate folder.']);
             }
-            $relative = $path === $base ? '.' : substr($path, strlen(rtrim($base, '/')) + 1);
+            $relative = Path::makeRelative($path, $base) ?: '.';
         }
         DB::transaction(function () use ($folder, $root, $data, $relative): void {
             $currentFolder = $folder->fresh();

@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use RuntimeException;
+use Symfony\Component\Filesystem\Path;
 
 class PackageRoot extends Model
 {
@@ -42,7 +43,7 @@ class PackageRoot extends Model
         if (! is_readable($path)) {
             throw new RuntimeException('Permission denied');
         }
-        if ($path !== $folder && ! str_starts_with($path, rtrim($folder, '/').'/')) {
+        if (! Path::isBasePath($folder, $path)) {
             throw new RuntimeException('Root is outside its linked folder');
         }
 

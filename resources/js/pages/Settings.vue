@@ -265,8 +265,8 @@ async function moveColumn(index: number, offset: number, event?: KeyboardEvent) 
 async function saveLogin() {
     if (login.processing) return;
     error.value = '';
-    try { const result = await login.put('/settings/general/login') as { enabled: boolean } | undefined; if (result) { login.enabled = result.enabled; login.defaults({ enabled: result.enabled }); savedForms.login = { enabled: result.enabled }; router.remember(null, 'settings:login:draft'); toast.success('Launch at login confirmed by macOS.'); } }
-    catch (exception) { error.value = message(exception, 'macOS could not confirm launch at login. Try again.'); }
+    try { const result = await login.put('/settings/general/login') as { enabled: boolean } | undefined; if (result) { login.enabled = result.enabled; login.defaults({ enabled: result.enabled }); savedForms.login = { enabled: result.enabled }; router.remember(null, 'settings:login:draft'); toast.success('Launch at login confirmed.'); } }
+    catch (exception) { error.value = message(exception, 'The operating system could not confirm launch at login. Try again.'); }
 }
 async function probeTools() {
     if (tools.processing || runtimeProbe.processing) return;

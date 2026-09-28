@@ -92,23 +92,27 @@ html:not([data-orbit-motion="off"]) {
   transition-timing-function: var(--acc-ease);
 }
 
-/* Underlines stay with their trigger when the existing line tabs wrap. */
-[data-slot="tabs-trigger"]::after {
+[data-slot="tabs-list"][data-variant="line"] {
+  position: relative;
+}
+
+[data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"]::after {
+  display: none;
+}
+
+.t-tabs-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  background: var(--foreground);
+  pointer-events: none;
   transition:
-    opacity var(--tabs-dur) var(--tabs-ease),
-    transform var(--tabs-dur) var(--tabs-ease);
-}
-
-[data-slot="tabs-trigger"][data-orientation="horizontal"]::after {
-  transform: scaleX(0.5);
-}
-
-[data-slot="tabs-trigger"][data-orientation="vertical"]::after {
-  transform: scaleY(0.5);
-}
-
-[data-slot="tabs-trigger"][data-state="active"]::after {
-  transform: scale(1);
+    transform var(--tabs-dur) var(--tabs-ease),
+    width var(--tabs-dur) var(--tabs-ease),
+    height var(--tabs-dur) var(--tabs-ease);
+  will-change: transform, width, height;
 }
 
 .t-tabs-panel[data-state="active"] {
@@ -133,6 +137,6 @@ html:not([data-orbit-motion="off"]) {
     .t-acc-content, .t-tabs-panel { animation: none !important; }
     .t-check [data-slot="checkbox-indicator"],
     [data-slot="collapsible-trigger"] .lucide-chevron-down,
-    [data-slot="tabs-trigger"]::after { transition: none !important; }
+    .t-tabs-indicator { transition: none !important; }
   }
 }

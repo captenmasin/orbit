@@ -23,12 +23,13 @@ export function dependencyRows(snapshot: PackageRoot['snapshot']) {
 export const dependencySeverities = ['Critical', 'High', 'Moderate', 'Low', 'Unknown'] as const;
 
 export function folderName(folder: ProjectFolder): string {
-    return folder.path.split('/').filter(Boolean).at(-1) ?? folder.path;
+    return folder.path.split(/[\\/]/).filter(Boolean).at(-1) ?? folder.path;
 }
 
 export function currentDependencyCheck(root: PackageRoot, check: PackageRoot['outdated'] | PackageRoot['security'], folder?: ProjectFolder): boolean {
     return !!check && !!root.snapshot?.fingerprint && check.fingerprint === root.snapshot.fingerprint
-        && ['Current', 'Partial'].includes(root.scan_state) && (!folder?.availability || folder.availability === 'Available');
+        && ['Current', 'Partial', 'Queued', 'Scanning'].includes(root.scan_state) && !root.scan_error
+        && (!folder?.availability || folder.availability === 'Available');
 }
 
 export interface DependencyIssue {

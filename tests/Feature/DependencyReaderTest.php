@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\Attributes\TestWith;
+use Symfony\Component\Filesystem\Path;
 use Tests\TestCase;
 
 class DependencyReaderTest extends TestCase
@@ -271,6 +272,7 @@ JSON));
         $path = Storage::path('');
         $this->freezeTime();
         now()->toIso8601String();
+        class_exists(Path::class);
         $autoloaders = spl_autoload_functions();
         foreach ($autoloaders as $autoloader) {
             spl_autoload_unregister($autoloader);

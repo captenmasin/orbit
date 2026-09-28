@@ -33,7 +33,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
         <DialogContent
             data-slot="dialog-content"
             v-bind="{ ...$attrs, ...forwarded }"
-            :class="cn('t-modal bg-popover text-popover-foreground ring-foreground/10 grid grid-cols-1 max-w-[calc(100%-2rem)] gap-6 rounded-xl p-6 text-sm ring-1 sm:max-w-md fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none', props.class)"
+            :class="cn('t-modal bg-popover text-popover-foreground ring-foreground/10 grid grid-cols-1 max-w-[calc(100%-2rem)] gap-6 rounded-xl p-6 text-sm ring-1 sm:max-w-xl fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none', props.class)"
         >
             <slot />
 

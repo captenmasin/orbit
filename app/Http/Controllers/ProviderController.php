@@ -14,11 +14,29 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Native\Desktop\Facades\Shell;
 use RuntimeException;
 use Throwable;
 
 class ProviderController extends Controller
 {
+    public function openTokenPage(Request $request): JsonResponse
+    {
+        abort_unless(config('nativephp-internal.running'), 403);
+        $data = $request->validate(['provider' => ['required', Rule::in(['github', 'gitlab'])]]);
+        $url = $data['provider'] === 'github'
+            ? 'https://github.com/settings/personal-access-tokens/new'
+            : 'https://gitlab.com/-/user_settings/personal_access_tokens';
+
+        try {
+            Shell::openExternal($url);
+        } catch (Throwable) {
+            return response()->json(['message' => 'The token creation page could not be opened. Try again.'], 503);
+        }
+
+        return response()->json(['opened' => true]);
+    }
+
     public function rename(Request $request, ProviderConnection $connection): JsonResponse
     {
         $data = $request->validate(['label' => ['required', 'string', 'max:100'], 'revision' => ['required', 'integer', 'min:1']]);

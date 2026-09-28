@@ -99,7 +99,7 @@ test('a stale save keeps the draft and saved preference intact and reports no su
     assert.equal(state.appearance.isDirty, true);
 });
 
-test('launch at login shows a success toast after macOS confirms the setting', async t => {
+test('launch at login shows a success toast after the operating system confirms the setting', async t => {
     const state = mount(t, { native: true, launchAtLogin: false });
     t.mock.method(http.getClient(), 'request', async () => response({ enabled: true }));
     state.login.enabled = true;
@@ -107,16 +107,16 @@ test('launch at login shows a success toast after macOS confirms the setting', a
     await state.saveLogin();
 
     assert.equal(state.login.enabled, true);
-    assert.deepEqual(state.successes, ['Launch at login confirmed by macOS.']);
+    assert.deepEqual(state.successes, ['Launch at login confirmed.']);
 });
 
 test('a failed launch at login save shows the error without a success toast', async t => {
     const state = mount(t, { native: true, launchAtLogin: false });
-    t.mock.method(http.getClient(), 'request', async () => response({ message: 'macOS could not confirm launch at login.' }, 503));
+    t.mock.method(http.getClient(), 'request', async () => response({ message: 'The operating system could not confirm launch at login.' }, 503));
 
     await state.saveLogin();
 
-    assert.equal(state.error.value, 'macOS could not confirm launch at login.');
+    assert.equal(state.error.value, 'The operating system could not confirm launch at login.');
     assert.deepEqual(state.successes, []);
 });
 

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Actions\ProtectCredential;
 use App\Models\BoardColumn;
 use App\Models\Project;
+use App\Models\ProjectFolder;
 use App\Models\ProjectSecret;
 use App\Models\Task;
 use App\WorkspaceBackup;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class WorkspaceRestoreTest extends TestCase
@@ -50,6 +52,28 @@ class WorkspaceRestoreTest extends TestCase
         foreach ($records as &$record) {
             if ($record['type'] === 'tasks') {
                 $record['data']['board_column_id'] = '09ad2de3-bffb-4a53-a4f2-2c6b2749cfc5';
+                break;
+            }
+        }
+        unset($record);
+
+        $this->expectException(InvalidArgumentException::class);
+        app(WorkspaceRestore::class)->stage($records, $crypto);
+    }
+
+    #[TestWith(['C:/outside'])]
+    #[TestWith(['C:\\outside'])]
+    #[TestWith(['\\\\server\\share'])]
+    #[TestWith(['packages\\..\\outside'])]
+    #[TestWith(["packages/web\0"])]
+    public function test_it_rejects_windows_absolute_or_unsafe_relative_package_roots(string $path): void
+    {
+        ProjectFolder::factory()->create();
+        $crypto = app(ProtectCredential::class);
+        $records = app(WorkspaceBackup::class)->records(false, $crypto);
+        foreach ($records as &$record) {
+            if ($record['type'] === 'package_roots') {
+                $record['data']['relative_path'] = $path;
                 break;
             }
         }

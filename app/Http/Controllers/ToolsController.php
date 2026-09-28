@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Actions\ProbeRuntimes;
+use App\Rules\AbsoluteLocalPath;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -16,7 +17,7 @@ class ToolsController extends Controller
     {
         $data = $request->validate([
             'paths' => ['required', 'array:'.implode(',', ProbeRuntimes::TOOLS)],
-            'paths.*' => ['nullable', 'string', 'max:4096', 'starts_with:/', 'not_regex:/\x00/'],
+            'paths.*' => ['nullable', 'string', 'max:4096', new AbsoluteLocalPath],
         ]);
 
         return response()->json(['runtimes' => $runtimes->handle('', globalPaths: $data['paths'])]);

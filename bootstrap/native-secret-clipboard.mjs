@@ -1,16 +1,24 @@
 import { app, clipboard } from 'electron';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 
 let timer;
 let pending;
 
 function changeCount() {
-    if (process.platform !== 'darwin') throw new Error('Clipboard change tracking is unavailable.');
-    const output = execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', 'ObjC.import("AppKit"); $.NSPasteboard.generalPasteboard.changeCount'], { encoding: 'utf8', timeout: 2000 }).trim();
+    let output;
+    if (process.platform === 'darwin') {
+        output = execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', 'ObjC.import("AppKit"); $.NSPasteboard.generalPasteboard.changeCount'], { encoding: 'utf8', timeout: 2000 }).trim();
+    } else if (process.platform === 'win32') {
+        const script = 'Add-Type -TypeDefinition \'using System.Runtime.InteropServices; public static class OrbitClipboard { [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber(); }\'; [OrbitClipboard]::GetClipboardSequenceNumber()';
+        output = execFileSync(join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim();
+    } else {
+        throw new Error('Clipboard change tracking is unavailable.');
+    }
     if (!/^\d+$/.test(output)) throw new Error('Clipboard change tracking is unavailable.');
     const count = Number(output);
-    if (!Number.isSafeInteger(count) || count < 0) throw new Error('Clipboard change tracking is unavailable.');
+    if (!Number.isSafeInteger(count) || count < 0 || (process.platform === 'win32' && count === 0)) throw new Error('Clipboard change tracking is unavailable.');
     return count;
 }
 

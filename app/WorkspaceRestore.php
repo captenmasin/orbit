@@ -14,6 +14,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
+use Symfony\Component\Filesystem\Path;
 use Throwable;
 
 class WorkspaceRestore
@@ -183,7 +184,7 @@ class WorkspaceRestore
             }
         }
         foreach ($tables['package_roots'] as $root) {
-            if (! isset($folders[$root['project_folder_id'] ?? '']) || ! is_string($root['relative_path'] ?? null) || str_starts_with($root['relative_path'], '/') || str_contains($root['relative_path'], '..')) {
+            if (! isset($folders[$root['project_folder_id'] ?? '']) || ! is_string($root['relative_path'] ?? null) || Path::isAbsolute(str_replace('\\', '/', $root['relative_path'])) || preg_match('/\A[A-Za-z]:/', $root['relative_path']) || str_contains($root['relative_path'], "\0") || str_contains($root['relative_path'], '..')) {
                 $this->invalid();
             }
         }

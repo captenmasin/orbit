@@ -47,7 +47,7 @@ function save() {
             size="input"
             :disabled="!project.board_columns?.length"
             @click="begin()">
-            Paste ideas
+            Paste items
         </Button>
         <Dialog
             :open="open"
@@ -56,7 +56,7 @@ function save() {
                 v-bind="items.length ? { 'aria-describedby': undefined } : {}"
                 class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>{{ generated ? 'Review suggested actions' : 'Paste ideas' }}</DialogTitle><DialogDescription v-if="!items.length">
+                    <DialogTitle>{{ generated ? 'Review suggested actions' : 'Paste items' }}</DialogTitle><DialogDescription v-if="!items.length">
                         One card title per line.
                     </DialogDescription>
                 </DialogHeader>

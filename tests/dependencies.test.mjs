@@ -6,6 +6,15 @@ import { compileScript, parse } from '@vue/compiler-sfc';
 import * as vue from 'vue';
 import ts from 'typescript';
 
+test('folder labels show the last directory for Unix, Windows drive and UNC paths', () => {
+    const source = readFileSync(new URL('../resources/js/lib/dependencies.ts', import.meta.url), 'utf8');
+    const context = { exports: {} };
+    runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, context);
+    for (const path of ['/Users/mason/Orbit/', 'C:\\Projects\\Orbit\\', '\\\\server\\share\\Orbit']) {
+        assert.equal(context.exports.folderName({ path }), 'Orbit');
+    }
+});
+
 test('dependency rows distinguish direct requirements, transitive versions, aliases, links and stale values', () => {
     const source = readFileSync(new URL('../resources/js/lib/dependencies.ts', import.meta.url), 'utf8');
     const context = { exports: {} };
@@ -100,6 +109,28 @@ test('coverage excludes stale findings and distinguishes unchecked, missing lock
     assert.equal(health.unconfigured.length, 1);
     skipped.scan_state = 'Failed';
     assert.equal(dependencyHealth([{ id: 'web', path: '/web', package_roots: [skipped] }]).outdated, 0);
+});
+
+test('pending inspections retain matching security and update findings without reviving failed results', () => {
+    const item = root('app');
+    item.security.packages = [{ name: 'vue', ecosystem: 'npm', current: '3.5.20', advisories: [advisory('High')] }];
+    const folder = { id: 'web', path: '/web', availability: 'Available', package_roots: [item] };
+    for (const scanState of ['Queued', 'Scanning', 'Current', 'Partial']) {
+        item.scan_state = scanState;
+        const health = dependencyHealth([folder]);
+        assert.equal(health.issueCount, 1);
+        assert.equal(health.security, 1);
+        assert.equal(health.outdated, 1);
+    }
+    item.scan_state = 'Scanning';
+    item.scan_error = 'Inspection failed';
+    assert.equal(dependencyHealth([folder]).issueCount, 0);
+    item.scan_error = null;
+    folder.availability = 'Missing folder';
+    assert.equal(dependencyHealth([folder]).issueCount, 0);
+    folder.availability = 'Available';
+    item.snapshot.fingerprint = 'changed';
+    assert.equal(dependencyHealth([folder]).issueCount, 0);
 });
 
 test('selected manager lock data is used and explicit ambiguous selection never falls back to npm data', () => {

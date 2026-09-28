@@ -9,6 +9,7 @@ use App\Models\Repository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
+use Native\Desktop\Facades\Shell;
 use Native\Desktop\Facades\System;
 use RuntimeException;
 use Tests\TestCase;
@@ -16,6 +17,49 @@ use Tests\TestCase;
 class ProviderCredentialTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_token_creation_pages_open_in_the_external_browser_for_the_selected_provider(): void
+    {
+        config(['nativephp-internal.running' => true]);
+        Shell::fake();
+
+        $this->postJson('/connections/token-page', ['provider' => 'github'])->assertOk()->assertExactJson(['opened' => true]);
+        $this->postJson('/connections/token-page', ['provider' => 'gitlab'])->assertOk()->assertExactJson(['opened' => true]);
+
+        Shell::assertOpenedExternal('https://github.com/settings/personal-access-tokens/new');
+        Shell::assertOpenedExternal('https://gitlab.com/-/user_settings/personal_access_tokens');
+    }
+
+    public function test_token_creation_page_returns_422_for_missing_or_unsupported_providers(): void
+    {
+        config(['nativephp-internal.running' => true]);
+        $shell = Shell::fake();
+
+        $this->postJson('/connections/token-page', [])->assertUnprocessable()->assertJsonValidationErrors('provider');
+        $this->postJson('/connections/token-page', ['provider' => 'https://example.com'])->assertUnprocessable()->assertJsonValidationErrors('provider');
+
+        $this->assertEmpty($shell->openExternalCalls);
+    }
+
+    public function test_token_creation_page_returns_403_outside_the_desktop_app(): void
+    {
+        config(['nativephp-internal.running' => false]);
+        $shell = Shell::fake();
+
+        $this->postJson('/connections/token-page', ['provider' => 'github'])->assertForbidden();
+
+        $this->assertEmpty($shell->openExternalCalls);
+    }
+
+    public function test_token_creation_page_returns_503_when_the_native_browser_bridge_fails(): void
+    {
+        config(['nativephp-internal.running' => true]);
+        Shell::shouldReceive('openExternal')->once()->andThrow(new RuntimeException('Bridge unavailable'));
+
+        $this->postJson('/connections/token-page', ['provider' => 'github'])
+            ->assertServiceUnavailable()
+            ->assertExactJson(['message' => 'The token creation page could not be opened. Try again.']);
+    }
 
     public function test_native_storage_refuses_browser_plaintext_and_sanitizes_bridge_failures(): void
     {

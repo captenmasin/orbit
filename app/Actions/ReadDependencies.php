@@ -4,6 +4,7 @@ namespace App\Actions;
 
 use RuntimeException;
 use stdClass;
+use Symfony\Component\Filesystem\Path;
 use Symfony\Component\Yaml\Yaml;
 use Throwable;
 
@@ -103,7 +104,7 @@ class ReadDependencies
             throw new RuntimeException('Missing file');
         }
         $resolved = realpath($candidate);
-        if (! $resolved || ! str_starts_with($resolved, rtrim($path, '/').'/') || ! is_file($resolved)) {
+        if (! $resolved || ! Path::isBasePath(realpath($path) ?: $path, $resolved) || ! is_file($resolved)) {
             throw new RuntimeException('Source is outside the package root');
         }
         if (! is_readable($resolved)) {

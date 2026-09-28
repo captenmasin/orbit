@@ -151,7 +151,7 @@ class SettingsController extends Controller
                 throw new \RuntimeException;
             }
         } catch (Throwable) {
-            throw ValidationException::withMessages(['enabled' => 'macOS could not confirm launch at login. Try again in the packaged app.']);
+            throw ValidationException::withMessages(['enabled' => 'The operating system could not confirm launch at login. Try again in the packaged app.']);
         }
 
         return response()->json(['enabled' => $actual]);

@@ -149,6 +149,12 @@ test('project overview retains confirmed attention during unrelated scans and hi
         }] },
     };
     assert.equal(current.state.needsAttention.value, true);
+    for (const scanState of ['Queued', 'Scanning', 'Current']) {
+        current.props.inspection[0].package_roots[0].scan_state = scanState;
+        assert.equal(current.state.needsAttention.value, true);
+        assert.equal(current.state.dependencies.value.issueCount, 1);
+    }
+    current.props.inspection[0].package_roots[0].scan_state = 'Queued';
     current.props.inspection[0].package_roots[0].snapshot.fingerprint = 'changed';
     assert.equal(current.state.needsAttention.value, false);
 });

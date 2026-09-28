@@ -36,7 +36,7 @@ class QueueInspection
             $jobId = Queue::connection('database')->push($job, '', 'inspection');
             $target->forceFill([
                 'scan_token' => $token, 'scan_job_id' => $jobId, 'scan_state' => 'Queued',
-                'scan_error' => null, 'scan_attempted_at' => now(), 'scan_started_at' => null,
+                'scan_attempted_at' => now(), 'scan_started_at' => null,
             ])->save();
 
             return true;

@@ -134,6 +134,7 @@ Route::prefix('backups')->name('backups.')->controller(BackupController::class)-
 });
 
 Route::prefix('connections')->name('connections.')->controller(ProviderController::class)->group(function (): void {
+    Route::post('/token-page', 'openTokenPage')->name('token-page');
     Route::post('/', 'save')->name('store');
     Route::get('/{connection}/repositories', 'repositories')->name('repositories');
     Route::put('/{connection}', 'save')->name('update');

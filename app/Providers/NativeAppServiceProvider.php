@@ -7,6 +7,8 @@ use App\WorkspacePreferences;
 use Illuminate\Support\Facades\Cache;
 use Native\Desktop\Contracts\ProvidesPhpIni;
 use Native\Desktop\Enums\SystemThemesEnum;
+use Native\Desktop\Facades\ContextMenu;
+use Native\Desktop\Facades\Menu;
 use Native\Desktop\Facades\System;
 use Native\Desktop\Facades\Window;
 use Throwable;
@@ -28,6 +30,29 @@ class NativeAppServiceProvider implements ProvidesPhpIni
         } catch (Throwable) {
             // The page can apply its saved appearance while the native theme bridge recovers.
         }
+        Menu::create(
+            Menu::app(),
+            Menu::file(),
+            Menu::edit(),
+            Menu::view(),
+            Menu::make(
+                Menu::label('New Project…', 'CmdOrCtrl+N')->id('new-project'),
+                Menu::label('Dashboard', 'CmdOrCtrl+Shift+H')->id('dashboard'),
+                Menu::label('Search Workspace…', 'CmdOrCtrl+K')->id('search'),
+                Menu::separator(),
+                Menu::label('Settings…', 'CmdOrCtrl+,')->id('settings'),
+                Menu::label('Backups & Restore…')->id('backups'),
+            )->label('Workspace'),
+            Menu::make(
+                Menu::label('Connections…')->id('connections'),
+                Menu::label('Tools & Runtimes…')->id('tools'),
+            )->label('Tools'),
+            Menu::window(),
+            Menu::make(
+                Menu::label('About Orbit & Updates…')->id('about'),
+            )->label('Help'),
+        );
+        ContextMenu::register(Menu::make());
         $url = str_replace('://127.0.0.1', '://localhost', route('startup'));
         $window = Window::open()->url($url)->title('Orbit')->width(1180)->height(850)->minWidth(600)->minHeight(600);
         if (PHP_OS_FAMILY === 'Darwin') {

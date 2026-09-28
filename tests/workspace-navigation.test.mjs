@@ -21,9 +21,11 @@ function workspace(initialPage = {}, savedRecents = [], deferMessageClear = fals
     let navigate;
     let wheel;
     let keydown;
+    let message;
     let resetSwipe;
     let listenerRemoved = false;
     let shortcutRemoved = false;
+    let menuListenerRemoved = false;
     let pendingMessageClear;
     class ScrollableElement {
         scrollWidth = 200;
@@ -68,10 +70,11 @@ function workspace(initialPage = {}, savedRecents = [], deferMessageClear = fals
         clearTimeout() {},
         URL,
         window: {
+            location: { origin: 'http://localhost:8000' },
             navigation,
             history: { length: 1, back: () => calls.push('back'), forward: () => calls.push('forward') },
-            addEventListener: (name, listener) => { if (name === 'wheel') wheel = listener; else { assert.equal(name, 'keydown'); keydown = listener; } },
-            removeEventListener: (name, listener) => { if (name === 'wheel') listenerRemoved = listener === wheel; else { assert.equal(name, 'keydown'); shortcutRemoved = listener === keydown; } },
+            addEventListener: (name, listener) => { if (name === 'message') message = listener; else if (name === 'wheel') wheel = listener; else { assert.equal(name, 'keydown'); keydown = listener; } },
+            removeEventListener: (name, listener) => { if (name === 'message') menuListenerRemoved = listener === message; else if (name === 'wheel') listenerRemoved = listener === wheel; else { assert.equal(name, 'keydown'); shortcutRemoved = listener === keydown; } },
         },
     };
     runInNewContext(outputText, context);
@@ -81,9 +84,56 @@ function workspace(initialPage = {}, savedRecents = [], deferMessageClear = fals
         mounted: () => mounted(), unmounted: () => unmounted(), navigate: () => navigate(),
         wheel: event => wheel(event), keydown: event => keydown(event), resetSwipe: () => resetSwipe(),
         listenerRemoved: () => listenerRemoved, shortcutRemoved: () => shortcutRemoved,
+        menu: (id, overrides = {}) => message({ source: context.window, origin: context.window.location.origin, data: { type: 'native-event', event: 'Native\\Desktop\\Events\\Menu\\MenuItemClicked', payload: { item: { id } } }, ...overrides }),
+        menuRegistered: () => Boolean(message), menuListenerRemoved: () => menuListenerRemoved,
         flushMessageClear: () => pendingMessageClear(),
     };
 }
+
+test('native workspace menu opens existing pages and search without resetting the current form', () => {
+    const { layout, page, visits, mounted, unmounted, menu, menuListenerRemoved } = workspace();
+    mounted();
+    for (const [id, destination] of [
+        ['new-project', '/projects/create'], ['settings', '/settings'], ['backups', '/settings/backups'],
+        ['connections', '/settings/connections'], ['tools', '/settings?section=tools'], ['about', '/settings?section=about'],
+    ]) {
+        layout.searchOpen.value = true;
+        menu(id);
+        assert.equal(layout.searchOpen.value, false);
+        assert.equal(visits.at(-1), destination);
+    }
+    page.component = 'ShowProject';
+    page.url = '/projects/orbit';
+    menu('dashboard');
+    assert.equal(visits.at(-1), '/');
+    const visitCount = visits.length;
+    menu('search');
+    menu('search');
+    assert.equal(layout.searchOpen.value, true);
+    page.component = 'CreateProject';
+    menu('new-project');
+    page.url = '/settings?section=tools';
+    menu('tools');
+    assert.equal(visits.length, visitCount);
+    unmounted();
+    assert.equal(menuListenerRemoved(), true);
+});
+
+test('native menu ignores unrelated, foreign, and unknown messages and stays disabled in browsers', () => {
+    const { layout, visits, mounted, menu } = workspace();
+    mounted();
+    for (const overrides of [
+        { source: {} }, { origin: 'https://example.com' }, { data: null }, { data: { type: 'other' } },
+        { data: { type: 'native-event', event: 'OtherEvent' } },
+        { data: { type: 'native-event', event: 'Native\\Desktop\\Events\\Menu\\MenuItemClicked' } },
+    ]) menu('search', overrides);
+    for (const id of ['unknown', '__proto__', 'constructor', '/settings', 'https://example.com', null, {}]) menu(id);
+    assert.equal(layout.searchOpen.value, false);
+    assert.deepEqual(visits, []);
+    const browser = workspace({ props: { native: false } });
+    browser.mounted();
+    assert.equal(browser.menuRegistered(), false);
+});
 
 test('workspace navigation and success messages follow browser visits', () => {
     const { layout, page, navigation, calls, toasts, mounted, unmounted, navigate, wheel, keydown, resetSwipe, ScrollableElement, listenerRemoved, shortcutRemoved } = workspace();

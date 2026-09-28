@@ -24,8 +24,19 @@ const error = ref('');
 const credential = ref('');
 const form = useHttp({ provider: 'github', label: '', token: '', revision: 1 });
 const removal = useHttp({ revision: 1 });
+const tokenPage = useHttp({ provider: 'github' });
 function clear() { credential.value = ''; form.token = ''; form.defaults('token', ''); }
-onBeforeUnmount(() => { form.cancel(); labelForm.cancel(); clear(); });
+onBeforeUnmount(() => { form.cancel(); labelForm.cancel(); tokenPage.cancel(); clear(); });
+async function openTokenPage(event: MouseEvent) {
+    if (!props.native) return;
+    event.preventDefault();
+    if (tokenPage.processing) return;
+    tokenPage.provider = form.provider;
+    try {
+        const result = await tokenPage.post('/connections/token-page');
+        if (!result) toast.error('The token creation page could not be opened. Try again.');
+    } catch { toast.error('The token creation page could not be opened. Try again.'); }
+}
 function edit(connection: ProviderConnection | null) {
     clear(); error.value = ''; editing.value = connection;
     Object.assign(form, { provider: connection?.provider ?? 'github', label: connection?.label ?? '', revision: connection?.revision ?? 1 });
@@ -101,7 +112,7 @@ async function remove() {
             <p
                 v-if="!native"
                 class="text-sm text-muted-foreground">
-                Manage tokens in the desktop app to use macOS credential storage.
+                Manage tokens in the desktop app to use secure system credential storage.
             </p>
             <Alert
                 v-if="error && !open"
@@ -136,11 +147,6 @@ async function remove() {
                             Wait, then retry after {{ new Date(connection.retry_at).toLocaleString() }}
                         </p>
                     </div>
-                    <p
-                        v-if="connection.state === 'Current'"
-                        class="text-xs text-muted-foreground">
-                        Account identity was verified when saved. Repository permissions and organization approval are checked when used.
-                    </p>
                     <div class="flex shrink-0 flex-wrap gap-2">
                         <Button
                             size="sm"
@@ -175,8 +181,8 @@ async function remove() {
             <Dialog
                 v-model:open="open"
                 @update:open="clear">
-                <DialogContent>
-                    <DialogHeader><DialogTitle>{{ editing ? 'Replace token' : 'Add connection' }}</DialogTitle><DialogDescription>Tokens are encrypted using macOS credential storage. Orbit reads repository activity.</DialogDescription></DialogHeader>
+                <DialogContent class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+                    <DialogHeader><DialogTitle>{{ editing ? 'Replace token' : 'Add connection' }}</DialogTitle><DialogDescription>Tokens are encrypted using secure system credential storage. Orbit reads repository activity.</DialogDescription></DialogHeader>
                     <form
                         class="grid gap-4"
                         @submit.prevent="save">
@@ -200,9 +206,43 @@ async function remove() {
                                 maxlength="100"
                                 required />
                         </Field>
-                        <p class="text-sm text-muted-foreground">
-                            {{ form.provider === 'github' ? 'Use a fine-grained token for selected repositories with read access to Metadata, Contents, Issues, Pull requests, Actions, and Commit statuses.' : 'Use a personal access token with read_api access.' }}
-                        </p>
+                        <div
+                            id="connection-token-help"
+                            aria-live="polite"
+                            class="space-y-2 text-xs text-muted-foreground">
+                            <h3 class="font-medium text-foreground">
+                                {{ form.provider === 'github' ? 'GitHub token setup' : 'GitLab token setup' }}
+                            </h3>
+                            <ol
+                                v-if="form.provider === 'github'"
+                                class="list-decimal space-y-2 pl-5">
+                                <li>
+                                    <a
+                                        href="https://github.com/settings/personal-access-tokens/new"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="underline"
+                                        @click="openTokenPage">Create a GitHub fine-grained token</a>. Enter a name and choose an expiration.
+                                </li>
+                                <li>Choose the resource owner, then select the repositories you want to connect under Repository access.</li>
+                                <li>Under Repository permissions, set Contents, Issues, Pull requests, Actions, and Commit statuses to Read-only. Metadata read access is included automatically.</li>
+                                <li>Generate the token, copy it, and paste it below. If your organization requires approval, ask an administrator to approve it before accessing private repositories.</li>
+                            </ol>
+                            <ol
+                                v-else
+                                class="list-decimal space-y-2 pl-5">
+                                <li>
+                                    Open <a
+                                        href="https://gitlab.com/-/user_settings/personal_access_tokens"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="underline"
+                                        @click="openTokenPage">GitLab’s token creation page</a>. Choose Generate token → Legacy token.
+                                </li>
+                                <li>Enter a name and expiration date. Select <code>read_api</code> to read repository activity. Also select <code>read_repository</code> if you want to clone private repositories in Orbit.</li>
+                                <li>Generate the token, copy it before leaving the page, and paste it below.</li>
+                            </ol>
+                        </div>
                         <Field>
                             <FieldLabel for="connection-token">
                                 Token
@@ -212,6 +252,7 @@ async function remove() {
                                 variant="filled"
                                 type="password"
                                 autocomplete="off"
+                                aria-describedby="connection-token-help"
                                 :spellcheck="false"
                                 maxlength="4096"
                                 required />

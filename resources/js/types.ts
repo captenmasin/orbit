@@ -56,7 +56,7 @@ export interface RuntimeResult {
     path: string | null;
     state: string;
     version: string | null;
-    probe_directory: string;
+    probe_directory: string | null;
     scanned_at: string | null;
     last_success?: Pick<RuntimeResult, 'version' | 'path' | 'probe_directory' | 'scanned_at'> | null;
 }

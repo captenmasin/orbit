@@ -2,11 +2,13 @@
 
 namespace App\Actions;
 
+use App\Rules\AbsoluteLocalPath;
 use App\Rules\ProjectUrl;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use Symfony\Component\Filesystem\Path;
 use Symfony\Component\Process\ExecutableFinder;
 use Throwable;
 
@@ -14,7 +16,7 @@ class InspectFolder
 {
     public function handle(string $path): array
     {
-        if (! str_starts_with($path, '/') || str_contains($path, "\0") || ! is_dir($path) || ! is_readable($path)) {
+        if (! AbsoluteLocalPath::isAbsolute($path) || ! is_dir($path) || ! is_readable($path)) {
             throw ValidationException::withMessages(['path' => 'Choose an existing folder you can read.']);
         }
         $path = realpath($path);
@@ -118,8 +120,10 @@ class InspectFolder
             $executable = '/Library/Developer/CommandLineTools/usr/bin/git';
         }
 
-        return app(RunInspectionProcess::class)->handle([$executable, '--no-optional-locks', '--no-replace-objects', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-C', $path, ...$arguments], '/', [
-            'GIT_TERMINAL_PROMPT' => '0', 'GIT_CONFIG_NOSYSTEM' => '1', 'GIT_CONFIG_GLOBAL' => '/dev/null', 'GIT_CONFIG_SYSTEM' => '/dev/null',
+        $null = PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null';
+
+        return app(RunInspectionProcess::class)->handle([$executable, '--no-optional-locks', '--no-replace-objects', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath='.$null, '-C', $path, ...$arguments], Path::getRoot($path), [
+            'GIT_TERMINAL_PROMPT' => '0', 'GIT_CONFIG_NOSYSTEM' => '1', 'GIT_CONFIG_GLOBAL' => $null, 'GIT_CONFIG_SYSTEM' => $null,
         ]);
     }
 }

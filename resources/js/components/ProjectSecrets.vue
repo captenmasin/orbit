@@ -19,10 +19,10 @@ import { useDocumentVisibility, useWindowFocus } from '@vueuse/core';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ChevronDownIcon, CopyIcon, EllipsisIcon, EyeIcon, EyeOffIcon, LockKeyholeIcon, PlusIcon, SearchIcon, Trash2Icon } from '@lucide/vue';
+import { ContextMenuSeparator, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, contextMenuContentClass, contextMenuItemClass } from '@/components/ui/context-menu';
+import { CheckIcon, ChevronDownIcon, CopyIcon, EllipsisIcon, EyeIcon, EyeOffIcon, LockKeyholeIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon } from '@lucide/vue';
 
 const props = defineProps<{ project: Project; native: boolean; targetSecretId?: string | null }>();
 const query = ref('');
@@ -102,7 +102,6 @@ const selectAllState = computed<boolean | 'indeterminate'>(() => {
 const activeSecret = computed(() => description.value?.dirty || description.value?.saving
     ? secrets.value.find(secret => secret.id === activeSecretId.value) ?? lastActiveSecret.value
     : rows.value.find(secret => secret.id === activeSecretId.value) ?? rows.value[0] ?? null);
-const menuItemClass = 'flex cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-50';
 
 async function flushDescription() {
     return await description.value?.flush() ?? true;
@@ -544,7 +543,6 @@ onBeforeUnmount(() => {
                 Secrets
             </h2>
             <div class="flex flex-wrap items-center gap-2">
-                <span class="text-xs text-muted-foreground">Locks at {{ new Date(unlockedUntil).toLocaleTimeString() }}</span>
                 <Button
                     variant="ghost"
                     size="sm"
@@ -563,19 +561,19 @@ onBeforeUnmount(() => {
                         <DropdownMenuContent
                             align="end"
                             :side-offset="4"
-                            class="t-dropdown z-50 min-w-44 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                            :class="contextMenuContentClass">
                             <DropdownMenuItem
-                                :class="menuItemClass"
+                                :class="contextMenuItemClass"
                                 @select="openPaste">
                                 Paste .env entries
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                                :class="menuItemClass"
+                                :class="contextMenuItemClass"
                                 @select="openImport">
                                 Import .env file
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                                :class="menuItemClass"
+                                :class="contextMenuItemClass"
                                 :disabled="!secrets.length"
                                 @select="openExport">
                                 Export .env file
@@ -661,77 +659,86 @@ onBeforeUnmount(() => {
         <div
             v-show="unlocked"
             class="space-y-4">
-            <div class="flex flex-wrap items-center gap-2">
-                <div class="min-w-[155px] flex-1 sm:flex-none">
-                    <label
-                        for="secret-environment"
-                        class="sr-only">Environment</label><FilterSelect
-                            id="secret-environment"
-                            :model-value="environment"
-                            label="Environment"
-                            :options="environments"
-                            all-label="All environments"
-                            @update:model-value="filterSecrets('environment', $event)" />
-                </div>
-                <div class="min-w-[155px] flex-1 sm:flex-none">
-                    <label
-                        for="secret-service"
-                        class="sr-only">Service</label><FilterSelect
-                            id="secret-service"
-                            :model-value="service"
-                            label="Service"
-                            :options="services"
-                            all-label="All services"
-                            @update:model-value="filterSecrets('service', $event)" />
-                </div>
-                <Field class="w-full sm:w-64">
-                    <FieldLabel
-                        for="secret-search"
-                        class="sr-only">
-                        Search secrets
-                    </FieldLabel><div class="relative">
-                        <SearchIcon
-                            class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-                            aria-hidden="true" /><Input
-                                id="secret-search"
-                                :model-value="query"
-                                placeholder="Search secrets…"
-                                maxlength="255"
-                                class="h-9 rounded-full border-0 bg-muted pl-9 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]"
-                                @update:model-value="filterSecrets('query', String($event))" />
+            <div class="grid">
+                <div
+                    role="search"
+                    class="col-start-1 row-start-1 flex flex-wrap items-center gap-2"
+                    :class="selectedIds.length ? 'invisible' : ''"
+                    :inert="selectedIds.length > 0"
+                    aria-label="Filter secrets">
+                    <div class="min-w-[155px] flex-1 sm:flex-none">
+                        <label
+                            for="secret-environment"
+                            class="sr-only">Environment</label><FilterSelect
+                                id="secret-environment"
+                                :model-value="environment"
+                                label="Environment"
+                                :options="environments"
+                                all-label="All environments"
+                                @update:model-value="filterSecrets('environment', $event)" />
                     </div>
-                </Field>
-            </div>
-            <div
-                v-if="selectedIds.length"
-                class="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/50 p-3 text-sm">
-                <span class="font-medium">{{ selectedIds.length }} selected</span><Button
-                    size="sm"
-                    variant="outline"
-                    @click="openBulk('environment')">
-                    Change environment
-                </Button><Button
-                    size="sm"
-                    variant="outline"
-                    @click="openBulk('service')">
-                    Change service
-                </Button><Button
-                    size="sm"
-                    variant="destructive"
-                    :disabled="!native || bulkRemoval.processing"
-                    @click="confirmBulkRemoval">
-                    <Trash2Icon aria-hidden="true" />Delete
-                </Button><Button
-                    size="sm"
-                    variant="ghost"
-                    @click="selectedIds = []">
-                    Clear
-                </Button>
+                    <div class="min-w-[155px] flex-1 sm:flex-none">
+                        <label
+                            for="secret-service"
+                            class="sr-only">Service</label><FilterSelect
+                                id="secret-service"
+                                :model-value="service"
+                                label="Service"
+                                :options="services"
+                                all-label="All services"
+                                @update:model-value="filterSecrets('service', $event)" />
+                    </div>
+                    <Field class="w-full sm:w-64">
+                        <FieldLabel
+                            for="secret-search"
+                            class="sr-only">
+                            Search secrets
+                        </FieldLabel><div class="relative">
+                            <SearchIcon
+                                class="pointer-events-none absolute top-1/2 left-3.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                                aria-hidden="true" /><Input
+                                    id="secret-search"
+                                    :model-value="query"
+                                    placeholder="Search secrets…"
+                                    maxlength="255"
+                                    class="h-9 rounded-full border-0 bg-muted pl-9 text-[13px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/50 md:text-[13px]"
+                                    @update:model-value="filterSecrets('query', String($event))" />
+                        </div>
+                    </Field>
+                </div>
+                <div
+                    class="col-start-1 row-start-1 flex flex-wrap items-center gap-2 rounded-xl border bg-muted/50 px-6 p-3 text-sm"
+                    :class="selectedIds.length ? '' : 'invisible'"
+                    :inert="selectedIds.length === 0"
+                    role="status">
+                    <span class="font-medium">{{ selectedIds.length }} selected</span><Button
+                        size="sm"
+                        variant="outline"
+                        @click="openBulk('environment')">
+                        Change environment
+                    </Button><Button
+                        size="sm"
+                        variant="outline"
+                        @click="openBulk('service')">
+                        Change service
+                    </Button><Button
+                        size="sm"
+                        variant="destructive"
+                        :disabled="!native || bulkRemoval.processing"
+                        @click="confirmBulkRemoval">
+                        <Trash2Icon aria-hidden="true" />Delete
+                    </Button><Button
+                        size="sm"
+                        variant="ghost"
+                        @click="selectedIds = []">
+                        Clear
+                    </Button>
+                </div>
             </div>
             <p
                 v-if="!native"
                 class="text-sm text-muted-foreground">
-                Manage secrets in the desktop app to use macOS credential storage.
+                Manage secrets in the desktop app to use secure system credential storage.
             </p>
             <Alert
                 v-if="error"
@@ -805,22 +812,24 @@ onBeforeUnmount(() => {
                                                 <CopyIcon aria-hidden="true" />
                                             </Button>
                                         </li>
-                                    </ContextMenuTrigger><ContextMenuContent>
+                                    </ContextMenuTrigger><ContextMenuContent class="w-56">
                                         <ContextMenuItem @select="toggleSelected(secret.id)">
-                                            {{ selectedIds.includes(secret.id) ? 'Deselect' : 'Select' }}
+                                            <CheckIcon aria-hidden="true" />{{ selectedIds.includes(secret.id) ? 'Deselect' : 'Select' }}
                                         </ContextMenuItem><ContextMenuItem
                                             :disabled="!native"
                                             @select="edit(secret)">
-                                            Edit secret
+                                            <PencilIcon aria-hidden="true" />Edit secret
                                         </ContextMenuItem><ContextMenuItem
                                             :disabled="!native || clipboard.processing"
                                             @select="copy(secret)">
-                                            Copy value
-                                        </ContextMenuItem><ContextMenuItem
+                                            <CopyIcon aria-hidden="true" />Copy value
+                                        </ContextMenuItem>
+                                        <ContextMenuSeparator class="mx-2.5 my-1.5 h-px bg-border/80" />
+                                        <ContextMenuItem
                                             :disabled="!native"
                                             variant="destructive"
                                             @select="confirmRemoval(secret)">
-                                            Delete
+                                            <Trash2Icon aria-hidden="true" />Delete secret
                                         </ContextMenuItem>
                                     </ContextMenuContent>
                                 </ContextMenu>
@@ -841,7 +850,7 @@ onBeforeUnmount(() => {
                     <div class="flex items-start justify-between gap-4">
                         <h3
                             id="secret-detail-title"
-                            class="min-w-0 text-xl font-normal break-all">
+                            class="min-w-0 text-xl font-semibold break-all">
                             {{ activeSecret.name }}
                         </h3>
                         <DropdownMenuRoot>
@@ -856,20 +865,20 @@ onBeforeUnmount(() => {
                                 <DropdownMenuContent
                                     align="end"
                                     :side-offset="4"
-                                    class="t-dropdown z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
-                                    <DropdownMenuItem
-                                        :class="menuItemClass"
+                                    :class="contextMenuContentClass"
+                                    class="w-56">
+                                    <ContextMenuItem
                                         :disabled="!native"
                                         @select="edit(activeSecret)">
-                                        Edit secret
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        :class="menuItemClass"
-                                        class="text-destructive"
+                                        <PencilIcon aria-hidden="true" />Edit secret
+                                    </ContextMenuItem>
+                                    <ContextMenuSeparator class="mx-2.5 my-1.5 h-px bg-border/80" />
+                                    <ContextMenuItem
+                                        variant="destructive"
                                         :disabled="!native"
                                         @select="confirmRemoval(activeSecret)">
-                                        Delete secret
-                                    </DropdownMenuItem>
+                                        <Trash2Icon aria-hidden="true" />Delete secret
+                                    </ContextMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenuPortal>
                         </DropdownMenuRoot>
@@ -973,7 +982,7 @@ onBeforeUnmount(() => {
             @update:open="open => { if (!open && !form.processing) closeEditor(); }">
             <DialogContent
                 :aria-describedby="undefined"
-                class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
+                class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle class="pr-6 break-all">
                         {{ metadataOnly ? `Context for ${editing?.name}` : editing ? 'Edit secret' : 'Add secret' }}
@@ -990,6 +999,7 @@ onBeforeUnmount(() => {
                             <Input
                                 id="secret-editor-name"
                                 v-model="form.name"
+                                variant="filled"
                                 maxlength="255"
                                 pattern="[A-Za-z_][A-Za-z0-9_]*"
                                 placeholder="API_KEY"
@@ -1006,6 +1016,7 @@ onBeforeUnmount(() => {
                             <Textarea
                                 id="secret-editor-value"
                                 v-model="form.value"
+                                variant="filled"
                                 autocomplete="off"
                                 :spellcheck="false"
                                 :rows="4"
@@ -1020,7 +1031,7 @@ onBeforeUnmount(() => {
                     </template>
                     <div
                         class="grid grid-cols-1 gap-4"
-                        :class="!metadataOnly ? 'border-t pt-4 sm:grid-cols-2' : undefined">
+                        :class="!metadataOnly ? 'sm:grid-cols-2' : undefined">
                         <Field
                             v-if="!metadataOnly"
                             :data-invalid="!!form.errors.environment">
@@ -1029,6 +1040,7 @@ onBeforeUnmount(() => {
                             </FieldLabel>
                             <ChoiceSelect
                                 id="secret-editor-environment"
+                                variant="filled"
                                 class="min-w-0 w-full"
                                 :model-value="formEnvironmentChoice"
                                 :options="[...environmentOptions, { value: '__new__', label: 'New…' }]"
@@ -1037,6 +1049,7 @@ onBeforeUnmount(() => {
                             <Input
                                 v-if="formEnvironmentChoice === '__new__'"
                                 v-model="form.environment"
+                                variant="filled"
                                 aria-label="New environment name"
                                 placeholder="Environment name"
                                 maxlength="100"
@@ -1053,6 +1066,7 @@ onBeforeUnmount(() => {
                             <Input
                                 id="secret-editor-service"
                                 v-model="form.service"
+                                variant="filled"
                                 list="secret-categories"
                                 maxlength="100"
                                 placeholder="Optional"
@@ -1069,6 +1083,7 @@ onBeforeUnmount(() => {
                         <Input
                             id="secret-editor-url"
                             v-model="form.management_url"
+                            variant="filled"
                             maxlength="2048"
                             placeholder="https://… (optional)"
                             :aria-invalid="!!form.errors.management_url" />

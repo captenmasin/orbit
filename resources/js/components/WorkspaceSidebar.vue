@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { reducedMotion } from '@/lib/appearance';
 import { VueDraggable } from 'vue-draggable-plus';
 import type { Project, SidebarProject } from '@/types';
-import { GripVerticalIcon, LayoutGridIcon, SettingsIcon, PlusIcon, ChevronRightIcon, SearchIcon } from '@lucide/vue';
+import { BugIcon, GripVerticalIcon, LayoutGridIcon, SettingsIcon, PlusIcon, ChevronRightIcon, SearchIcon } from '@lucide/vue';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, useSidebar } from '@/components/ui/sidebar';
 
 const props = defineProps<{ projects: SidebarProject[]; selectedProject: Project | null; page: string; statuses?: string[] }>();
@@ -235,6 +235,20 @@ function setGroupOpen(status: string, event: Event) {
         </SidebarContent>
         <SidebarFooter class="px-3 py-3 group-data-[collapsible=icon]:px-2">
             <SidebarMenu class="gap-0.5">
+                <SidebarMenuItem>
+                    <SidebarMenuButton
+                        as-child
+                        tooltip="Debug"
+                        :is-active="page === 'Debug'"
+                        class="h-9 rounded-md px-3 text-sm">
+                        <Link
+                            href="/debug"
+                            :aria-current="page === 'Debug' ? 'page' : undefined"
+                            @click="setOpenMobile(false)">
+                            <BugIcon aria-hidden="true" /><span>Debug</span>
+                        </Link>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
                 <SidebarMenuItem>
                     <SidebarMenuButton
                         as-child

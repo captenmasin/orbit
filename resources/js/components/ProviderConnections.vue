@@ -181,7 +181,7 @@ async function remove() {
             <Dialog
                 v-model:open="open"
                 @update:open="clear">
-                <DialogContent class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+                <DialogContent class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
                     <DialogHeader><DialogTitle>{{ editing ? 'Replace token' : 'Add connection' }}</DialogTitle><DialogDescription>Tokens are encrypted using secure system credential storage. Orbit reads repository activity.</DialogDescription></DialogHeader>
                     <form
                         class="grid gap-4"

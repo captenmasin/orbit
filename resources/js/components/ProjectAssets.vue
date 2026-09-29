@@ -701,7 +701,7 @@ function renameFile() {
                                         <DropdownMenuContent
                                             align="end"
                                             :side-offset="4"
-                                            class="t-dropdown z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                                            class="t-dropdown z-50 min-w-40 rounded-md border retina:border-[0.5px] bg-popover p-1 text-popover-foreground shadow-md">
                                             <DropdownMenuItem
                                                 :class="menuItemClass"
                                                 @select="openItem('folder', folder.id)">
@@ -806,7 +806,7 @@ function renameFile() {
                                         <DropdownMenuContent
                                             align="end"
                                             :side-offset="4"
-                                            class="t-dropdown z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                                            class="t-dropdown z-50 min-w-40 rounded-md border retina:border-[0.5px] bg-popover p-1 text-popover-foreground shadow-md">
                                             <DropdownMenuItem
                                                 v-if="file.preview_url"
                                                 :class="menuItemClass"

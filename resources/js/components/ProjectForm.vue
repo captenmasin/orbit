@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field';
 import { AutocompleteAnchor, AutocompleteContent, AutocompleteInput, AutocompleteItem, AutocompletePortal, AutocompleteRoot, AutocompleteTrigger } from 'reka-ui';
 import { Combobox, ComboboxAnchor, ComboboxEmpty, ComboboxGroup, ComboboxInput, ComboboxItem, ComboboxItemIndicator, ComboboxList, ComboboxTrigger } from '@/components/ui/combobox';
-import { ArrowDownIcon, ArrowUpIcon, CheckIcon, ChevronDownIcon, ChevronsUpDownIcon, FolderOpenIcon, FolderPlusIcon, GitBranchIcon, PlusIcon, SlidersHorizontalIcon, Trash2Icon } from '@lucide/vue';
+import { ArrowDownIcon, ArrowUpIcon, CheckIcon, ChevronDownIcon, ChevronsUpDownIcon, FolderPlusIcon, GitBranchIcon, PlusIcon, SlidersHorizontalIcon, Trash2Icon } from '@lucide/vue';
 
 type FormRepository = Repository & { provider_full_name?: string };
 type SelectedRepository = { connection_id: string; full_name: string; name: string; remote_url: string; description: string | null };
@@ -55,7 +55,7 @@ if (recovered) {
 }
 watch(() => form.data(), () => {
     const { icon_file, ...data } = form.data();
-    router.remember(form.isDirty ? { data, imageSelected: !!icon_file || imageNeedsSelection.value } : null, draftKey);
+    router.remember(form.isDirty ? { data: JSON.parse(JSON.stringify(data)), imageSelected: !!icon_file || imageNeedsSelection.value } : null, draftKey);
 }, { deep: true, flush: 'post' });
 const departureOpen = ref(false);
 let destination: string | null = null;
@@ -110,6 +110,11 @@ const date = (value?: string | null) => value ? new Date(value).toLocaleString()
 
 function submit() {
     if (form.processing || inspection.processing || cloning.processing || form.errors.revision) return;
+    if (form.icon_file && form.icon_file.size > 5242880) {
+        form.setError('icon_file', 'Choose an image no larger than 5 MB.');
+        tab.value = 'overview';
+        return;
+    }
     form.transform(data => ({ ...data, _method: props.project ? 'put' : 'post' })).post(props.project ? `/projects/${props.project.id}` : '/projects', {
         preserveScroll: true,
         errorBag: props.project ? 'editProject' : 'createProject',
@@ -389,10 +394,13 @@ function addLink() {
                                                     accept="image/png,image/jpeg,image/gif,image/webp"
                                                     :aria-invalid="!!form.errors.icon_file"
                                                     @change="form.icon_file = ($event.target as HTMLInputElement).files?.[0] ?? null" />
-                                                <FieldDescription v-if="imageNeedsSelection">
-                                                    Reselect your image; selected files cannot be recovered from history.
-                                                </FieldDescription>
-                                                <FieldDescription>PNG, JPEG, GIF or WebP. Up to 2 MB and 2048 × 2048 pixels.</FieldDescription>
+                                                <!--                                                <FieldDescription v-if="imageNeedsSelection">-->
+                                                <!--                                                    Reselect your image; selected files cannot be recovered from history.-->
+                                                <!--                                                </FieldDescription>-->
+                                                <FieldDescription>PNG, JPEG, GIF or WebP. Up to 5 MB and 2048 × 2048 pixels.</FieldDescription>
+                                                <FieldError v-if="form.errors.icon_file">
+                                                    {{ form.errors.icon_file }}
+                                                </FieldError>
                                             </Field>
                                         </FieldSet>
                                     </div>
@@ -515,259 +523,254 @@ function addLink() {
                     </div>
                 </TabsContent>
                 <TabsContent value="repositories">
-                    <Card>
-                        <CardHeader>
-                            <h2 class="text-sm font-normal tracking-[-0.025em]">
-                                Connect your work
-                            </h2>
-                        </CardHeader>
-                        <CardContent>
-                            <FieldGroup class="grid gap-6 lg:grid-cols-2">
-                                <div class="min-w-0">
-                                    <FieldSet class="gap-4">
-                                        <FieldLegend
-                                            variant="label"
-                                            class="mb-0 flex items-center gap-2 font-normal">
-                                            <GitBranchIcon
-                                                class="size-4 text-muted-foreground"
-                                                aria-hidden="true" />Repositories
-                                        </FieldLegend>
-                                        <FieldDescription>
-                                            Choose from a connected account or add a remote URL.
+                    <div class="grid items-start gap-5 lg:grid-cols-2">
+                        <Card>
+                            <CardHeader>
+                                <h2 class="text-sm font-normal tracking-[-0.025em]">
+                                    Repositories
+                                </h2>
+                            </CardHeader>
+                            <CardContent>
+                                <FieldGroup class="gap-4">
+                                    <FieldDescription>
+                                        Choose from a connected account or add a remote URL.
+                                    </FieldDescription>
+                                    <div
+                                        v-for="(repo, index) in form.repositories"
+                                        :key="repo.id"
+                                        class="grid gap-2 border-b pb-4">
+                                        <div class="flex min-w-0 items-center justify-between gap-3">
+                                            <span class="flex min-w-0 flex-wrap items-center gap-2"><span class="truncate text-sm font-normal">{{ repo.name || `Repository ${index + 1}` }}</span><Badge
+                                                v-if="repo.provider_connection_id"
+                                                variant="secondary"
+                                                class="shrink-0">{{ connections?.find(connection => connection.id === repo.provider_connection_id)?.provider === 'gitlab' ? 'GitLab' : 'GitHub' }} · {{ connections?.find(connection => connection.id === repo.provider_connection_id)?.label }}</Badge></span>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon-sm"
+                                                :aria-label="`Remove ${repo.name || `repository ${index + 1}`}`"
+                                                @click="removeRepository(repo.id)">
+                                                <Trash2Icon aria-hidden="true" />
+                                            </Button>
+                                        </div>
+                                        <FieldDescription v-if="project?.repositories.some(saved => saved.id === repo.id) && repo.provider_connection_id">
+                                            Connected provider. Changing this URL disconnects its provider and clears cached activity. You can reconnect it from Sources.
                                         </FieldDescription>
-                                        <FieldGroup
-                                            v-for="(repo, index) in form.repositories"
-                                            :key="repo.id"
-                                            class="gap-3 border-t pt-4">
-                                            <div class="flex min-w-0 items-center justify-between gap-3">
-                                                <span class="flex min-w-0 items-center gap-2"><span class="truncate text-sm font-normal">{{ repo.name || `Repository ${index + 1}` }}</span><Badge
-                                                    v-if="repo.provider_connection_id"
-                                                    variant="secondary"
-                                                    class="shrink-0">{{ connections?.find(connection => connection.id === repo.provider_connection_id)?.provider === 'gitlab' ? 'GitLab' : 'GitHub' }} · {{ connections?.find(connection => connection.id === repo.provider_connection_id)?.label }}</Badge></span>
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon-sm"
-                                                    :aria-label="`Remove ${repo.name || `repository ${index + 1}`}`"
-                                                    @click="removeRepository(repo.id)">
-                                                    <Trash2Icon aria-hidden="true" />
-                                                </Button>
-                                            </div>
-                                            <FieldDescription v-if="project?.repositories.some(saved => saved.id === repo.id) && repo.provider_connection_id">
-                                                Connected provider. Changing this URL disconnects its provider and clears cached activity. You can reconnect it from Sources.
-                                            </FieldDescription>
-                                            <Field>
-                                                <FieldLabel :for="`${repo.id}-url`">
-                                                    Remote URL
-                                                </FieldLabel>
-                                                <Input
-                                                    :id="`${repo.id}-url`"
-                                                    :model-value="repo.remote_url"
-                                                    placeholder="https://github.com/owner/repository.git"
-                                                    maxlength="2048"
-                                                    :readonly="!!repo.provider_full_name"
-                                                    :aria-invalid="!!form.errors[`repositories.${index}.remote_url`]"
-                                                    @update:model-value="updateRemote(repo, String($event))" />
-                                            </Field>
-                                            <FieldError
-                                                v-if="form.errors[`repositories.${index}.provider_connection_id`] || form.errors[`repositories.${index}.provider_full_name`]"
-                                                role="alert">
-                                                {{ form.errors[`repositories.${index}.provider_connection_id`] || form.errors[`repositories.${index}.provider_full_name`] }}
-                                            </FieldError>
-                                            <div
-                                                v-if="project?.repositories.some(saved => saved.id === repo.id)"
-                                                class="flex flex-wrap gap-2">
-                                                <OpenTargetButton
-                                                    :id="repo.id"
-                                                    :project-id="project.id"
-                                                    kind="repositories"
-                                                    :native="native"
-                                                    :href="repo.web_url"
-                                                    label="Open repository" />
-                                            </div>
-                                        </FieldGroup>
-                                        <div class="flex flex-wrap gap-2">
+                                        <p
+                                            v-if="repo.provider_full_name"
+                                            class="break-all text-xs text-muted-foreground">
+                                            {{ repo.remote_url }}
+                                        </p>
+                                        <Field v-else>
+                                            <Input
+                                                :id="`${repo.id}-url`"
+                                                :model-value="repo.remote_url"
+                                                variant="filled"
+                                                :aria-label="`Remote URL for ${repo.name || `repository ${index + 1}`}`"
+                                                placeholder="https://github.com/owner/repository.git"
+                                                maxlength="2048"
+                                                :aria-invalid="!!form.errors[`repositories.${index}.remote_url`]"
+                                                @update:model-value="updateRemote(repo, String($event))" />
+                                        </Field>
+                                        <FieldError
+                                            v-if="form.errors[`repositories.${index}.provider_connection_id`] || form.errors[`repositories.${index}.provider_full_name`]"
+                                            role="alert">
+                                            {{ form.errors[`repositories.${index}.provider_connection_id`] || form.errors[`repositories.${index}.provider_full_name`] }}
+                                        </FieldError>
+                                        <div
+                                            v-if="project?.repositories.some(saved => saved.id === repo.id)"
+                                            class="flex flex-wrap gap-2">
+                                            <OpenTargetButton
+                                                :id="repo.id"
+                                                :project-id="project.id"
+                                                kind="repositories"
+                                                :native="native"
+                                                :href="repo.web_url"
+                                                label="Open repository" />
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            @click="addRepository">
+                                            <PlusIcon aria-hidden="true" />Add remote URL
+                                        </Button><ConnectedRepositoryPicker
+                                            :connections="connections ?? []"
+                                            :existing-urls="form.repositories.map(existing => existing.remote_url)"
+                                            :native="native"
+                                            :busy="form.processing"
+                                            @select="addConnectedRepository" />
+                                    </div>
+                                </FieldGroup>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader>
+                                <h2 class="text-sm font-normal tracking-[-0.025em]">
+                                    Local folders
+                                </h2>
+                            </CardHeader>
+                            <CardContent>
+                                <FieldGroup class="gap-4">
+                                    <FieldDescription>
+                                        Choose a folder to bring in its name and Git details.
+                                    </FieldDescription>
+                                    <Field class="gap-3">
+                                        <FieldLabel
+                                            v-if="!native"
+                                            :for="`${formId}-sources-folder-path`">
+                                            Folder path
+                                        </FieldLabel>
+                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                            <Input
+                                                v-if="!native"
+                                                :id="`${formId}-sources-folder-path`"
+                                                v-model="inspection.path"
+                                                variant="filled"
+                                                placeholder="/absolute/path/to/project"
+                                                :aria-invalid="!!inspection.errors.path"
+                                                :aria-describedby="inspection.errors.path ? `${formId}-sources-folder-path-error` : undefined" />
                                             <Button
                                                 type="button"
                                                 variant="outline"
-                                                @click="addRepository">
-                                                <PlusIcon aria-hidden="true" />Add remote URL
-                                            </Button><ConnectedRepositoryPicker
-                                                :connections="connections ?? []"
-                                                :existing-urls="form.repositories.map(existing => existing.remote_url)"
-                                                :native="native"
-                                                :busy="form.processing"
-                                                @select="addConnectedRepository" />
+                                                :size="project && !native ? 'input' : 'default'"
+                                                :disabled="inspection.processing"
+                                                @click="inspectFolder(null, native)">
+                                                <FolderPlusIcon aria-hidden="true" />{{ inspection.processing ? 'Reading folder…' : (native ? 'Choose folder' : 'Add folder') }}
+                                            </Button>
                                         </div>
-                                    </FieldSet>
-                                </div>
-                                <div class="min-w-0">
-                                    <FieldSet class="gap-4">
-                                        <FieldLegend
-                                            variant="label"
-                                            class="mb-0 flex items-center gap-2 font-normal">
-                                            <FolderOpenIcon
-                                                class="size-4 text-muted-foreground"
-                                                aria-hidden="true" />Local folders
-                                        </FieldLegend>
-                                        <FieldDescription>
-                                            Choose a folder to bring in its name and Git details.
+                                        <FieldError
+                                            v-if="inspection.errors.path"
+                                            :id="`${formId}-sources-folder-path-error`"
+                                            role="alert">
+                                            {{ inspection.errors.path }}
+                                        </FieldError>
+                                        <FieldDescription v-if="project">
+                                            Removing a folder or repository only unlinks it from this project.
                                         </FieldDescription>
-                                        <Field class="gap-3">
-                                            <FieldLabel
-                                                v-if="!native"
-                                                :for="`${formId}-sources-folder-path`">
-                                                Folder path
-                                            </FieldLabel>
-                                            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-                                                <Input
-                                                    v-if="!native"
-                                                    :id="`${formId}-sources-folder-path`"
-                                                    v-model="inspection.path"
-                                                    placeholder="/absolute/path/to/project"
-                                                    :aria-invalid="!!inspection.errors.path"
-                                                    :aria-describedby="inspection.errors.path ? `${formId}-sources-folder-path-error` : undefined" />
+                                    </Field>
+                                    <FieldGroup
+                                        v-for="(folder, index) in form.folders"
+                                        :key="folder.id"
+                                        class="gap-3 border-t pt-4">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="break-all font-medium">{{ folder.path }}</span>
+                                            <Badge :variant="folder.availability === 'Available' ? 'secondary' : 'destructive'">
+                                                {{ folder.availability }}
+                                            </Badge>
+                                        </div>
+                                        <FieldDescription>
+                                            {{ folder.git_state }}<template v-if="folder.branch">
+                                                · {{ folder.branch }}
+                                            </template><template v-if="folder.last_commit_at">
+                                                · {{ date(folder.last_commit_at) }} · {{ folder.last_commit_hash?.slice(0, 8) }}
+                                            </template>
+                                        </FieldDescription>
+                                        <FieldDescription v-if="folder.commit_subject">
+                                            {{ folder.commit_subject }}
+                                        </FieldDescription>
+                                        <FieldDescription
+                                            v-if="folder.git_root"
+                                            class="break-all">
+                                            Git root: {{ folder.git_root }}<template v-if="folder.git_remote">
+                                                <br>Remote: {{ folder.git_remote }}
+                                            </template>
+                                        </FieldDescription>
+                                        <div
+                                            v-if="folder.scan_state"
+                                            class="flex flex-wrap items-center gap-2">
+                                            <Badge variant="secondary">
+                                                {{ folder.scan_state }}
+                                            </Badge>
+                                            <span
+                                                v-if="folder.scan_error"
+                                                class="text-sm text-destructive">{{ folder.scan_error }}. Previous results retained.</span>
+                                            <span
+                                                v-if="folder.scanned_at"
+                                                class="text-sm text-muted-foreground">Scanned {{ date(folder.scanned_at) }}</span>
+                                        </div>
+                                        <Alert
+                                            v-for="warning in folderWarnings[folder.id]"
+                                            :key="warning">
+                                            <AlertDescription>{{ warning }}</AlertDescription>
+                                        </Alert>
+                                        <div
+                                            class="grid gap-4 border-t border-border pt-4"
+                                            :class="project ? '@2xl/field-group:grid-cols-[minmax(0,1fr)_auto] @2xl/field-group:items-end' : '@sm/field-group:grid-cols-[minmax(0,1fr)_auto] @sm/field-group:items-end'">
+                                            <Field class="min-w-0 gap-2">
+                                                <FieldLabel :for="`${folder.id}-repository`">
+                                                    Pair with repository
+                                                </FieldLabel>
+                                                <Combobox
+                                                    :model-value="form.repositories.find(repo => repo.id === folder.repository_id) ?? noRepositoryOption"
+                                                    by="id"
+                                                    @update:model-value="folder.repository_id = ($event as { id: string } | null)?.id || null">
+                                                    <ComboboxAnchor as-child>
+                                                        <ComboboxTrigger
+                                                            as-child
+                                                            aria-label="Pair with repository">
+                                                            <Button
+                                                                :id="`${folder.id}-repository`"
+                                                                type="button"
+                                                                variant="secondary"
+                                                                class="w-full justify-between"
+                                                                :aria-invalid="!!form.errors[`folders.${index}.repository_id`]">
+                                                                <span class="min-w-0 truncate">{{ form.repositories.find(repo => repo.id === folder.repository_id)?.name || 'No repository' }}</span>
+                                                                <ChevronsUpDownIcon class="shrink-0 opacity-50" />
+                                                            </Button>
+                                                        </ComboboxTrigger>
+                                                    </ComboboxAnchor>
+                                                    <ComboboxList>
+                                                        <ComboboxInput
+                                                            aria-label="Search repositories"
+                                                            placeholder="Search repositories..." />
+                                                        <ComboboxEmpty>No repository found.</ComboboxEmpty>
+                                                        <ComboboxGroup>
+                                                            <ComboboxItem
+                                                                v-for="option in [noRepositoryOption, ...form.repositories]"
+                                                                :key="option.id"
+                                                                :value="option">
+                                                                {{ option.name || 'Unnamed repository' }}
+                                                                <ComboboxItemIndicator><CheckIcon /></ComboboxItemIndicator>
+                                                            </ComboboxItem>
+                                                        </ComboboxGroup>
+                                                    </ComboboxList>
+                                                </Combobox>
+                                            </Field>
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <OpenTargetButton
+                                                    v-if="project?.folders.some(saved => saved.id === folder.id)"
+                                                    :id="folder.id"
+                                                    :project-id="project.id"
+                                                    kind="folders"
+                                                    :native="native"
+                                                    label="Open folder"
+                                                    size="input" />
                                                 <Button
                                                     type="button"
                                                     variant="outline"
-                                                    :size="project && !native ? 'input' : 'default'"
+                                                    size="input"
+                                                    :aria-label="`Relink folder ${folder.path}`"
                                                     :disabled="inspection.processing"
-                                                    @click="inspectFolder(null, native)">
-                                                    <FolderPlusIcon aria-hidden="true" />{{ inspection.processing ? 'Reading folder…' : (native ? 'Choose folder' : 'Add folder') }}
+                                                    @click="relinkFolder(folder)">
+                                                    Relink
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="input"
+                                                    :aria-label="`Remove folder ${folder.path}`"
+                                                    @click="form.folders.splice(index, 1); delete folderWarnings[folder.id]; form.clearErrors()">
+                                                    <Trash2Icon aria-hidden="true" />Remove
                                                 </Button>
                                             </div>
-                                            <FieldError
-                                                v-if="inspection.errors.path"
-                                                :id="`${formId}-sources-folder-path-error`"
-                                                role="alert">
-                                                {{ inspection.errors.path }}
-                                            </FieldError>
-                                            <FieldDescription v-if="project">
-                                                Removing a folder or repository only unlinks it from this project.
-                                            </FieldDescription>
-                                        </Field>
-                                        <FieldGroup
-                                            v-for="(folder, index) in form.folders"
-                                            :key="folder.id"
-                                            class="gap-3 border-t pt-4">
-                                            <div class="flex flex-wrap items-center gap-2">
-                                                <span class="break-all font-medium">{{ folder.path }}</span>
-                                                <Badge :variant="folder.availability === 'Available' ? 'secondary' : 'destructive'">
-                                                    {{ folder.availability }}
-                                                </Badge>
-                                            </div>
-                                            <FieldDescription>
-                                                {{ folder.git_state }}<template v-if="folder.branch">
-                                                    · {{ folder.branch }}
-                                                </template><template v-if="folder.last_commit_at">
-                                                    · {{ date(folder.last_commit_at) }} · {{ folder.last_commit_hash?.slice(0, 8) }}
-                                                </template>
-                                            </FieldDescription>
-                                            <FieldDescription v-if="folder.commit_subject">
-                                                {{ folder.commit_subject }}
-                                            </FieldDescription>
-                                            <FieldDescription
-                                                v-if="folder.git_root"
-                                                class="break-all">
-                                                Git root: {{ folder.git_root }}<template v-if="folder.git_remote">
-                                                    <br>Remote: {{ folder.git_remote }}
-                                                </template>
-                                            </FieldDescription>
-                                            <div
-                                                v-if="folder.scan_state"
-                                                class="flex flex-wrap items-center gap-2">
-                                                <Badge variant="secondary">
-                                                    {{ folder.scan_state }}
-                                                </Badge>
-                                                <span
-                                                    v-if="folder.scan_error"
-                                                    class="text-sm text-destructive">{{ folder.scan_error }}. Previous results retained.</span>
-                                                <span
-                                                    v-if="folder.scanned_at"
-                                                    class="text-sm text-muted-foreground">Scanned {{ date(folder.scanned_at) }}</span>
-                                            </div>
-                                            <Alert
-                                                v-for="warning in folderWarnings[folder.id]"
-                                                :key="warning">
-                                                <AlertDescription>{{ warning }}</AlertDescription>
-                                            </Alert>
-                                            <div
-                                                class="grid gap-4 border-t border-border pt-4"
-                                                :class="project ? '@2xl/field-group:grid-cols-[minmax(0,1fr)_auto] @2xl/field-group:items-end' : '@sm/field-group:grid-cols-[minmax(0,1fr)_auto] @sm/field-group:items-end'">
-                                                <Field class="min-w-0 gap-2">
-                                                    <FieldLabel :for="`${folder.id}-repository`">
-                                                        Pair with repository
-                                                    </FieldLabel>
-                                                    <Combobox
-                                                        :model-value="form.repositories.find(repo => repo.id === folder.repository_id) ?? noRepositoryOption"
-                                                        by="id"
-                                                        @update:model-value="folder.repository_id = ($event as { id: string } | null)?.id || null">
-                                                        <ComboboxAnchor as-child>
-                                                            <ComboboxTrigger
-                                                                as-child
-                                                                aria-label="Pair with repository">
-                                                                <Button
-                                                                    :id="`${folder.id}-repository`"
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    class="h-9 w-[200px] justify-between rounded-md px-2.5"
-                                                                    :aria-invalid="!!form.errors[`folders.${index}.repository_id`]">
-                                                                    <span class="min-w-0 truncate">{{ form.repositories.find(repo => repo.id === folder.repository_id)?.name || 'No repository' }}</span>
-                                                                    <ChevronsUpDownIcon class="shrink-0 opacity-50" />
-                                                                </Button>
-                                                            </ComboboxTrigger>
-                                                        </ComboboxAnchor>
-                                                        <ComboboxList>
-                                                            <ComboboxInput
-                                                                aria-label="Search repositories"
-                                                                placeholder="Search repositories..." />
-                                                            <ComboboxEmpty>No repository found.</ComboboxEmpty>
-                                                            <ComboboxGroup>
-                                                                <ComboboxItem
-                                                                    v-for="option in [noRepositoryOption, ...form.repositories]"
-                                                                    :key="option.id"
-                                                                    :value="option">
-                                                                    {{ option.name || 'Unnamed repository' }}
-                                                                    <ComboboxItemIndicator><CheckIcon /></ComboboxItemIndicator>
-                                                                </ComboboxItem>
-                                                            </ComboboxGroup>
-                                                        </ComboboxList>
-                                                    </Combobox>
-                                                </Field>
-                                                <div class="flex flex-wrap items-center gap-2">
-                                                    <OpenTargetButton
-                                                        v-if="project?.folders.some(saved => saved.id === folder.id)"
-                                                        :id="folder.id"
-                                                        :project-id="project.id"
-                                                        kind="folders"
-                                                        :native="native"
-                                                        label="Open folder"
-                                                        size="input" />
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="input"
-                                                        :aria-label="`Relink folder ${folder.path}`"
-                                                        :disabled="inspection.processing"
-                                                        @click="relinkFolder(folder)">
-                                                        Relink
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="input"
-                                                        :aria-label="`Remove folder ${folder.path}`"
-                                                        @click="form.folders.splice(index, 1); delete folderWarnings[folder.id]; form.clearErrors()">
-                                                        <Trash2Icon aria-hidden="true" />Remove
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        </FieldGroup>
-                                    </FieldSet>
-                                </div>
-                            </FieldGroup>
-                        </CardContent>
-                    </Card>
+                                        </div>
+                                    </FieldGroup>
+                                </FieldGroup>
+                            </CardContent>
+                        </Card>
+                    </div>
                 </TabsContent>
                 <TabsContent value="links">
                     <component :is="Card">
@@ -915,7 +918,7 @@ function addLink() {
                                                             position="popper"
                                                             align="start"
                                                             hide-when-empty
-                                                            class="z-50 max-h-56 min-w-(--reka-combobox-trigger-width) overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+                                                            class="z-50 max-h-56 min-w-(--reka-combobox-trigger-width) overflow-y-auto rounded-xl border retina:border-[0.5px] border-border bg-popover p-1 text-popover-foreground shadow-lg">
                                                             <AutocompleteItem
                                                                 v-for="category in ['Website', 'Social', 'Analytics', 'Inbox', 'Documentation', 'Hosting']"
                                                                 :key="category"

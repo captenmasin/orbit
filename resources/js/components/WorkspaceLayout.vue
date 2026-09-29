@@ -23,7 +23,7 @@ watch(() => page.props.message, message => {
     router.replaceProp('message', null);
 }, { immediate: true, flush: 'sync' });
 const project = computed(() => page.props.selectedProject);
-const titles: Record<string, string> = { Dashboard: 'Dashboard', CreateProject: 'New project', EditProject: 'Edit project', Connections: 'Connections', Backups: 'Backups', Settings: 'Settings' };
+const titles: Record<string, string> = { Dashboard: 'Dashboard', CreateProject: 'New project', EditProject: 'Edit project', Connections: 'Connections', Backups: 'Backups', Settings: 'Settings', Debug: 'Debug' };
 const title = computed(() => titles[page.component] ?? project.value?.name ?? 'Orbit');
 const searchOpen = ref(false);
 const storedRecentItems = useLocalStorage<SearchResult[]>('orbit:recent-items', [], { flush: 'sync' });
@@ -269,6 +269,6 @@ function handleTrackpadSwipe(event: WheelEvent) {
         <Toaster
             position="bottom-right"
             :theme="appearance"
-            :toast-options="{ class: 't-toast' }" />
+            :toast-options="{ class: 't-toast retina:border-[0.5px]!' }" />
     </SidebarProvider>
 </template>

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Project;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Testing\AssertableInertia as Assert;
 use Symfony\Component\Process\Process;
@@ -12,6 +13,31 @@ use Tests\TestCase;
 class WorkspaceTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_builds_do_not_interrupt_inertia_visits_while_vite_is_serving_assets(): void
+    {
+        $this->app->usePublicPath(storage_path('public'));
+        File::ensureDirectoryExists(public_path('build'));
+        File::put(public_path('hot'), 'http://localhost:5173');
+        File::put(public_path('build/manifest.json'), '{"build":1}');
+        $version = $this->get('/projects/create')->inertiaPage()['version'];
+        File::put(public_path('build/manifest.json'), '{"build":2}');
+
+        $this->withHeaders(['X-Inertia' => 'true', 'X-Inertia-Version' => $version])->get('/projects/create')
+            ->assertOk()->assertHeader('X-Inertia', 'true')->assertJsonPath('version', '');
+    }
+
+    public function test_built_asset_changes_still_trigger_inertia_refreshes_without_vite(): void
+    {
+        $this->app->usePublicPath(storage_path('public'));
+        File::ensureDirectoryExists(public_path('build'));
+        File::put(public_path('build/manifest.json'), '{"build":1}');
+        $version = $this->get('/projects/create')->inertiaPage()['version'];
+        File::put(public_path('build/manifest.json'), '{"build":2}');
+
+        $this->withHeaders(['X-Inertia' => 'true', 'X-Inertia-Version' => $version])->get('/projects/create')
+            ->assertConflict()->assertHeader('X-Inertia-Location', route('projects.create'));
+    }
 
     public function test_projects_can_be_created_opened_and_edited_without_stale_overwrites(): void
     {

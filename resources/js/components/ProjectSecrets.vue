@@ -982,7 +982,7 @@ onBeforeUnmount(() => {
             @update:open="open => { if (!open && !form.processing) closeEditor(); }">
             <DialogContent
                 :aria-describedby="undefined"
-                class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+                class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
                 <DialogHeader>
                     <DialogTitle class="pr-6 break-all">
                         {{ metadataOnly ? `Context for ${editing?.name}` : editing ? 'Edit secret' : 'Add secret' }}
@@ -1115,7 +1115,7 @@ onBeforeUnmount(() => {
         <Dialog
             :open="pasteOpen"
             @update:open="open => { if (!open && !pasteForm.processing) closePaste(); }">
-            <DialogContent class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+            <DialogContent class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
                 <DialogHeader><DialogTitle>Paste .env entries</DialogTitle><DialogDescription>Supports comments, optional export, quoted values, and multiline quoted values. Expressions remain literal.</DialogDescription></DialogHeader>
                 <form
                     class="grid gap-4"
@@ -1241,7 +1241,7 @@ onBeforeUnmount(() => {
         <Dialog
             :open="importOpen"
             @update:open="open => { if (!open && !importPreviewForm.processing && !importForm.processing) closeImport(); }">
-            <DialogContent class="max-h-[85vh] overflow-y-auto">
+            <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader><DialogTitle>Import .env file</DialogTitle><DialogDescription>Orbit previews names only. Existing names are skipped; selected values never enter this page.</DialogDescription></DialogHeader>
                 <form
                     class="grid gap-4"
@@ -1316,7 +1316,7 @@ onBeforeUnmount(() => {
         <Dialog
             :open="exportOpen"
             @update:open="open => { if (!open && !exportPreviewForm.processing && !exportForm.processing) closeExport(); }">
-            <DialogContent class="max-h-[85vh] overflow-y-auto">
+            <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader><DialogTitle>Export .env file</DialogTitle><DialogDescription>Export writes plaintext values to the selected file. Choose only the entries you need.</DialogDescription></DialogHeader>
                 <form
                     class="grid gap-4"

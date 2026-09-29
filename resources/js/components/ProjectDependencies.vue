@@ -350,7 +350,7 @@ async function saveRoot(action = 'save') {
             </template>
         </div>
         <Dialog v-model:open="managementOpen">
-            <DialogContent class="max-h-[85vh] overflow-y-auto">
+            <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader><DialogTitle>Package locations</DialogTitle><DialogDescription>Each linked folder can contain several package locations. Check them together or configure each one.</DialogDescription></DialogHeader><ul class="divide-y">
                     <li
                         v-for="location in allHealth.locations"
@@ -389,7 +389,7 @@ async function saveRoot(action = 'save') {
         <Dialog
             :open="!!review"
             @update:open="open => { if (!open) review = null; }">
-            <DialogContent class="max-h-[85vh] overflow-y-auto">
+            <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader>
                     <DialogTitle>Review {{ review?.name }}</DialogTitle><DialogDescription v-if="review">
                         {{ locationLabel(review.root, review.folder) }} · {{ review.manager }} · Installed {{ review.current }}
@@ -437,7 +437,7 @@ async function saveRoot(action = 'save') {
             </DialogContent>
         </Dialog>
         <Dialog v-model:open="editorOpen">
-            <DialogContent class="max-h-[85vh] overflow-y-auto">
+            <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader><DialogTitle>{{ edit.id ? 'Location settings' : 'Add package location' }}</DialogTitle><DialogDescription>Choose the linked folder itself or a directory inside it containing composer.json or package.json. Optional executable overrides apply to this location.</DialogDescription></DialogHeader>
                 <form
                     class="space-y-4"

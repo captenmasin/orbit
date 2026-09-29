@@ -5,10 +5,16 @@ namespace App\Http\Middleware;
 use App\Models\Project;
 use App\WorkspacePreferences;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Vite;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
+    public function version(Request $request): ?string
+    {
+        return Vite::isRunningHot() ? null : parent::version($request);
+    }
+
     /** @return array<string, mixed> */
     public function share(Request $request): array
     {

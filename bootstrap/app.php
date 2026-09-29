@@ -21,7 +21,7 @@ if (getenv('NATIVEPHP_RUNNING') === 'true' && ($nativeData = getenv('NATIVEPHP_U
     // ponytail: one config file per launch; prune old files when adding cache maintenance.
     $launch = hash('sha256', getenv('NATIVEPHP_SECRET') ?: 'startup');
     $dependencies = hash_file('sha256', __DIR__.'/../composer.lock');
-    foreach (['SERVICES' => 'services-'.$dependencies, 'PACKAGES' => 'packages-'.$dependencies, 'CONFIG' => 'config-'.$launch, 'ROUTES' => 'routes-v14', 'EVENTS' => 'events-v2'] as $key => $file) {
+    foreach (['SERVICES' => 'services-'.$dependencies, 'PACKAGES' => 'packages-'.$dependencies, 'CONFIG' => 'config-'.$launch, 'ROUTES' => 'routes-v15', 'EVENTS' => 'events-v2'] as $key => $file) {
         $_ENV['APP_'.$key.'_CACHE'] = $_SERVER['APP_'.$key.'_CACHE'] = $cache.'/'.$file.'.php';
         putenv('APP_'.$key.'_CACHE='.$cache.'/'.$file.'.php');
     }

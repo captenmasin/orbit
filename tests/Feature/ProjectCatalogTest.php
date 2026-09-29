@@ -448,12 +448,18 @@ class ProjectCatalogTest extends TestCase
     {
         Storage::fake('local');
         $this->post('/projects', ['name' => 'Picture', 'status' => 'Idea', 'icon_type' => 'image',
-            'icon_file' => UploadedFile::fake()->image('icon.png', 64, 64)])->assertRedirect();
+            'icon_file' => UploadedFile::fake()->image('icon.png', 64, 64)->size(5120)])->assertRedirect();
         $project = Project::sole();
         $path = $project->icon_path;
         Storage::disk('local')->assertExists($path);
         $this->get('/projects/'.$project->id.'/icon')->assertOk()->assertHeader('Content-Type', 'image/png')
             ->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->post('/projects/'.$project->id, ['_method' => 'PUT', 'name' => 'Picture', 'status' => 'Idea', 'revision' => 1,
+            'icon_type' => 'image', 'icon_file' => UploadedFile::fake()->image('too-large.png', 64, 64)->size(5121)])
+            ->assertSessionHasErrors('icon_file');
+        $this->assertSame($path, $project->fresh()->icon_path);
+        $this->assertSame(1, $project->fresh()->revision);
+        $this->assertSame([$path], Storage::disk('local')->allFiles('project-icons'));
         $this->post('/projects/'.$project->id, ['_method' => 'PUT', 'name' => 'Picture', 'status' => 'Idea', 'revision' => 1,
             'icon_type' => 'image', 'icon_file' => UploadedFile::fake()->createWithContent('bad.svg', '<svg/>')])
             ->assertSessionHasErrors('icon_file');

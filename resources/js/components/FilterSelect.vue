@@ -30,7 +30,7 @@ const selected = computed({
         <SelectPortal>
             <SelectContent
                 position="popper"
-                class="t-dropdown z-50 min-w-(--reka-select-trigger-width) overflow-hidden rounded-2xl bg-popover p-1.5 text-popover-foreground shadow-xl ring-1 ring-black/5 dark:ring-white/10">
+                class="t-dropdown z-50 min-w-(--reka-select-trigger-width) overflow-hidden rounded-2xl bg-popover p-1.5 text-popover-foreground shadow-xl ring-1 retina:ring-[0.5px] ring-black/5 dark:ring-white/10">
                 <SelectViewport class="max-h-72">
                     <SelectItem
                         :value="allValue"

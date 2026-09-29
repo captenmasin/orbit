@@ -615,7 +615,7 @@ test('project form departures retain drafts, recover per project, reject stale s
     const remembered = new Map(); const visits = []; const callbacks = []; let before;
     const router = {
         on(event, callback) { before = callback; return () => { before = null; }; },
-        remember(value, key) { remembered.set(key, value ? JSON.parse(JSON.stringify(value)) : null); },
+        remember(value, key) { remembered.set(key, structuredClone(value)); },
         restore(key) { return remembered.get(key); },
         visit(url) { visits.push(url); }, reload() {},
         post(url, data, options) { callbacks.push({ url, data, options }); },
@@ -642,6 +642,45 @@ test('project form departures retain drafts, recover per project, reject stale s
     assert.equal(other.state.form.name, 'Saved'); other.unmount();
     current.state.discardDraft(); await vue.nextTick();
     assert.equal(remembered.get('project-form:one'), null);
+});
+
+test('project image submissions reject oversized files immediately and allow retrying with a valid file', t => {
+    const requests = [];
+    t.mock.method(inertia.router, 'post', (url, data, options) => requests.push({ url, data, options }));
+    const mount = harness(t, { router: { on: () => () => {}, restore() {}, remember() {} } });
+
+    for (const project of [undefined, { id: 'one', name: 'Saved', status: 'Idea', tags: [], revision: 1 }]) {
+        const current = mount('components/ProjectForm', { project, statuses: ['Idea'], native: false });
+        const oversized = new File([new Uint8Array(5242881)], 'large.png', { type: 'image/png' });
+        current.state.form.icon_type = 'image';
+        current.state.form.icon_file = oversized;
+        current.state.tab.value = 'links';
+        const previousRequests = requests.length;
+
+        current.state.submit();
+
+        assert.equal(requests.length, previousRequests);
+        assert.equal(current.state.form.errors.icon_file, 'Choose an image no larger than 5 MB.');
+        assert.equal(current.state.form.processing, false);
+        assert.equal(current.state.tab.value, 'overview');
+        assert.equal(current.state.form.icon_file, oversized);
+
+        const valid = new File([new Uint8Array(5242880)], 'valid.png', { type: 'image/png' });
+        current.state.form.icon_file = valid;
+        current.state.submit();
+
+        assert.equal(requests.length, previousRequests + 1);
+        const request = requests.at(-1);
+        assert.equal(request.url, project ? '/projects/one' : '/projects');
+        assert.equal(request.data.icon_file, valid);
+        assert.equal(request.data._method, project ? 'put' : 'post');
+        request.options.onStart({});
+        request.options.onError({ icon_file: 'Invalid image dimensions.' });
+        request.options.onFinish({});
+        assert.equal(current.state.form.errors.icon_file, 'Invalid image dimensions.');
+        assert.equal(current.state.form.processing, false);
+        current.unmount();
+    }
 });
 
 test('discarded project drafts allow the resumed visit immediately', async t => {

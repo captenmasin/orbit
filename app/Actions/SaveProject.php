@@ -33,7 +33,7 @@ class SaveProject
             'revision' => [$id ? 'required' : 'prohibited', 'integer', 'min:1'],
             'icon_type' => ['sometimes', Rule::in(['initials', 'emoji', 'image'])],
             'icon_emoji' => $emoji,
-            'icon_file' => ['nullable', 'image', 'mimes:png,jpg,jpeg,gif,webp', 'max:2048', 'dimensions:max_width=2048,max_height=2048'],
+            'icon_file' => ['nullable', 'image', 'mimes:png,jpg,jpeg,gif,webp', 'max:5120', 'dimensions:max_width=2048,max_height=2048'],
             'tags' => ['sometimes', 'array', 'max:100'],
             'tags.*' => ['required', 'string', 'max:50', 'regex:/\S/u'],
             'repositories' => ['sometimes', 'array', 'max:100'],

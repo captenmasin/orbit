@@ -4,6 +4,7 @@ use App\Http\Controllers\AppUpdateController;
 use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BoardController;
 use App\Http\Controllers\CatalogController;
+use App\Http\Controllers\DebugController;
 use App\Http\Controllers\InspectionController;
 use App\Http\Controllers\ProjectAssetController;
 use App\Http\Controllers\ProjectDocumentController;
@@ -20,6 +21,11 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', [WorkspaceController::class, 'index'])->name('workspace');
 Route::get('/search', [SearchController::class, 'index'])->name('search');
+
+Route::prefix('debug')->name('debug.')->controller(DebugController::class)->group(function (): void {
+    Route::get('/', 'index')->name('index');
+    Route::post('/notification', 'notification')->name('notification');
+});
 
 Route::prefix('projects')->name('projects.')->group(function (): void {
     Route::controller(WorkspaceController::class)->group(function (): void {

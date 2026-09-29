@@ -54,7 +54,7 @@ function save() {
             @update:open="value => { if (!form.processing) open = value; }">
             <DialogContent
                 v-bind="items.length ? { 'aria-describedby': undefined } : {}"
-                class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+                class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
                 <DialogHeader>
                     <DialogTitle>{{ generated ? 'Review suggested actions' : 'Paste items' }}</DialogTitle><DialogDescription v-if="!items.length">
                         One card title per line.

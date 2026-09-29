@@ -359,7 +359,7 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); request?.abort(); });
             <div
                 v-if="query.trim() || searched || loading"
                 class="gap-2"
-                :class="compact ? 'hidden group-focus-within/search:grid absolute top-full right-0 z-50 mt-2 max-h-[min(70vh,36rem)] w-[min(32rem,calc(100vw-3rem))] overflow-y-auto rounded-[1.25rem] border border-black/8 bg-popover p-4 shadow-xl dark:border-white/10' : 'grid'">
+                :class="compact ? 'hidden group-focus-within/search:grid absolute top-full right-0 z-50 mt-2 max-h-[min(70vh,36rem)] w-[min(32rem,calc(100vw-3rem))] overflow-y-auto rounded-[1.25rem] border retina:border-[0.5px] border-black/8 bg-popover p-4 shadow-xl dark:border-white/10' : 'grid'">
                 <p
                     v-if="compact && query.trim() && !searched && !loading"
                     class="text-sm text-muted-foreground">

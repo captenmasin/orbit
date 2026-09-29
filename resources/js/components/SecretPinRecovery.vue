@@ -88,7 +88,7 @@ onBeforeUnmount(() => { disposed = true; status.cancel(); form.cancel(); clearIn
             </Button>
         </DialogTrigger>
         <DialogContent
-            class="max-h-[calc(100dvh-2rem)] overflow-y-auto text-left"
+            class="max-h-[calc(100dvh-2rem)] overflow-y-auto text-left sm:max-w-xl"
             :show-close-button="!form.processing && !recoveryCode"
             @interact-outside="event => { if (form.processing || recoveryCode) event.preventDefault(); }"
             @escape-key-down="event => { if (form.processing || recoveryCode) event.preventDefault(); }">

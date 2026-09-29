@@ -13,6 +13,7 @@
 
 @custom-variant dark (&:is(.dark *));
 @custom-variant motion-reduce (&:is(.reduce-motion *));
+@custom-variant retina (@media (min-resolution: 2dppx));
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';

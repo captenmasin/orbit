@@ -62,7 +62,7 @@ class ManageProjectTool extends Tool
             }
         }
         if (isset($target['icon_file_path'])) {
-            $input['icon_file'] = LocalUpload::fromPath($target['icon_file_path'], 'icon_file_path', 2097152);
+            $input['icon_file'] = LocalUpload::fromPath($target['icon_file_path'], 'icon_file_path', 5242880);
         }
 
         $saved = $save->handle($input, $project?->id);

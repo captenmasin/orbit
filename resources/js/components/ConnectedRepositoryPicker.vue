@@ -98,7 +98,7 @@ onBeforeUnmount(() => listing.cancel());
             <GitBranchIcon aria-hidden="true" />{{ clone ? 'Choose repository' : 'From connected account' }}
         </Button>
         <Dialog v-model:open="open">
-            <DialogContent class="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden">
+            <DialogContent class="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-xl">
                 <DialogHeader>
                     <DialogTitle>{{ clone ? 'Choose a repository' : 'Add repositories' }}</DialogTitle>
                     <DialogDescription>{{ clone ? 'Choose a repository, then select where to clone it.' : 'Select repositories from your connected accounts. They’ll be linked when you save the project.' }}</DialogDescription>
@@ -175,7 +175,7 @@ onBeforeUnmount(() => listing.cancel());
                     </div>
                     <div
                         v-if="repositories.length"
-                        class="max-h-[min(45vh,22rem)] overflow-y-auto overscroll-contain">
+                        class="max-h-[min(45vh,22rem)] border border-foreground/5 rounded-xl overflow-y-auto overscroll-contain">
                         <ul class="grid grid-cols-1 gap-1">
                             <li
                                 v-for="repository in visible"
@@ -183,7 +183,7 @@ onBeforeUnmount(() => listing.cancel());
                                 <component
                                     :is="clone ? 'button' : 'label'"
                                     :type="clone ? 'button' : undefined"
-                                    class="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                                    class="flex w-full items-center gap-3 rounded-none px-3 py-3 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
                                     :class="[selected(repository) ? 'bg-muted' : 'hover:bg-muted/50', added(repository) ? 'cursor-default opacity-55' : 'cursor-pointer']"
                                     :disabled="clone ? added(repository) || busy : undefined"
                                     @click="clone && choose(repository)">

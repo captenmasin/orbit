@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import LinkIcon from '@/components/LinkIcon.vue';
 import ProjectBoard from '@/components/ProjectBoard.vue';
+import FilterSelect from '@/components/FilterSelect.vue';
 import BoardCardMenu from '@/components/BoardCardMenu.vue';
 import ProjectHeader from '@/components/ProjectHeader.vue';
 import ContentSearch from '@/components/ContentSearch.vue';
@@ -15,6 +16,7 @@ import ProjectImportanceButton from '@/components/ProjectImportanceButton.vue';
 import ProjectProviderActivity from '@/components/ProjectProviderActivity.vue';
 import { toast } from 'vue-sonner';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { computed, nextTick, ref, watch } from 'vue';
 import { dependencyHealth, folderName } from '@/lib/dependencies';
@@ -23,15 +25,16 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Head, Link, router, useHttp, usePage } from '@inertiajs/vue3';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { BoardColumn, BoardTask, Project, ProjectFolder, ProviderConnection, Repository } from '@/types';
+import { useDocumentVisibility, useIntervalFn, useSessionStorage, useTimeAgo, useWindowFocus } from '@vueuse/core';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { useDocumentVisibility, useIntervalFn, useLocalStorage, useSessionStorage, useTimeAgo, useWindowFocus } from '@vueuse/core';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { AlignLeftIcon, ArrowRightIcon, ChevronDownIcon, CircleAlertIcon, CircleCheckIcon, FileTextIcon, FolderOpenIcon, GitBranchIcon, InfoIcon, PackageIcon, PaperclipIcon, PlusIcon, XIcon } from '@lucide/vue';
+import { AlignLeftIcon, ArrowRightIcon, ChevronDownIcon, CircleAlertIcon, CircleCheckIcon, FileTextIcon, FolderOpenIcon, GitBranchIcon, InfoIcon, LineSquiggleIcon, PackageIcon, PaperclipIcon, ShieldAlertIcon, Trash2Icon } from '@lucide/vue';
 
 const props = defineProps<{ selectedProject: Project; statuses: string[]; inspection: ProjectFolder[]; activity: Repository[]; connections: ProviderConnection[]; native: boolean }>();
 const project = computed(() => props.selectedProject);
 const page = usePage();
 const scratchpad = ref<{ saving: boolean } | null>(null);
+const documentsPage = ref<InstanceType<typeof ProjectDocuments> | null>(null);
 const secretsPage = ref<{ flush: () => Promise<boolean> } | null>(null);
 const statusSaving = ref(false);
 const statusError = ref('');
@@ -91,10 +94,33 @@ function movePreviewTask(task: BoardTask, destination: BoardColumn) {
 }
 const importantLinks = computed(() => (project.value.links ?? []).filter(link => link.important));
 const importantDocuments = computed(() => (project.value.documents ?? []).filter(document => document.important));
+const previewLinks = computed(() => importantLinks.value.length ? importantLinks.value : (project.value.links ?? []).slice(0, 3));
+const linkSearch = ref('');
+const linkCategory = ref('');
+const linkCategories = computed(() => [...new Set((project.value.links ?? []).map(link => link.category?.trim()).filter((category): category is string => !!category))].sort((a, b) => a.localeCompare(b)));
+const visibleLinks = computed(() => {
+    const search = linkSearch.value.trim().toLocaleLowerCase();
+    return (search || linkCategory.value ? project.value.links ?? [] : previewLinks.value).filter(link =>
+        (!linkCategory.value || link.category?.trim() === linkCategory.value)
+        && (!search || [link.label, link.url, link.category, link.description].some(value => value?.toLocaleLowerCase().includes(search))));
+});
+const previewDocuments = computed(() => importantDocuments.value.length ? importantDocuments.value : [...(project.value.documents ?? [])].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 3));
+const hasSources = computed(() => !!(project.value.repositories?.length || props.inspection.length));
+const hasProjectDetails = computed(() => !!(hasSources.value || previewDocuments.value.length || latestCommit.value));
+const showGettingStarted = computed(() => !hasSources.value && !previewLinks.value.length && !previewDocuments.value.length && !previewTasks.value.length && !project.value.scratchpad?.trim() && !project.value.secrets?.length && !project.value.assets?.length);
+async function createDocument() {
+    await changeTab('documents');
+    if (!documentsPage.value?.dirty) documentsPage.value?.edit();
+}
+function focusScratchpad() {
+    document.getElementById('project-scratchpad')?.focus();
+}
 function reloadProject() {
-    router.reload({ only: ['selectedProject'], onSuccess: () => {
+    router.reload({ only: ['selectedProject', 'inspection', 'activity'], onSuccess: () => {
         statusError.value = '';
         statusNeedsReload.value = false;
+        sourceError.value = '';
+        sourceNeedsReload.value = false;
     } });
 }
 const providerActivityOpen = ref(false);
@@ -109,8 +135,38 @@ async function refreshActivity(repository: Repository) {
     providerActivityOpen.value = true; await nextTick(); await providerActivity.value?.refresh(repositoryActivity(repository));
 }
 const linksOpen = ref(false);
-const addLinksDismissed = useLocalStorage(() => `project:${project.value.id}:add-links-dismissed`, false, { flush: 'sync' });
 const sourcesOpen = ref(false);
+const removingSource = ref<{ kind: 'folders' | 'repositories'; id: string; label: string } | null>(null);
+const sourceRemoving = ref(false);
+const sourceError = ref('');
+const sourceNeedsReload = ref(false);
+watch(removingSource, () => { sourceError.value = ''; sourceNeedsReload.value = false; });
+function removeSource() {
+    if (!removingSource.value || sourceRemoving.value || sourceNeedsReload.value || statusSaving.value || scratchpad.value?.saving) return;
+    const { kind, id } = removingSource.value;
+    if (!project.value[kind].some(source => source.id === id)) { removingSource.value = null; return; }
+    sourceRemoving.value = true;
+    sourceError.value = '';
+    router.put(`/projects/${project.value.id}`, {
+        name: project.value.name,
+        description: project.value.description,
+        status: project.value.status,
+        revision: project.value.revision,
+        [kind]: kind === 'folders'
+            ? project.value.folders.filter(folder => folder.id !== id).map(({ id, path, repository_id }) => ({ id, path, repository_id }))
+            : project.value.repositories.filter(repo => repo.id !== id).map(({ id, name, remote_url }) => ({ id, name, remote_url })),
+    }, {
+        preserveScroll: true,
+        errorBag: 'sources',
+        onSuccess: () => { removingSource.value = null; },
+        onError: errors => {
+            sourceError.value = String(Object.values(errors)[0] ?? 'Could not remove source.');
+            sourceNeedsReload.value = !!errors.revision;
+        },
+        onNetworkError: () => { sourceError.value = 'Could not remove source. Try again.'; },
+        onFinish: () => { sourceRemoving.value = false; },
+    });
+}
 function closeProjectSearch() {
     document.querySelector<HTMLElement>('[aria-label="Project sections"] [role="tab"][aria-selected="true"]')?.focus();
 }
@@ -134,11 +190,17 @@ async function copyLink(url: string) {
 }
 watch(() => project.value.id, () => {
     linksOpen.value = false;
+    linkSearch.value = '';
+    linkCategory.value = '';
     sourcesOpen.value = false;
+    removingSource.value = null;
     deletingPreviewTask.value = null;
     previewError.value = '';
     statusError.value = '';
     statusNeedsReload.value = false;
+});
+watch(linkCategories, categories => {
+    if (linkCategory.value && !categories.includes(linkCategory.value)) linkCategory.value = '';
 });
 watch(query, value => {
     const requested = value.get('tab');
@@ -163,11 +225,28 @@ const visible = useDocumentVisibility();
 const focused = useWindowFocus();
 const active = computed(() => visible.value === 'visible' && focused.value);
 const pending = computed(() => props.inspection.some(folder => [folder, ...(folder.package_roots ?? [])].some(target => ['Queued', 'Scanning'].includes(target.scan_state ?? ''))));
-const latestCommit = computed(() => [...props.inspection, ...props.activity.filter(repo => repo.remote_commit_at).map(repo => ({ last_commit_at: repo.remote_commit_at, branch: repo.default_branch, git_state: 'Remote default branch', path: `${repo.provider_name} · remote · ${repo.provider_snapshots?.find(snapshot => snapshot.resource === 'overview')?.state ?? 'Not scanned'}`, commit_subject: repo.provider_snapshots?.find(snapshot => snapshot.resource === 'overview')?.payload?.commit?.title }))].filter(folder => folder.last_commit_at).sort((a, b) => b.last_commit_at!.localeCompare(a.last_commit_at!))[0]);
+const latestCommit = computed(() => [
+    ...props.inspection.filter(folder => folder.last_commit_at).map(folder => ({ ...folder, source: folderName(folder) })),
+    ...props.activity.filter(repo => repo.remote_commit_at).map(repo => ({
+        last_commit_at: repo.remote_commit_at,
+        branch: repo.default_branch,
+        git_state: 'Remote default branch',
+        source: repo.name,
+        path: `${repo.provider_name} · remote · ${repo.provider_snapshots?.find(snapshot => snapshot.resource === 'overview')?.state ?? 'Not scanned'}`,
+        commit_subject: repo.provider_snapshots?.find(snapshot => snapshot.resource === 'overview')?.payload?.commit?.title,
+    })),
+].sort((a, b) => b.last_commit_at!.localeCompare(a.last_commit_at!))[0]);
 const latestCommitAge = useTimeAgo(() => latestCommit.value?.last_commit_at ?? Date.now());
 const dependencies = computed(() => dependencyHealth(props.inspection));
 const folderIssueCount = computed(() => props.inspection.filter(folder => (folder.availability && folder.availability !== 'Available') || folder.scan_error).length);
 const needsAttention = computed(() => !!(dependencies.value.issueCount || folderIssueCount.value));
+// const checksMessage = computed(() => {
+//     if (!props.inspection.length) return 'Connect a local folder to check dependencies.';
+//     if (pending.value) return 'Checking local folders…';
+//     if (!dependencies.value.total) return 'Dependency checks aren’t set up. Add a package root in Dependencies.';
+//     if (!dependencies.value.complete) return 'Dependency checks are incomplete. Review the results for details.';
+//     return 'No security issues or outdated packages found.';
+// });
 const date = (value?: string | null) => value ? new Date(value).toLocaleString() : 'Not scanned';
 let lastAutomaticCheck = 0;
 let reloadingInspection = false;
@@ -281,9 +360,50 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                 force-mount
                 class="space-y-5 pt-5 data-[state=inactive]:hidden">
                 <div class="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(19rem,1fr)]">
-                    <div class="min-w-0 space-y-5">
+                    <div
+                        class="min-w-0 space-y-5"
+                        :class="{ 'xl:contents xl:space-y-0': !hasProjectDetails }">
+                        <section
+                            v-if="showGettingStarted"
+                            aria-labelledby="getting-started-title"
+                            class="space-y-3 xl:col-start-1">
+                            <h2
+                                id="getting-started-title"
+                                class="text-base font-medium">
+                                Start with a source, document, or note
+                            </h2>
+                            <p class="text-sm text-muted-foreground">
+                                Keep your code, reference material, and ideas together here.
+                            </p>
+                            <div class="flex flex-wrap gap-2">
+                                <Button
+                                    as-child
+                                    variant="outline"
+                                    size="sm">
+                                    <Link :href="`/projects/${project.id}/edit?tab=repositories`">
+                                        <FolderOpenIcon aria-hidden="true" />Connect a source
+                                    </Link>
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    @click="createDocument">
+                                    <FileTextIcon aria-hidden="true" />Add a document
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    @click="focusScratchpad">
+                                    <LineSquiggleIcon aria-hidden="true" />Write a note
+                                </Button>
+                            </div>
+                        </section>
                         <Card
+                            v-if="hasSources"
                             as="section"
+                            size="sm"
                             aria-labelledby="attention-title">
                             <CardHeader>
                                 <h2
@@ -291,91 +411,93 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                     class="flex items-center gap-2 text-sm font-normal">
                                     <CircleAlertIcon
                                         v-if="needsAttention"
-                                        class="size-4 text-amber-600 dark:text-amber-400"
+                                        class="size-4"
+                                        :class="dependencies.security ? 'text-destructive' : 'text-amber-600 dark:text-amber-400'"
                                         aria-hidden="true" />
                                     <CircleCheckIcon
-                                        v-else
+                                        v-else-if="dependencies.complete && !pending"
                                         class="size-4 text-emerald-600 dark:text-emerald-400"
                                         aria-hidden="true" />
-                                    Needs attention
+                                    <InfoIcon
+                                        v-else
+                                        class="size-4 text-muted-foreground"
+                                        aria-hidden="true" />
+                                    {{ needsAttention ? 'Needs attention' : 'Project checks' }}
                                 </h2>
                             </CardHeader>
-                            <CardContent class="gap-4">
-                                <p
-                                    v-if="!needsAttention"
-                                    role="status"
-                                    class="text-sm text-muted-foreground">
-                                    Everything’s up to date.
-                                </p>
-                                <div
-                                    v-if="dependencies.issueCount"
-                                    class="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
-                                    <span class="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+                            <CardContent class="gap-3">
+                                <div class="divide-y divide-border/70">
+                                    <div
+                                        v-if="dependencies.security"
+                                        class="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0">
+                                        <ShieldAlertIcon
+                                            class="size-4 shrink-0 text-destructive"
+                                            aria-hidden="true" />
+                                        <h3 class="min-w-0 flex-1 text-sm font-medium text-destructive">
+                                            {{ dependencies.security }} {{ dependencies.security === 1 ? 'package' : 'packages' }} with security issues
+                                        </h3>
+                                        <Button
+                                            type="button"
+                                            variant="link"
+                                            size="sm"
+                                            aria-label="Review security issues"
+                                            @click="changeTab('dependencies')">
+                                            Review security <ArrowRightIcon aria-hidden="true" />
+                                        </Button>
+                                    </div>
+                                    <div
+                                        v-if="dependencies.outdated"
+                                        class="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0">
                                         <PackageIcon
-                                            class="size-4"
-                                            :class="dependencies.security ? 'text-destructive' : 'text-amber-600 dark:text-amber-400'"
+                                            class="size-4 shrink-0 text-amber-600 dark:text-amber-400"
                                             aria-hidden="true" />
-                                    </span>
-                                    <div class="min-w-0">
-                                        <h3 class="text-sm font-medium">
-                                            {{ dependencies.issueCount }} dependency {{ dependencies.issueCount === 1 ? 'issue' : 'issues' }}
+                                        <h3 class="min-w-0 flex-1 text-sm font-medium">
+                                            {{ dependencies.outdated }} outdated {{ dependencies.outdated === 1 ? 'package' : 'packages' }}
                                         </h3>
-                                        <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
-                                            {{ dependencies.security }} with security issues · {{ dependencies.outdated }} outdated
-                                        </p>
+                                        <Button
+                                            type="button"
+                                            variant="link"
+                                            size="sm"
+                                            aria-label="Review outdated packages"
+                                            @click="changeTab('dependencies')">
+                                            Review updates <ArrowRightIcon aria-hidden="true" />
+                                        </Button>
                                     </div>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        class="col-start-2 justify-self-start sm:col-start-auto"
-                                        aria-label="Review dependencies"
-                                        @click="tab = 'dependencies'">
-                                        Review <ArrowRightIcon aria-hidden="true" />
-                                    </Button>
-                                </div>
-                                <div
-                                    v-if="folderIssueCount"
-                                    class="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 border-t border-border/70 pt-4 first:border-0 first:pt-0 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
-                                    <span class="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+                                    <div
+                                        v-if="folderIssueCount"
+                                        class="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0">
                                         <FolderOpenIcon
-                                            class="size-4 text-amber-600 dark:text-amber-400"
+                                            class="size-4 shrink-0 text-amber-600 dark:text-amber-400"
                                             aria-hidden="true" />
-                                    </span>
-                                    <div class="min-w-0">
-                                        <h3 class="text-sm font-medium">
-                                            {{ folderIssueCount }} local {{ folderIssueCount === 1 ? 'folder needs' : 'folders need' }} review
-                                        </h3>
-                                        <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
-                                            Check folder access and scan errors.
-                                        </p>
+                                        <div class="min-w-0 flex-1">
+                                            <h3 class="text-sm font-medium">
+                                                {{ folderIssueCount }} local {{ folderIssueCount === 1 ? 'folder needs' : 'folders need' }} review
+                                            </h3>
+                                            <p class="mt-0.5 text-xs text-muted-foreground">
+                                                Check folder access and scan errors.
+                                            </p>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="link"
+                                            size="sm"
+                                            aria-label="Review local folders"
+                                            @click="sourcesOpen = true; changeTab('sources')">
+                                            Review folders <ArrowRightIcon aria-hidden="true" />
+                                        </Button>
                                     </div>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        class="col-start-2 justify-self-start sm:col-start-auto"
-                                        aria-label="Review local folders"
-                                        @click="sourcesOpen = true; tab = 'sources'">
-                                        Review <ArrowRightIcon aria-hidden="true" />
-                                    </Button>
                                 </div>
                             </CardContent>
                         </Card>
 
                         <section
                             v-if="previewTasks.length"
-                            aria-labelledby="board-preview-title"
-                            class="space-y-3">
-                            <div class="flex items-center justify-between gap-3">
-                                <h2
-                                    id="board-preview-title"
-                                    class="text-sm font-normal">
-                                    Board cards
-                                </h2>
+                            aria-label="Board cards"
+                            class="space-y-3 xl:col-start-1">
+                            <div class="flex justify-end">
                                 <Button
                                     type="button"
-                                    variant="outline"
+                                    variant="link"
                                     size="sm"
                                     @click="changeTab('board')">
                                     View board <ArrowRightIcon aria-hidden="true" />
@@ -461,92 +583,12 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                             </DialogContent>
                         </Dialog>
 
-                        <ProjectScratchpad
-                            ref="scratchpad"
-                            :key="project.id"
-                            :project="project" />
-
-                        <p
-                            v-if="missingLink"
-                            role="status"
-                            class="text-sm text-muted-foreground">
-                            This link was removed.
-                        </p>
-                        <div
-                            v-if="!project.links.length && !addLinksDismissed"
-                            class="flex w-fit items-center gap-1">
-                            <Button
-                                as-child
-                                variant="outline"
-                                size="sm">
-                                <Link :href="`/projects/${project.id}/edit?tab=links`">
-                                    <PlusIcon aria-hidden="true" />Add links
-                                </Link>
-                            </Button>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label="Dismiss add links prompt"
-                                @click="addLinksDismissed = true">
-                                <XIcon aria-hidden="true" />
-                            </Button>
-                        </div>
-                    </div>
-
-                    <aside
-                        class="grid min-w-0 content-start gap-4"
-                        aria-label="Project details">
-                        <Card
-                            v-if="importantDocuments.length"
-                            as="section"
-                            size="sm"
-                            aria-labelledby="documents-preview-title">
-                            <CardHeader class="flex flex-row items-center justify-between gap-2">
-                                <h2
-                                    id="documents-preview-title"
-                                    class="text-sm font-normal">
-                                    Documents
-                                </h2>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    @click="changeTab('documents')">
-                                    View documents <ArrowRightIcon aria-hidden="true" />
-                                </Button>
-                            </CardHeader>
-                            <CardContent>
-                                <ul class="divide-y divide-border/70">
-                                    <li
-                                        v-for="document in importantDocuments"
-                                        :key="document.id"
-                                        class="flex min-w-0 items-center gap-3 py-2 first:pt-0 last:pb-0">
-                                        <FileTextIcon
-                                            class="size-4 shrink-0 text-muted-foreground"
-                                            aria-hidden="true" />
-                                        <Link
-                                            :href="`/projects/${project.id}?tab=documents&document=${document.id}`"
-                                            class="group min-w-0 flex-1 rounded-sm py-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-                                            <span class="block truncate underline-offset-4 group-hover:underline">{{ document.title }}</span>
-                                            <span class="block truncate text-xs text-muted-foreground">Updated {{ date(document.updated_at) }}</span>
-                                        </Link>
-                                        <ProjectImportanceButton
-                                            :project="project"
-                                            kind="documents"
-                                            :item="document"
-                                            :label="document.title"
-                                            :disabled="!!scratchpad?.saving" />
-                                    </li>
-                                </ul>
-                            </CardContent>
-                        </Card>
-
                         <Dialog v-model:open="linksOpen">
                             <Card
                                 v-if="project.links.length"
                                 as="section"
                                 size="sm"
+                                class="xl:col-start-1"
                                 aria-labelledby="links-title">
                                 <CardHeader class="flex flex-row items-center justify-between gap-2">
                                     <h2
@@ -557,18 +599,45 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                     <DialogTrigger as-child>
                                         <Button
                                             type="button"
-                                            variant="ghost"
+                                            variant="link"
                                             size="sm">
                                             View links <ArrowRightIcon aria-hidden="true" />
                                         </Button>
                                     </DialogTrigger>
                                 </CardHeader>
-                                <CardContent>
+                                <CardContent class="gap-3">
+                                    <div
+                                        role="search"
+                                        aria-label="Filter project links"
+                                        class="flex flex-wrap gap-2">
+                                        <label
+                                            for="overview-link-search"
+                                            class="sr-only">Search links</label>
+                                        <Input
+                                            id="overview-link-search"
+                                            v-model="linkSearch"
+                                            type="search"
+                                            variant="filled"
+                                            class="min-w-48 flex-1"
+                                            placeholder="Search links" />
+                                        <div class="w-full sm:w-52">
+                                            <label
+                                                for="overview-link-category"
+                                                class="sr-only">Category</label>
+                                            <FilterSelect
+                                                id="overview-link-category"
+                                                label="Category"
+                                                :model-value="linkCategory"
+                                                :options="linkCategories"
+                                                all-label="All categories"
+                                                @update:model-value="linkCategory = $event" />
+                                        </div>
+                                    </div>
                                     <ul
-                                        v-if="importantLinks.length"
-                                        class="divide-y divide-border/70">
+                                        v-if="visibleLinks.length"
+                                        class="max-h-80 divide-y divide-border/70 overflow-y-auto">
                                         <li
-                                            v-for="link in importantLinks"
+                                            v-for="link in visibleLinks"
                                             :key="link.id"
                                             class="flex min-w-0 items-center gap-3 py-2 first:pt-0 last:pb-0">
                                             <LinkIcon :url="link.url" />
@@ -582,8 +651,11 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                                 text
                                                 class="min-w-0 flex-1">
                                                 <span class="min-w-0 flex-1">
-                                                    <span class="block truncate text-sm">{{ link.label }}</span>
+                                                    <span class="block truncate text-sm underline-offset-2 group-hover/button:underline">{{ link.label }}</span>
                                                     <span class="block truncate text-xs text-muted-foreground">{{ link.url }}</span>
+                                                    <span
+                                                        v-if="link.category"
+                                                        class="block truncate text-xs text-muted-foreground">{{ link.category }}</span>
                                                 </span>
                                             </OpenTargetButton>
                                             <ProjectImportanceButton
@@ -596,8 +668,9 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                     </ul>
                                     <p
                                         v-else
+                                        role="status"
                                         class="text-sm text-muted-foreground">
-                                        Star links to keep them here.
+                                        No links match these filters.
                                     </p>
                                 </CardContent>
                             </Card>
@@ -606,7 +679,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                 @open-auto-focus="focusTargetLink">
                                 <DialogHeader>
                                     <DialogTitle>Links</DialogTitle>
-                                    <DialogDescription>Star links to show them on the project overview.</DialogDescription>
+                                    <DialogDescription>Star links to prioritise them on the project overview.</DialogDescription>
                                 </DialogHeader>
                                 <div
                                     id="project-links"
@@ -632,7 +705,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                                         class="min-w-0 flex-1">
                                                         <span class="min-w-0 flex-1">
                                                             <span
-                                                                class="block truncate text-sm"
+                                                                class="block truncate text-sm underline-offset-2 group-hover/button:underline"
                                                                 :title="link.label">{{ link.label }}</span>
                                                             <span
                                                                 class="block truncate text-xs text-muted-foreground"
@@ -703,6 +776,69 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                             </DialogContent>
                         </Dialog>
 
+                        <ProjectScratchpad
+                            ref="scratchpad"
+                            :key="project.id"
+                            :class="{ 'xl:col-start-2 xl:row-start-1': !hasProjectDetails }"
+                            :project="project" />
+
+                        <p
+                            v-if="missingLink"
+                            role="status"
+                            class="text-sm text-muted-foreground xl:col-start-1">
+                            This link was removed.
+                        </p>
+                    </div>
+
+                    <aside
+                        v-if="hasProjectDetails"
+                        class="grid min-w-0 content-start gap-4"
+                        aria-label="Project details">
+                        <Card
+                            v-if="previewDocuments.length"
+                            as="section"
+                            size="sm"
+                            aria-labelledby="documents-preview-title">
+                            <CardHeader class="flex flex-row items-center justify-between gap-2">
+                                <h2
+                                    id="documents-preview-title"
+                                    class="text-sm font-normal">
+                                    Documents
+                                </h2>
+                                <Button
+                                    type="button"
+                                    variant="link"
+                                    size="sm"
+                                    @click="changeTab('documents')">
+                                    View documents <ArrowRightIcon aria-hidden="true" />
+                                </Button>
+                            </CardHeader>
+                            <CardContent>
+                                <ul class="divide-y divide-border/70">
+                                    <li
+                                        v-for="document in previewDocuments"
+                                        :key="document.id"
+                                        class="flex min-w-0 items-center gap-3 py-2 first:pt-0 last:pb-0">
+                                        <FileTextIcon
+                                            class="size-4 shrink-0 text-muted-foreground"
+                                            aria-hidden="true" />
+                                        <Link
+                                            :href="`/projects/${project.id}?tab=documents&document=${document.id}`"
+                                            class="group min-w-0 flex-1 rounded-sm py-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                                            <span class="block truncate underline-offset-4 group-hover:underline">{{ document.title }}</span>
+                                            <span class="block truncate text-xs text-muted-foreground">Updated {{ date(document.updated_at) }}</span>
+                                        </Link>
+                                        <ProjectImportanceButton
+                                            :project="project"
+                                            kind="documents"
+                                            :item="document"
+                                            :label="document.title"
+                                            :disabled="!!scratchpad?.saving" />
+                                    </li>
+                                </ul>
+                            </CardContent>
+                        </Card>
+
                         <Card
                             v-if="project.repositories.length || inspection.length"
                             as="section"
@@ -716,7 +852,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                 </h2>
                                 <Button
                                     type="button"
-                                    variant="ghost"
+                                    variant="link"
                                     size="sm"
                                     @click="sourcesOpen = true; changeTab('sources')">
                                     View sources <ArrowRightIcon aria-hidden="true" />
@@ -785,31 +921,28 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                         <Card
                             v-if="latestCommit"
                             as="section"
-                            aria-labelledby="recent-activity-title">
+                            size="sm"
+                            aria-label="Latest commit">
                             <CardHeader>
-                                <h2
-                                    id="recent-activity-title"
-                                    class="text-sm font-normal">
-                                    Recent activity
-                                </h2>
+                                Latest update
                             </CardHeader>
-                            <CardContent class="gap-4">
-                                <div v-if="latestCommit">
-                                    <h3 class="text-xs font-normal text-muted-foreground">
-                                        Latest commit
-                                    </h3>
-                                    <p class="mt-1 break-words text-sm font-medium">
-                                        {{ latestCommit.commit_subject ?? 'Commit found' }}
-                                    </p>
-                                    <p class="mt-1 text-xs leading-5 text-muted-foreground">
-                                        {{ latestCommit.branch ?? latestCommit.git_state }} · <time :datetime="latestCommit.last_commit_at ?? undefined">{{ latestCommitAge }}</time>
-                                    </p>
-                                    <p
-                                        class="mt-1 truncate text-xs text-muted-foreground"
-                                        :title="latestCommit.path">
-                                        {{ latestCommit.path }}
-                                    </p>
-                                </div>
+                            <CardContent class="gap-1">
+                                <p class="break-words text-sm leading-5 text-muted-foreground">
+                                    {{ latestCommit.commit_subject ?? 'Commit found' }}
+                                </p>
+                                <p class="text-xs leading-5 text-muted-foreground">
+                                    {{ latestCommit.branch ?? latestCommit.git_state }} · <time :datetime="latestCommit.last_commit_at ?? undefined">{{ latestCommitAge }}</time>
+                                </p>
+                                <p
+                                    class="truncate text-sm font-medium"
+                                    :title="latestCommit.source">
+                                    {{ latestCommit.source }}
+                                </p>
+                                <!--                                <p-->
+                                <!--                                    class="truncate text-xs text-muted-foreground"-->
+                                <!--                                    :title="latestCommit.path">-->
+                                <!--                                    {{ latestCommit.path }}-->
+                                <!--                                </p>-->
                             </CardContent>
                         </Card>
                     </aside>
@@ -882,6 +1015,15 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                         :href="repo.web_url"
                                         label="Open repository"
                                         compact />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        :aria-label="`Remove repository ${repo.name}`"
+                                        :disabled="sourceRemoving || statusSaving || !!scratchpad?.saving"
+                                        @click="removingSource = { kind: 'repositories', id: repo.id, label: repo.name }">
+                                        <Trash2Icon aria-hidden="true" />Remove
+                                    </Button>
                                 </li>
                             </ul>
                         </div>
@@ -934,12 +1076,23 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                                         {{ folder.scan_state }}
                                                     </Badge>
                                                 </div>
-                                                <OpenTargetButton
-                                                    :id="folder.id"
-                                                    :project-id="project.id"
-                                                    kind="folders"
-                                                    :native="native"
-                                                    label="Open folder" />
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <OpenTargetButton
+                                                        :id="folder.id"
+                                                        :project-id="project.id"
+                                                        kind="folders"
+                                                        :native="native"
+                                                        label="Open folder" />
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        :aria-label="`Remove folder ${folder.path}`"
+                                                        :disabled="sourceRemoving || statusSaving || !!scratchpad?.saving"
+                                                        @click="removingSource = { kind: 'folders', id: folder.id, label: folder.path }">
+                                                        <Trash2Icon aria-hidden="true" />Remove
+                                                    </Button>
+                                                </div>
                                             </div>
                                             <p
                                                 v-if="folder.repository_id"
@@ -1009,6 +1162,51 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                     </CardContent>
                 </Card>
 
+                <Dialog
+                    :open="!!removingSource"
+                    @update:open="value => { if (!value && !sourceRemoving) removingSource = null; }">
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Remove {{ removingSource?.kind === 'folders' ? 'folder' : 'repository' }}?</DialogTitle>
+                            <DialogDescription>
+                                This removes the source from this project. {{ removingSource?.kind === 'folders' ? 'Files on disk are kept.' : 'Local folders and the remote repository are kept.' }}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <p class="break-all text-sm font-medium">
+                            {{ removingSource?.label }}
+                        </p>
+                        <p
+                            v-if="sourceError"
+                            role="alert"
+                            class="text-sm text-destructive">
+                            {{ sourceError }}
+                        </p>
+                        <DialogFooter>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                :disabled="sourceRemoving"
+                                @click="removingSource = null">
+                                Cancel
+                            </Button>
+                            <Button
+                                v-if="sourceNeedsReload"
+                                type="button"
+                                variant="outline"
+                                @click="reloadProject">
+                                Reload sources
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="destructive"
+                                :disabled="sourceRemoving || sourceNeedsReload || statusSaving || !!scratchpad?.saving"
+                                @click="removeSource">
+                                {{ sourceRemoving ? 'Removing…' : 'Remove source' }}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
                 <div
                     v-if="project.repositories.length"
                     class="space-y-4">
@@ -1042,6 +1240,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                 force-mount
                 class="pt-4">
                 <ProjectDocuments
+                    ref="documentsPage"
                     :key="project.id"
                     :project="project"
                     :target-document-id="targetDocumentId" />

@@ -108,6 +108,7 @@ html:not([data-orbit-motion="off"]) {
   height: 0;
   background: var(--foreground);
   pointer-events: none;
+    border-radius: 5px;
   transition:
     transform var(--tabs-dur) var(--tabs-ease),
     width var(--tabs-dur) var(--tabs-ease),

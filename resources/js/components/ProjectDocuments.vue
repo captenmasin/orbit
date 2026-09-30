@@ -33,7 +33,7 @@ let pendingNavigation: string | null = null;
 const draftKey = (id: string | null) => `document:${props.project.id}:${id ?? 'new'}`;
 const activeKey = `document:${props.project.id}:active`;
 const dirty = computed(() => editing.value && (form.isDirty || form.processing));
-defineExpose({ dirty, saving: computed(() => form.processing) });
+defineExpose({ dirty, saving: computed(() => form.processing), edit });
 const change = useForm({ action: 'delete', revision: props.project.revision, id: '', document_revision: 1 });
 watch(() => props.targetDocumentId, id => { if (!editing.value) selectedId.value = id ?? documents.value[0]?.id ?? null; });
 watch(documents, list => { if (!selectedId.value && !editing.value) selectedId.value = list[0]?.id ?? null; });

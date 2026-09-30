@@ -21,7 +21,7 @@ async function open() {
             v-if="!native && href"
             as-child
             :variant="text ? 'ghost' : 'outline'"
-            :class="text ? 'h-auto w-full min-w-0 justify-start whitespace-normal px-0 text-left' : undefined"
+            :class="text ? 'h-auto w-full min-w-0 justify-start whitespace-normal rounded-sm px-0 text-left hover:bg-transparent dark:hover:bg-transparent' : undefined"
             :size="compact ? (size === 'input' ? 'icon' : 'icon-sm') : (size ?? 'sm')">
             <a
                 :href="href"
@@ -33,7 +33,7 @@ async function open() {
             v-else
             type="button"
             :variant="text ? 'ghost' : 'outline'"
-            :class="text ? 'h-auto w-full min-w-0 justify-start whitespace-normal px-0 text-left' : undefined"
+            :class="text ? 'h-auto w-full min-w-0 justify-start whitespace-normal rounded-sm px-0 text-left hover:bg-transparent dark:hover:bg-transparent' : undefined"
             :size="compact ? (size === 'input' ? 'icon' : 'icon-sm') : (size ?? 'sm')"
             :aria-label="compact || text ? (label ?? 'Open') : undefined"
             :disabled="request.processing || !native"

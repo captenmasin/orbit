@@ -28,6 +28,13 @@ export const buttonVariants = cva(
         'icon-lg': 'size-10',
       },
     },
+    compoundVariants: [
+      {
+        variant: 'link',
+        size: ['default', 'input', 'xs', 'sm', 'lg'],
+        class: 'h-auto p-0 has-data-[icon=inline-end]:pr-0 has-data-[icon=inline-start]:pl-0',
+      },
+    ],
     defaultVariants: {
       variant: 'default',
       size: 'default',

@@ -10,7 +10,7 @@ import * as vue from 'vue';
 function mount(t, file, input, globals = {}, overrides = {}) {
     const { descriptor } = parse(readFileSync(new URL(`../resources/js/components/${file}.vue`, import.meta.url), 'utf8'));
     const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'documents-test' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
-    const modules = { vue: { ...vue, useId: () => 'test', onMounted() {} }, '@inertiajs/vue3': { ...inertia, ...overrides } };
+    const modules = { vue: { ...vue, useId: () => 'test', onMounted() {} }, '@inertiajs/vue3': { ...inertia, ...overrides }, '@/components/ui/button': { buttonVariants: () => 'shared-button' } };
     const context = { exports: {}, URL, require: name => modules[name] ?? {}, ...globals };
     runInNewContext(outputText, context);
     const props = vue.reactive(input);
@@ -43,30 +43,53 @@ test('documents retain their draft through conflict reloads and do not substitut
     assert.equal(state.form.body, '\nUntouched draft\n');
 });
 
-test('Markdown heading controls focus headings and code copy preserves whitespace and line breaks', async t => {
+test('Markdown heading controls focus headings and code copy resets its icon after feedback', async t => {
     const source = "printf 'hello'\n  ./deploy --safe\n\n";
     let copied;
+    let copyFails = false;
     let button;
+    let nextTimerId = 0;
+    const timers = new Map();
     let focused = false;
     let scrolled = false;
     const heading = { textContent: 'Deploy', focus: () => { focused = true; }, scrollIntoView: () => { scrolled = true; } };
     const code = { textContent: source };
     const block = { querySelector: selector => selector === 'button' ? button : code, prepend: value => { button = value; } };
     const { state } = mount(t, 'MarkdownContent', { html: '<h2>Deploy</h2><pre><code>commands</code></pre>', navigation: true }, {
-        navigator: { clipboard: { writeText: async text => { copied = text; } } },
-        document: { createElement: () => ({}), getElementById: () => heading },
+        navigator: { clipboard: { writeText: async text => { if (copyFails) throw new Error('Clipboard denied'); copied = text; } } },
+        document: { createElement: () => ({ setAttribute() {}, firstElementChild: { dataset: { state: 'a' } } }), getElementById: () => heading },
+        setTimeout: (callback, delay) => { const id = ++nextTimerId; timers.set(id, { callback, delay }); return id; },
+        clearTimeout: id => timers.delete(id),
     });
     state.content.value = { querySelectorAll: selector => selector === 'pre' ? [block] : [heading] };
     await state.enhance();
     assert.equal(state.headings.value[0].text, 'Deploy');
     state.goToHeading(state.headings.value[0].id);
     assert.equal(focused && scrolled, true);
+    assert.match(button.className, /shared-button/);
+    assert.match(button.className, /absolute top-2 right-2/);
+    assert.match(button.innerHTML, /class="t-icon-swap" data-state="a"/);
     await button.onclick();
     assert.equal(copied, source);
+    assert.equal(button.firstElementChild.dataset.state, 'b');
+    assert.equal(button.title, 'Code copied');
     assert.equal(state.copyMessage.value, 'Code copied.');
+    assert.equal(timers.get(1).delay, 2000);
     const firstButton = button;
     await state.enhance();
     assert.equal(button, firstButton);
+    await button.onclick();
+    assert.equal(timers.has(1), false);
+    timers.get(2).callback();
+    timers.delete(2);
+    assert.equal(button.firstElementChild.dataset.state, 'a');
+    assert.equal(button.title, 'Copy code');
+    copyFails = true;
+    await button.onclick();
+    assert.equal(button.firstElementChild.dataset.state, 'a');
+    assert.equal(button.title, 'Copy code');
+    assert.equal(timers.size, 0);
+    assert.equal(state.copyMessage.value, 'Code could not be copied. Select the code and copy it manually.');
 });
 
 test('document departures preserve drafts on stay and failed saves and clear history on discard', async t => {

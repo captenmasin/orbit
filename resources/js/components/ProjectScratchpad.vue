@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import TextTransition from '@/components/TextTransition.vue';
 import ScratchpadActionsReview from '@/components/ScratchpadActionsReview.vue';
 import { toast } from 'vue-sonner';
 import { Button } from '@/components/ui/button';
@@ -174,7 +173,7 @@ function actionsSaved() {
     <Card
         as="section"
         aria-labelledby="scratchpad-title">
-        <CardHeader class="px-2 sm:px-3">
+        <CardHeader class="flex flex-row items-center justify-between gap-2 px-2 sm:px-3">
             <h2
                 id="scratchpad-title"
                 class="flex items-center gap-2 text-sm font-normal">
@@ -183,6 +182,23 @@ function actionsSaved() {
                     aria-hidden="true" />
                 Scratchpad
             </h2>
+            <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                :aria-label="actionButtonLabel"
+                :title="actionButtonLabel"
+                :disabled="scratchpadSave.processing || actionPreview.processing || !!scratchpadForm.errors.revision || !scratchpadForm.scratchpad.trim()"
+                @click="generateActions()">
+                <span
+                    class="t-icon-swap"
+                    :data-state="actionPreview.processing ? 'b' : 'a'"
+                    aria-hidden="true"><span
+                        class="t-icon"
+                        data-icon="a"><SparklesIcon /></span><span
+                            class="t-icon"
+                            data-icon="b"><LoaderCircleIcon :class="actionPreview.processing ? 'animate-spin motion-reduce:animate-none' : undefined" /></span></span>
+            </Button>
         </CardHeader>
         <CardContent
             class="focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50"
@@ -193,42 +209,15 @@ function actionsSaved() {
                 <label
                     for="project-scratchpad"
                     class="sr-only">Scratchpad notes</label>
-                <div class="relative">
                 <Textarea
                     id="project-scratchpad"
                     v-model="scratchpadForm.scratchpad"
                     maxlength="500000000"
-                    :rows="4"
+                    :rows="3"
                     placeholder="Jot down ideas, reminders, and rough notes…"
-                    class="min-h-24 max-h-56 resize-none leading-6 text-foreground/90 rounded-none border-0 bg-transparent p-0 font-mono shadow-none focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 dark:bg-transparent"
+                    class="min-h-18 max-h-80 focus:min-h-32 resize-none leading-6 text-foreground/90 rounded-none border-0 bg-transparent p-0 font-mono shadow-none focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 dark:bg-transparent"
                     :aria-invalid="!!scratchpadForm.errors.scratchpad"
                     :aria-describedby="scratchpadForm.errors.scratchpad ? 'scratchpad-error' : undefined" />
-                </div>
-                <div class="flex items-center gap-2">
-<!--                    <span-->
-<!--                        role="status"-->
-<!--                        class="text-xs text-muted-foreground"><TextTransition-->
-<!--                            :text="scratchpadSave.processing ? 'Saving…' : scratchpadForm.isDirty ? 'Unsaved' : 'Saved'"-->
-<!--                            shimmer /></span>-->
-                    <Button
-                        type="button"
-                        size="icon-sm"
-                        variant="ghost"
-                        class="ml-auto"
-                        :aria-label="actionButtonLabel"
-                        :title="actionButtonLabel"
-                        :disabled="scratchpadSave.processing || actionPreview.processing || !!scratchpadForm.errors.revision || !scratchpadForm.scratchpad.trim()"
-                        @click="generateActions()">
-                        <span
-                            class="t-icon-swap"
-                            :data-state="actionPreview.processing ? 'b' : 'a'"
-                            aria-hidden="true"><span
-                                class="t-icon"
-                                data-icon="a"><SparklesIcon /></span><span
-                                    class="t-icon"
-                                    data-icon="b"><LoaderCircleIcon :class="actionPreview.processing ? 'animate-spin motion-reduce:animate-none' : undefined" /></span></span>
-                    </Button>
-                </div>
                 <div
                     v-if="saveError"
                     role="alert"

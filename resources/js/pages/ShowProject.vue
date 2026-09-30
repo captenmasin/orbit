@@ -7,26 +7,26 @@ import ContentSearch from '@/components/ContentSearch.vue';
 import ProjectAssets from '@/components/ProjectAssets.vue';
 import ProjectSecrets from '@/components/ProjectSecrets.vue';
 import MarkdownContent from '@/components/MarkdownContent.vue';
-import NumberTransition from '@/components/NumberTransition.vue';
 import OpenTargetButton from '@/components/OpenTargetButton.vue';
 import ProjectDocuments from '@/components/ProjectDocuments.vue';
 import ProjectScratchpad from '@/components/ProjectScratchpad.vue';
 import ProjectDependencies from '@/components/ProjectDependencies.vue';
+import ProjectImportanceButton from '@/components/ProjectImportanceButton.vue';
 import ProjectProviderActivity from '@/components/ProjectProviderActivity.vue';
 import { toast } from 'vue-sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { computed, nextTick, ref, watch } from 'vue';
-import { dependencyHealth } from '@/lib/dependencies';
+import { dependencyHealth, folderName } from '@/lib/dependencies';
 import { boardColumnColor, boardColumnColors } from '@/lib/project';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Head, Link, router, useHttp, usePage } from '@inertiajs/vue3';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { BoardColumn, BoardTask, Project, ProjectFolder, ProviderConnection, Repository } from '@/types';
-import { useDocumentVisibility, useIntervalFn, useSessionStorage, useTimeAgo, useWindowFocus } from '@vueuse/core';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { useDocumentVisibility, useIntervalFn, useLocalStorage, useSessionStorage, useTimeAgo, useWindowFocus } from '@vueuse/core';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { AlignLeftIcon, ArrowRightIcon, ChevronDownIcon, Clock3Icon, FolderOpenIcon, GitBranchIcon, InfoIcon, PaperclipIcon } from '@lucide/vue';
+import { AlignLeftIcon, ArrowRightIcon, ChevronDownIcon, CircleAlertIcon, CircleCheckIcon, FileTextIcon, FolderOpenIcon, GitBranchIcon, InfoIcon, PackageIcon, PaperclipIcon, PlusIcon, XIcon } from '@lucide/vue';
 
 const props = defineProps<{ selectedProject: Project; statuses: string[]; inspection: ProjectFolder[]; activity: Repository[]; connections: ProviderConnection[]; native: boolean }>();
 const project = computed(() => props.selectedProject);
@@ -56,9 +56,6 @@ function changeStatus(status: string) {
         onFinish: () => { statusSaving.value = false; },
     });
 }
-const taskCount = computed(() => (project.value.board_columns ?? []).reduce((count, column) => count + column.tasks.length, 0));
-const summaryPillClass = 'inline-flex h-8 shrink-0 select-none items-center gap-1.5 rounded-full bg-muted py-1 pr-3 pl-1 text-[13px] font-normal shadow-[0_0_0_1px_#0000000a] dark:shadow-[0_0_0_1px_#ffffff0d]';
-const summaryValueClass = 'grid h-6 min-w-6 shrink-0 place-items-center rounded-full bg-background px-1.5 font-medium tabular-nums';
 const previewTasks = computed(() => (project.value.board_columns ?? [])
     .flatMap(column => column.tasks.map(task => ({ ...task, column })))
     .slice(0, 3));
@@ -92,7 +89,8 @@ function reorderPreviewTask(column: BoardColumn, task: BoardTask, direction: num
 function movePreviewTask(task: BoardTask, destination: BoardColumn) {
     updatePreviewTask('task.move', task, destination, destination.tasks.length);
 }
-const recentDocuments = computed(() => [...(project.value.documents ?? [])].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 2));
+const importantLinks = computed(() => (project.value.links ?? []).filter(link => link.important));
+const importantDocuments = computed(() => (project.value.documents ?? []).filter(document => document.important));
 function reloadProject() {
     router.reload({ only: ['selectedProject'], onSuccess: () => {
         statusError.value = '';
@@ -111,6 +109,7 @@ async function refreshActivity(repository: Repository) {
     providerActivityOpen.value = true; await nextTick(); await providerActivity.value?.refresh(repositoryActivity(repository));
 }
 const linksOpen = ref(false);
+const addLinksDismissed = useLocalStorage(() => `project:${project.value.id}:add-links-dismissed`, false, { flush: 'sync' });
 const sourcesOpen = ref(false);
 function closeProjectSearch() {
     document.querySelector<HTMLElement>('[aria-label="Project sections"] [role="tab"][aria-selected="true"]')?.focus();
@@ -127,7 +126,6 @@ const targetTaskId = computed(() => query.value.get('task'));
 const targetSecretId = computed(() => query.value.get('secret'));
 const targetLinkId = computed(() => query.value.get('link'));
 const missingLink = computed(() => !!targetLinkId.value && !(project.value.links ?? []).some(link => link.id === targetLinkId.value));
-const visibleLinks = computed(() => linksOpen.value || targetLinkId.value ? project.value.links : project.value.links.slice(0, 3));
 const visibleRepositories = computed(() => sourcesOpen.value ? project.value.repositories : project.value.repositories.slice(0, 2));
 const visibleFolders = computed(() => sourcesOpen.value ? props.inspection : props.inspection.slice(0, 2));
 async function copyLink(url: string) {
@@ -146,9 +144,18 @@ watch(query, value => {
     const requested = value.get('tab');
     if (requested && ['overview', 'sources', 'documents', 'board', 'assets', 'dependencies', 'secrets'].includes(requested)) tab.value = requested;
 }, { immediate: true });
+function focusTargetLink(event?: Event) {
+    const target = typeof document === 'undefined' ? null : document.getElementById(`link-${targetLinkId.value}`);
+    if (!target) return;
+    event?.preventDefault();
+    target.querySelector<HTMLElement>('a, button')?.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'center' });
+}
 watch([targetLinkId, tab, () => project.value.links], async () => {
+    if (!targetLinkId.value || missingLink.value || tab.value !== 'overview') return;
+    linksOpen.value = true;
     await nextTick();
-    if (targetLinkId.value && !missingLink.value && tab.value === 'overview' && typeof document !== 'undefined') document.getElementById(`link-${targetLinkId.value}`)?.scrollIntoView({ block: 'center' });
+    focusTargetLink();
 }, { immediate: true });
 const scan = useHttp({ kind: 'all' as 'all' | 'folder' | 'root', id: null as string | null, only_stale: false });
 let automaticScanErrorProject: string | null = null;
@@ -158,9 +165,6 @@ const active = computed(() => visible.value === 'visible' && focused.value);
 const pending = computed(() => props.inspection.some(folder => [folder, ...(folder.package_roots ?? [])].some(target => ['Queued', 'Scanning'].includes(target.scan_state ?? ''))));
 const latestCommit = computed(() => [...props.inspection, ...props.activity.filter(repo => repo.remote_commit_at).map(repo => ({ last_commit_at: repo.remote_commit_at, branch: repo.default_branch, git_state: 'Remote default branch', path: `${repo.provider_name} · remote · ${repo.provider_snapshots?.find(snapshot => snapshot.resource === 'overview')?.state ?? 'Not scanned'}`, commit_subject: repo.provider_snapshots?.find(snapshot => snapshot.resource === 'overview')?.payload?.commit?.title }))].filter(folder => folder.last_commit_at).sort((a, b) => b.last_commit_at!.localeCompare(a.last_commit_at!))[0]);
 const latestCommitAge = useTimeAgo(() => latestCommit.value?.last_commit_at ?? Date.now());
-const lastUpdateFromGit = computed(() => !!project.value.repositories?.length || props.activity.length > 0 || props.inspection.some(folder => !!folder.git_root || !!folder.last_commit_at));
-const lastUpdateAt = computed(() => lastUpdateFromGit.value ? latestCommit.value?.last_commit_at ?? null : project.value.updated_at);
-const lastUpdateAge = useTimeAgo(() => lastUpdateAt.value ?? Date.now());
 const dependencies = computed(() => dependencyHealth(props.inspection));
 const folderIssueCount = computed(() => props.inspection.filter(folder => (folder.availability && folder.availability !== 'Available') || folder.scan_error).length);
 const needsAttention = computed(() => !!(dependencies.value.issueCount || folderIssueCount.value));
@@ -276,97 +280,154 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                 value="overview"
                 force-mount
                 class="space-y-5 pt-5 data-[state=inactive]:hidden">
-                <div
-                    role="group"
-                    aria-label="Project summary"
-                    class="flex flex-wrap items-center gap-2">
-                    <component
-                        :is="lastUpdateFromGit && lastUpdateAt ? 'a' : 'span'"
-                        v-if="lastUpdateAt || lastUpdateFromGit"
-                        :href="lastUpdateFromGit && lastUpdateAt ? '#recent-activity-title' : undefined"
-                        :class="[summaryPillClass, lastUpdateFromGit && lastUpdateAt && 'transition-colors hover:bg-neutral-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-neutral-700']">
-                        <span :class="summaryValueClass"><GitBranchIcon
-                            v-if="lastUpdateFromGit"
-                            class="size-3.5"
-                            aria-hidden="true" /><Clock3Icon
-                                v-else
-                                class="size-3.5"
-                                aria-hidden="true" /></span><time
-                                    v-if="lastUpdateAt"
-                                    :datetime="lastUpdateAt"
-                                    :title="date(lastUpdateAt)"><span class="sr-only">Last update </span>{{ lastUpdateAge }}</time><span v-else>No commit data</span><span
-                                        v-if="lastUpdateFromGit"
-                                        class="sr-only">from Git</span>
-                    </component>
-                    <!--                <button type="button" :class="summaryPillClass" class="cursor-pointer transition-colors hover:bg-neutral-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-neutral-700" @click="tab = 'assets'"><span :class="summaryValueClass"><NumberTransition :value="project.assets?.length ?? 0" /></span>Assets</button>-->
-                    <!--                <a href="#links-title" :class="summaryPillClass" class="transition-colors hover:bg-neutral-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-neutral-700" @click="linksOpen = true"><span :class="summaryValueClass"><NumberTransition :value="project.links.length" /></span>Links</a>-->
-                    <!--                <button type="button" :class="summaryPillClass" class="cursor-pointer transition-colors hover:bg-neutral-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-neutral-700" @click="tab = 'documents'"><span :class="summaryValueClass"><NumberTransition :value="project.documents?.length ?? 0" /></span>Documents</button>-->
-                    <button
-                        type="button"
-                        :class="summaryPillClass"
-                        class="cursor-pointer transition-colors hover:bg-neutral-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-neutral-700"
-                        @click="tab = 'board'">
-                        <span :class="summaryValueClass"><NumberTransition :value="taskCount" /></span>Cards
-                    </button>
-                    <button
-                        v-if="needsAttention"
-                        :class="summaryPillClass"
-                        class="transition-colors hover:bg-neutral-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-neutral-700"
-                        @click="tab = 'dependencies'">
-                        <span
-                            :class="summaryValueClass"
-                            class="text-destructive"><NumberTransition :value="dependencies.issueCount + folderIssueCount" /></span>Needs attention
-                    </button>
-                </div>
                 <div class="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(19rem,1fr)]">
                     <div class="min-w-0 space-y-5">
-                        <ul
+                        <Card
+                            as="section"
+                            aria-labelledby="attention-title">
+                            <CardHeader>
+                                <h2
+                                    id="attention-title"
+                                    class="flex items-center gap-2 text-sm font-normal">
+                                    <CircleAlertIcon
+                                        v-if="needsAttention"
+                                        class="size-4 text-amber-600 dark:text-amber-400"
+                                        aria-hidden="true" />
+                                    <CircleCheckIcon
+                                        v-else
+                                        class="size-4 text-emerald-600 dark:text-emerald-400"
+                                        aria-hidden="true" />
+                                    Needs attention
+                                </h2>
+                            </CardHeader>
+                            <CardContent class="gap-4">
+                                <p
+                                    v-if="!needsAttention"
+                                    role="status"
+                                    class="text-sm text-muted-foreground">
+                                    Everything’s up to date.
+                                </p>
+                                <div
+                                    v-if="dependencies.issueCount"
+                                    class="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+                                    <span class="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+                                        <PackageIcon
+                                            class="size-4"
+                                            :class="dependencies.security ? 'text-destructive' : 'text-amber-600 dark:text-amber-400'"
+                                            aria-hidden="true" />
+                                    </span>
+                                    <div class="min-w-0">
+                                        <h3 class="text-sm font-medium">
+                                            {{ dependencies.issueCount }} dependency {{ dependencies.issueCount === 1 ? 'issue' : 'issues' }}
+                                        </h3>
+                                        <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
+                                            {{ dependencies.security }} with security issues · {{ dependencies.outdated }} outdated
+                                        </p>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        class="col-start-2 justify-self-start sm:col-start-auto"
+                                        aria-label="Review dependencies"
+                                        @click="tab = 'dependencies'">
+                                        Review <ArrowRightIcon aria-hidden="true" />
+                                    </Button>
+                                </div>
+                                <div
+                                    v-if="folderIssueCount"
+                                    class="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 border-t border-border/70 pt-4 first:border-0 first:pt-0 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+                                    <span class="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+                                        <FolderOpenIcon
+                                            class="size-4 text-amber-600 dark:text-amber-400"
+                                            aria-hidden="true" />
+                                    </span>
+                                    <div class="min-w-0">
+                                        <h3 class="text-sm font-medium">
+                                            {{ folderIssueCount }} local {{ folderIssueCount === 1 ? 'folder needs' : 'folders need' }} review
+                                        </h3>
+                                        <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
+                                            Check folder access and scan errors.
+                                        </p>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        class="col-start-2 justify-self-start sm:col-start-auto"
+                                        aria-label="Review local folders"
+                                        @click="sourcesOpen = true; tab = 'sources'">
+                                        Review <ArrowRightIcon aria-hidden="true" />
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        <section
                             v-if="previewTasks.length"
-                            aria-label="Board cards"
-                            class="grid gap-3 md:grid-cols-3">
-                            <li
-                                v-for="task in previewTasks"
-                                :key="task.id">
-                                <BoardCardMenu
-                                    :column="task.column"
-                                    :task="task"
-                                    :columns="project.board_columns ?? []"
-                                    :disabled="previewBusy"
-                                    :preserve-focus="!!deletingPreviewTask"
-                                    @open-details="router.visit(`/projects/${project.id}?tab=board&task=${task.id}`)"
-                                    @reorder="reorderPreviewTask(task.column, task, $event)"
-                                    @move="movePreviewTask(task, $event)"
-                                    @delete="previewError = ''; deletingPreviewTask = task">
-                                    <Link
-                                        :href="`/projects/${project.id}?tab=board&task=${task.id}`"
-                                        class="flex h-full flex-col gap-5 rounded-2xl bg-background p-4 shadow-sm ring-1 retina:ring-[0.5px] ring-black/5 dark:ring-white/10 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-                                        <span class="flex items-center gap-2 text-xs text-muted-foreground">
+                            aria-labelledby="board-preview-title"
+                            class="space-y-3">
+                            <div class="flex items-center justify-between gap-3">
+                                <h2
+                                    id="board-preview-title"
+                                    class="text-sm font-normal">
+                                    Board cards
+                                </h2>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    @click="changeTab('board')">
+                                    View board <ArrowRightIcon aria-hidden="true" />
+                                </Button>
+                            </div>
+                            <ul
+                                aria-label="Board cards"
+                                class="grid gap-3 md:grid-cols-3">
+                                <li
+                                    v-for="task in previewTasks"
+                                    :key="task.id">
+                                    <BoardCardMenu
+                                        :column="task.column"
+                                        :task="task"
+                                        :columns="project.board_columns ?? []"
+                                        :disabled="previewBusy"
+                                        :preserve-focus="!!deletingPreviewTask"
+                                        @open-details="router.visit(`/projects/${project.id}?tab=board&task=${task.id}`)"
+                                        @reorder="reorderPreviewTask(task.column, task, $event)"
+                                        @move="movePreviewTask(task, $event)"
+                                        @delete="previewError = ''; deletingPreviewTask = task">
+                                        <Link
+                                            :href="`/projects/${project.id}?tab=board&task=${task.id}`"
+                                            class="flex h-full flex-col gap-5 rounded-2xl bg-background p-4 shadow-sm ring-1 retina:ring-[0.5px] ring-black/5 dark:ring-white/10 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                                            <span class="flex items-center gap-2 text-xs text-muted-foreground">
+                                                <span
+                                                    class="size-2 shrink-0 rounded-full"
+                                                    :class="boardColumnColors[boardColumnColor(task.column)]?.dotClass ?? boardColumnColors.gray.dotClass"
+                                                    aria-hidden="true" />
+                                                {{ task.column.name }}
+                                            </span>
+                                            <span class="min-w-0 break-words text-sm font-medium leading-5">{{ task.title }}</span>
                                             <span
-                                                class="size-2 shrink-0 rounded-full"
-                                                :class="boardColumnColors[boardColumnColor(task.column)]?.dotClass ?? boardColumnColors.gray.dotClass"
-                                                aria-hidden="true" />
-                                            {{ task.column.name }}
-                                        </span>
-                                        <span class="min-w-0 break-words text-sm font-medium leading-5">{{ task.title }}</span>
-                                        <span
-                                            v-if="task.description || task.attachments.length"
-                                            class="mt-auto flex items-center gap-3 text-xs text-muted-foreground">
-                                            <AlignLeftIcon
-                                                v-if="task.description"
-                                                class="size-4"
-                                                role="img"
-                                                aria-label="Has description" />
-                                            <span
-                                                v-if="task.attachments.length"
-                                                class="flex items-center gap-1"
-                                                :aria-label="`${task.attachments.length} attachments`"><PaperclipIcon
+                                                v-if="task.description || task.attachments.length"
+                                                class="mt-auto flex items-center gap-3 text-xs text-muted-foreground">
+                                                <AlignLeftIcon
+                                                    v-if="task.description"
                                                     class="size-4"
-                                                    aria-hidden="true" />{{ task.attachments.length }}</span>
-                                        </span>
-                                    </Link>
-                                </BoardCardMenu>
-                            </li>
-                        </ul>
+                                                    role="img"
+                                                    aria-label="Has description" />
+                                                <span
+                                                    v-if="task.attachments.length"
+                                                    class="flex items-center gap-1"
+                                                    :aria-label="`${task.attachments.length} attachments`"><PaperclipIcon
+                                                        class="size-4"
+                                                        aria-hidden="true" />{{ task.attachments.length }}</span>
+                                            </span>
+                                        </Link>
+                                    </BoardCardMenu>
+                                </li>
+                            </ul>
+                        </section>
                         <Dialog
                             :open="!!deletingPreviewTask"
                             @update:open="value => { if (!value && !previewBusy) deletingPreviewTask = null; }">
@@ -400,66 +461,159 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                             </DialogContent>
                         </Dialog>
 
+                        <ProjectScratchpad
+                            ref="scratchpad"
+                            :key="project.id"
+                            :project="project" />
+
+                        <p
+                            v-if="missingLink"
+                            role="status"
+                            class="text-sm text-muted-foreground">
+                            This link was removed.
+                        </p>
+                        <div
+                            v-if="!project.links.length && !addLinksDismissed"
+                            class="flex w-fit items-center gap-1">
+                            <Button
+                                as-child
+                                variant="outline"
+                                size="sm">
+                                <Link :href="`/projects/${project.id}/edit?tab=links`">
+                                    <PlusIcon aria-hidden="true" />Add links
+                                </Link>
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="Dismiss add links prompt"
+                                @click="addLinksDismissed = true">
+                                <XIcon aria-hidden="true" />
+                            </Button>
+                        </div>
+                    </div>
+
+                    <aside
+                        class="grid min-w-0 content-start gap-4"
+                        aria-label="Project details">
                         <Card
-                            v-if="needsAttention"
+                            v-if="importantDocuments.length"
                             as="section"
-                            aria-labelledby="attention-title">
-                            <CardHeader>
+                            size="sm"
+                            aria-labelledby="documents-preview-title">
+                            <CardHeader class="flex flex-row items-center justify-between gap-2">
                                 <h2
-                                    id="attention-title"
+                                    id="documents-preview-title"
                                     class="text-sm font-normal">
-                                    Needs attention
+                                    Documents
                                 </h2>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    @click="changeTab('documents')">
+                                    View documents <ArrowRightIcon aria-hidden="true" />
+                                </Button>
                             </CardHeader>
-                            <CardContent class="gap-2">
-                                <button
-                                    v-if="dependencies.issueCount"
-                                    type="button"
-                                    class="rounded-lg px-2 py-2.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                                    @click="tab = 'dependencies'">
-                                    <span class="block text-sm font-medium">{{ dependencies.issueCount }} dependency {{ dependencies.issueCount === 1 ? 'issue' : 'issues' }}</span>
-                                    <span class="mt-0.5 block text-xs text-muted-foreground">{{ dependencies.security }} with security issues · {{ dependencies.outdated }} outdated</span>
-                                    <span class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">Open dependencies <ArrowRightIcon
-                                        class="size-3"
-                                        aria-hidden="true" /></span>
-                                </button>
-                                <button
-                                    v-if="folderIssueCount"
-                                    type="button"
-                                    class="block select-none rounded-lg px-2 py-2.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                                    @click="sourcesOpen = true; tab = 'sources'">
-                                    <span class="block text-sm font-medium">{{ folderIssueCount }} local {{ folderIssueCount === 1 ? 'folder needs' : 'folders need' }} review</span>
-                                    <span class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">Review sources <ArrowRightIcon
-                                        class="size-3"
-                                        aria-hidden="true" /></span>
-                                </button>
+                            <CardContent>
+                                <ul class="divide-y divide-border/70">
+                                    <li
+                                        v-for="document in importantDocuments"
+                                        :key="document.id"
+                                        class="flex min-w-0 items-center gap-3 py-2 first:pt-0 last:pb-0">
+                                        <FileTextIcon
+                                            class="size-4 shrink-0 text-muted-foreground"
+                                            aria-hidden="true" />
+                                        <Link
+                                            :href="`/projects/${project.id}?tab=documents&document=${document.id}`"
+                                            class="group min-w-0 flex-1 rounded-sm py-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                                            <span class="block truncate underline-offset-4 group-hover:underline">{{ document.title }}</span>
+                                            <span class="block truncate text-xs text-muted-foreground">Updated {{ date(document.updated_at) }}</span>
+                                        </Link>
+                                        <ProjectImportanceButton
+                                            :project="project"
+                                            kind="documents"
+                                            :item="document"
+                                            :label="document.title"
+                                            :disabled="!!scratchpad?.saving" />
+                                    </li>
+                                </ul>
                             </CardContent>
                         </Card>
 
-                        <Card
-                            as="section"
-                            aria-labelledby="links-title">
-                            <CardHeader>
-                                <h2
-                                    id="links-title"
-                                    class="text-sm font-normal">
-                                    Links <span class="ml-1 text-xs font-normal text-muted-foreground">{{ project.links.length }} {{ project.links.length === 1 ? 'link' : 'links' }}</span>
-                                </h2>
-                            </CardHeader>
-                            <CardContent class="gap-2">
-                                <p
-                                    v-if="missingLink"
-                                    role="status"
-                                    class="text-sm text-muted-foreground">
-                                    This link was removed. Choose another link.
-                                </p>
+                        <Dialog v-model:open="linksOpen">
+                            <Card
+                                v-if="project.links.length"
+                                as="section"
+                                size="sm"
+                                aria-labelledby="links-title">
+                                <CardHeader class="flex flex-row items-center justify-between gap-2">
+                                    <h2
+                                        id="links-title"
+                                        class="text-sm font-normal">
+                                        Links
+                                    </h2>
+                                    <DialogTrigger as-child>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm">
+                                            View links <ArrowRightIcon aria-hidden="true" />
+                                        </Button>
+                                    </DialogTrigger>
+                                </CardHeader>
+                                <CardContent>
+                                    <ul
+                                        v-if="importantLinks.length"
+                                        class="divide-y divide-border/70">
+                                        <li
+                                            v-for="link in importantLinks"
+                                            :key="link.id"
+                                            class="flex min-w-0 items-center gap-3 py-2 first:pt-0 last:pb-0">
+                                            <LinkIcon :url="link.url" />
+                                            <OpenTargetButton
+                                                :id="link.id"
+                                                :project-id="project.id"
+                                                kind="links"
+                                                :native="native"
+                                                :href="link.url"
+                                                :label="`Open ${link.label}`"
+                                                text
+                                                class="min-w-0 flex-1">
+                                                <span class="min-w-0 flex-1">
+                                                    <span class="block truncate text-sm">{{ link.label }}</span>
+                                                    <span class="block truncate text-xs text-muted-foreground">{{ link.url }}</span>
+                                                </span>
+                                            </OpenTargetButton>
+                                            <ProjectImportanceButton
+                                                :project="project"
+                                                kind="links"
+                                                :item="link"
+                                                :label="link.label"
+                                                :disabled="!!scratchpad?.saving" />
+                                        </li>
+                                    </ul>
+                                    <p
+                                        v-else
+                                        class="text-sm text-muted-foreground">
+                                        Star links to keep them here.
+                                    </p>
+                                </CardContent>
+                            </Card>
+                            <DialogContent
+                                class="max-h-[85vh] overflow-y-auto"
+                                @open-auto-focus="focusTargetLink">
+                                <DialogHeader>
+                                    <DialogTitle>Links</DialogTitle>
+                                    <DialogDescription>Star links to show them on the project overview.</DialogDescription>
+                                </DialogHeader>
                                 <div
-                                    v-if="project.links.length"
                                     id="project-links"
                                     class="grid gap-2">
                                     <ul class="grid gap-1">
                                         <ContextMenu
-                                            v-for="link in visibleLinks"
+                                            v-for="link in project.links"
                                             :key="link.id">
                                             <ContextMenuTrigger as-child>
                                                 <li
@@ -476,16 +630,24 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                                         :label="`Open ${link.label}`"
                                                         text
                                                         class="min-w-0 flex-1">
-                                                        <span
-                                                            class="block truncate text-sm"
-                                                            :title="link.label">{{ link.label }}</span>
-                                                        <span
-                                                            class="block truncate text-xs text-muted-foreground"
-                                                            :title="link.url">{{ link.url }}</span>
-                                                        <span
-                                                            v-if="(linksOpen || targetLinkId) && link.category"
-                                                            class="block truncate text-xs text-muted-foreground">{{ link.category }}</span>
+                                                        <span class="min-w-0 flex-1">
+                                                            <span
+                                                                class="block truncate text-sm"
+                                                                :title="link.label">{{ link.label }}</span>
+                                                            <span
+                                                                class="block truncate text-xs text-muted-foreground"
+                                                                :title="link.url">{{ link.url }}</span>
+                                                            <span
+                                                                v-if="link.category"
+                                                                class="block truncate text-xs text-muted-foreground">{{ link.category }}</span>
+                                                        </span>
                                                     </OpenTargetButton>
+                                                    <ProjectImportanceButton
+                                                        :project="project"
+                                                        kind="links"
+                                                        :item="link"
+                                                        :label="link.label"
+                                                        :disabled="!!scratchpad?.saving" />
                                                     <Dialog v-if="link.category || link.description_html">
                                                         <DialogTrigger as-child>
                                                             <Button
@@ -528,41 +690,100 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                         </ContextMenu>
                                     </ul>
                                 </div>
+                                <DialogFooter>
+                                    <Button
+                                        as-child
+                                        variant="outline"
+                                        size="sm">
+                                        <Link :href="`/projects/${project.id}/edit?tab=links`">
+                                            Edit links
+                                        </Link>
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+
+                        <Card
+                            v-if="project.repositories.length || inspection.length"
+                            as="section"
+                            size="sm"
+                            aria-labelledby="sources-preview-title">
+                            <CardHeader class="flex flex-row items-center justify-between gap-2">
+                                <h2
+                                    id="sources-preview-title"
+                                    class="text-sm font-normal">
+                                    Sources
+                                </h2>
                                 <Button
-                                    v-if="project.links.length > 3 && !targetLinkId"
                                     type="button"
                                     variant="ghost"
                                     size="sm"
-                                    class="self-start"
-                                    :aria-expanded="linksOpen"
-                                    aria-controls="project-links"
-                                    @click="linksOpen = !linksOpen">
-                                    {{ linksOpen ? 'Show fewer links' : `View all ${project.links.length} links` }}
+                                    @click="sourcesOpen = true; changeTab('sources')">
+                                    View sources <ArrowRightIcon aria-hidden="true" />
                                 </Button>
-                                <Button
-                                    v-if="!project.links.length"
-                                    as-child
-                                    variant="outline"
-                                    size="sm"
-                                    class="self-start">
-                                    <Link :href="`/projects/${project.id}/edit?tab=links`">
-                                        Add links
-                                    </Link>
-                                </Button>
+                            </CardHeader>
+                            <CardContent>
+                                <ul class="divide-y divide-border/70">
+                                    <li
+                                        v-for="repo in project.repositories.slice(0, 2)"
+                                        :key="repo.id"
+                                        class="flex min-w-0 items-center gap-3 py-2 first:pt-0 last:pb-0">
+                                        <GitBranchIcon
+                                            class="size-4 shrink-0 text-muted-foreground"
+                                            aria-hidden="true" />
+                                        <div class="min-w-0 flex-1">
+                                            <p
+                                                class="truncate text-sm font-medium"
+                                                :title="repo.name">
+                                                {{ repo.name }}
+                                            </p>
+                                            <p
+                                                class="truncate text-xs text-muted-foreground"
+                                                :title="repo.remote_url">
+                                                {{ repo.remote_url }}
+                                            </p>
+                                        </div>
+                                        <OpenTargetButton
+                                            :id="repo.id"
+                                            :project-id="project.id"
+                                            kind="repositories"
+                                            :native="native"
+                                            :href="repo.web_url"
+                                            :label="`Open ${repo.name}`"
+                                            compact />
+                                    </li>
+                                    <li
+                                        v-for="folder in inspection.slice(0, 2)"
+                                        :key="folder.id"
+                                        class="flex min-w-0 items-center gap-3 py-2 first:pt-0 last:pb-0">
+                                        <FolderOpenIcon
+                                            class="size-4 shrink-0 text-muted-foreground"
+                                            aria-hidden="true" />
+                                        <div class="min-w-0 flex-1">
+                                            <p class="truncate text-sm font-medium">
+                                                {{ folderName(folder) }}
+                                            </p>
+                                            <p
+                                                class="truncate text-xs text-muted-foreground"
+                                                :title="folder.path">
+                                                {{ folder.path }}
+                                            </p>
+                                        </div>
+                                        <OpenTargetButton
+                                            v-if="native"
+                                            :id="folder.id"
+                                            :project-id="project.id"
+                                            kind="folders"
+                                            :native="native"
+                                            :label="`Open ${folderName(folder)} folder`"
+                                            compact />
+                                    </li>
+                                </ul>
                             </CardContent>
                         </Card>
-                    </div>
-
-                    <aside
-                        class="grid min-w-0 content-start gap-4"
-                        aria-label="Project details">
-                        <ProjectScratchpad
-                            ref="scratchpad"
-                            :key="project.id"
-                            :project="project" />
 
                         <Card
-                            v-if="latestCommit || recentDocuments.length"
+                            v-if="latestCommit"
                             as="section"
                             aria-labelledby="recent-activity-title">
                             <CardHeader>
@@ -588,25 +809,6 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                         :title="latestCommit.path">
                                         {{ latestCommit.path }}
                                     </p>
-                                </div>
-                                <div
-                                    v-if="recentDocuments.length"
-                                    class="border-t border-border/70 pt-3 first:border-0 first:pt-0">
-                                    <h3 class="text-xs font-normal text-muted-foreground">
-                                        Documents
-                                    </h3>
-                                    <ul class="mt-1 divide-y divide-border/70">
-                                        <li
-                                            v-for="document in recentDocuments"
-                                            :key="document.id">
-                                            <Link
-                                                :href="`/projects/${project.id}?tab=documents&document=${document.id}`"
-                                                class="block rounded-lg px-1 py-2 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-                                                <span class="block break-words text-sm font-medium">{{ document.title }}</span>
-                                                <span class="mt-0.5 block text-xs text-muted-foreground">Updated {{ date(document.updated_at) }}</span>
-                                            </Link>
-                                        </li>
-                                    </ul>
                                 </div>
                             </CardContent>
                         </Card>

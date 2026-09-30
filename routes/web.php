@@ -8,6 +8,7 @@ use App\Http\Controllers\DebugController;
 use App\Http\Controllers\InspectionController;
 use App\Http\Controllers\ProjectAssetController;
 use App\Http\Controllers\ProjectDocumentController;
+use App\Http\Controllers\ProjectImportanceController;
 use App\Http\Controllers\ProviderController;
 use App\Http\Controllers\ScratchpadAiController;
 use App\Http\Controllers\SearchController;
@@ -45,6 +46,8 @@ Route::prefix('projects')->name('projects.')->group(function (): void {
             Route::post('/scratchpad/actions/preview', 'previewScratchpadActions')->middleware('throttle:6,1')->name('scratchpad.actions.preview');
             Route::post('/scratchpad/actions', 'applyScratchpadActions')->name('scratchpad.actions.apply');
         });
+
+        Route::put('/important', [ProjectImportanceController::class, 'update'])->name('important.update');
 
         Route::prefix('documents')->name('documents.')->controller(ProjectDocumentController::class)->group(function (): void {
             Route::put('/', 'update')->name('update');

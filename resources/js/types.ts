@@ -86,6 +86,7 @@ export interface PackageRoot {
 
 export interface ProjectLink {
     id: string;
+    important: boolean;
     label: string;
     url: string;
     category?: string | null;
@@ -155,6 +156,7 @@ export interface Project {
 
 export interface ProjectDocument {
     id: string;
+    important: boolean;
     project_id: string;
     title: string;
     body: string;

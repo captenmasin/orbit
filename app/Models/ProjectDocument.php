@@ -13,13 +13,13 @@ class ProjectDocument extends Model
     /** @use HasFactory<ProjectDocumentFactory> */
     use HasFactory, HasUuids;
 
-    protected $fillable = ['title', 'body', 'position'];
+    protected $fillable = ['title', 'body', 'position', 'important'];
 
     protected $appends = ['body_html'];
 
     protected function casts(): array
     {
-        return ['position' => 'integer', 'revision' => 'integer'];
+        return ['position' => 'integer', 'revision' => 'integer', 'important' => 'boolean'];
     }
 
     public function getBodyHtmlAttribute(): string

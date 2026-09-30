@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import TextTransition from '@/components/TextTransition.vue';
 import MarkdownContent from '@/components/MarkdownContent.vue';
+import ProjectImportanceButton from '@/components/ProjectImportanceButton.vue';
 import { toast } from 'vue-sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -190,6 +191,12 @@ async function togglePreview() {
                             @click="selectedId = document.id">
                             <span class="break-words">{{ document.title }}</span>
                         </Button>
+                        <ProjectImportanceButton
+                            :project="project"
+                            kind="documents"
+                            :item="document"
+                            :label="document.title"
+                            :disabled="editing || change.processing" />
                     </li>
                 </ul>
             </nav>

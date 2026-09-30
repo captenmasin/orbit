@@ -9,24 +9,26 @@ import * as vueuse from '@vueuse/core';
 import ts from 'typescript';
 import * as vue from 'vue';
 
-function script(source, modules) {
+function script(source, modules, globals = {}) {
     const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } });
-    const context = { exports: {}, require: name => modules[name] ?? {}, crypto: webcrypto, URL, URLSearchParams, setTimeout, clearTimeout };
+    const context = { exports: {}, require: name => modules[name] ?? {}, crypto: webcrypto, URL, URLSearchParams, setTimeout, clearTimeout, ...globals };
     runInNewContext(outputText, context);
     return context.exports;
 }
 const projectHelpers = script(readFileSync(new URL('../resources/js/lib/project.ts', import.meta.url), 'utf8'), {});
 const dependencyHelpers = script(readFileSync(new URL('../resources/js/lib/dependencies.ts', import.meta.url), 'utf8'), {});
 
-function harness(t, inertiaOverrides = {}, notifications = []) {
+function harness(t, inertiaOverrides = {}, notifications = [], globals = {}) {
     const stored = new Map();
     const storage = { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) };
     const modules = { vue: { ...vue, onMounted() {} }, '@inertiajs/vue3': { ...inertia, usePage: () => ({ url: '/' }), ...inertiaOverrides }, '@/lib/project': projectHelpers, '@/lib/dependencies': dependencyHelpers,
         'vue-sonner': { toast: { error: message => notifications.push(message), success: message => notifications.push(message) } },
-        '@vueuse/core': { ...vueuse, useSessionStorage: (key, value, options) => vueuse.useStorage(key, value, storage, options) } };
+        '@vueuse/core': { ...vueuse,
+            useLocalStorage: (key, value, options) => vueuse.useStorage(key, value, storage, options),
+            useSessionStorage: (key, value, options) => vueuse.useStorage(key, value, storage, options) } };
     return function mount(file, input) {
         const { descriptor } = parse(readFileSync(new URL(`../resources/js/${file}.vue`, import.meta.url), 'utf8'));
-        const component = script(compileScript(descriptor, { id: 'project-tab-test' }).content, modules).default;
+        const component = script(compileScript(descriptor, { id: 'project-tab-test' }).content, modules, globals).default;
         const scope = vue.effectScope();
         t.after(() => scope.stop());
         const props = vue.reactive(input);
@@ -99,11 +101,9 @@ test('project overview previews saved card order independently of list names', a
         inspection: [], activity: [], connections: [], native: false,
     });
 
-    assert.equal(current.state.taskCount.value, 5);
     assert.deepEqual(Array.from(current.state.previewTasks.value, task => [task.id, task.column.name]), [['one', 'Backlog'], ['two', 'Backlog'], ['three', 'In Progress']]);
     current.props.selectedProject.board_columns = [{ tasks: [] }];
     await vue.nextTick();
-    assert.equal(current.state.taskCount.value, 0);
     assert.equal(current.state.previewTasks.value.length, 0);
 });
 
@@ -150,31 +150,21 @@ test('overview card menu moves cards and keeps delete confirmation open after an
     assert.equal(current.state.deletingPreviewTask.value, null);
 });
 
-test('project overview prefers the latest repo commit and counts queued tasks', t => {
+test('project overview recent activity prefers the latest repo commit', t => {
     const current = harness(t)('pages/ShowProject', {
-        selectedProject: { id: 'project-a', tags: [], revision: 1, updated_at: '2026-09-20T12:00:00Z', board_columns: [
-            { name: 'Backlog', tasks: [{ id: 'one' }] },
-            { name: 'To Do', tasks: [{ id: 'two' }, { id: 'three' }] },
-            { name: 'Done', tasks: [{ id: 'four' }] },
-        ] },
+        selectedProject: { id: 'project-a', tags: [], revision: 1 },
         inspection: [{ id: 'folder', git_root: '/project', last_commit_at: '2026-09-19T12:00:00Z' }],
         activity: [{ remote_commit_at: '2026-09-18T12:00:00Z' }], connections: [], native: false,
     });
 
-    assert.equal(current.state.lastUpdateAt.value, '2026-09-19T12:00:00Z');
-    assert.equal(current.state.lastUpdateFromGit.value, true);
-    assert.equal(current.state.taskCount.value, 4);
+    assert.equal(current.state.latestCommit.value.last_commit_at, '2026-09-19T12:00:00Z');
 
     current.props.activity[0].remote_commit_at = '2026-09-21T12:00:00Z';
-    assert.equal(current.state.lastUpdateAt.value, '2026-09-21T12:00:00Z');
-    assert.equal(current.state.lastUpdateFromGit.value, true);
+    assert.equal(current.state.latestCommit.value.last_commit_at, '2026-09-21T12:00:00Z');
 
     current.props.inspection[0].last_commit_at = null;
     current.props.activity = [];
-    assert.equal(current.state.lastUpdateAt.value, null);
-    current.props.inspection = [];
-    assert.equal(current.state.lastUpdateAt.value, '2026-09-20T12:00:00Z');
-    assert.equal(current.state.lastUpdateFromGit.value, false);
+    assert.equal(current.state.latestCommit.value, undefined);
 });
 
 test('project overview retains confirmed attention during unrelated scans and hides invalidated findings', t => {
@@ -242,17 +232,12 @@ test('project header changes status with current details and reports conflicts',
     assert.equal(current.state.statusSaving.value, false);
 });
 
-test('work surface shows recent documents and keeps all linked resources reachable', async t => {
+test('link search opens the full list and source previews still expand', async t => {
     const page = vue.reactive({ url: '/projects/project-a?link=9' });
     const mount = harness(t, { usePage: () => page });
     const current = mount('pages/ShowProject', {
         selectedProject: {
             id: 'project-a', tags: [], revision: 1,
-            documents: [
-                { id: 'older', updated_at: '2026-09-01T10:00:00Z' },
-                { id: 'newest', updated_at: '2026-09-03T10:00:00Z' },
-                { id: 'middle', updated_at: '2026-09-02T10:00:00Z' },
-            ],
             repositories: Array.from({ length: 3 }, (_, index) => ({ id: `repo-${index}` })),
             links: Array.from({ length: 10 }, (_, index) => ({ id: String(index) })),
         },
@@ -263,40 +248,138 @@ test('work surface shows recent documents and keeps all linked resources reachab
         ], activity: [], connections: [], native: false,
     });
 
-    assert.deepEqual(Array.from(current.state.recentDocuments.value, document => document.id), ['newest', 'middle']);
-    assert.equal(current.state.visibleLinks.value.length, 10);
+    assert.equal(current.state.linksOpen.value, true);
+    assert.equal(current.state.targetLinkId.value, '9');
+    assert.equal(current.state.missingLink.value, false);
     assert.deepEqual(Array.from(current.state.visibleRepositories.value, repo => repo.id), ['repo-0', 'repo-1']);
     assert.deepEqual(Array.from(current.state.visibleFolders.value, folder => folder.id), ['folder', 'folder-two']);
     assert.equal(current.state.folderIssueCount.value, 1);
 
+    current.state.linksOpen.value = false;
     page.url = '/projects/project-a';
     await vue.nextTick();
-    assert.deepEqual(Array.from(current.state.visibleLinks.value, link => link.id), ['0', '1', '2']);
-    current.state.linksOpen.value = true;
-    assert.equal(current.state.visibleLinks.value.length, 10);
+    assert.equal(current.state.linksOpen.value, false);
     current.state.sourcesOpen.value = true;
     assert.equal(current.state.visibleRepositories.value.length, 3);
     assert.equal(current.state.visibleFolders.value.length, 3);
 });
 
-test('project links keep saved order through expansion and category changes', t => {
+test('the add links prompt remembers dismissal separately for each project', async t => {
     const mount = harness(t);
+    const view = () => mount('pages/ShowProject', {
+        selectedProject: { id: 'project-a', tags: [], revision: 1, links: [] },
+        inspection: [], activity: [], connections: [], native: false,
+    });
+    const current = view();
+    assert.equal(current.state.addLinksDismissed.value, false);
+
+    current.state.addLinksDismissed.value = true;
+    current.unmount();
+    const reloaded = view();
+    assert.equal(reloaded.state.addLinksDismissed.value, true);
+
+    reloaded.props.selectedProject = { id: 'project-b', tags: [], revision: 1, links: [] };
+    await vue.nextTick();
+    assert.equal(reloaded.state.addLinksDismissed.value, false);
+    reloaded.props.selectedProject = { id: 'project-a', tags: [], revision: 1, links: [] };
+    await vue.nextTick();
+    assert.equal(reloaded.state.addLinksDismissed.value, true);
+});
+
+test('link search opens unstarred links on the overview and reports removed links', async t => {
+    const page = vue.reactive({ url: '/projects/project-a?tab=documents&link=reference' });
+    const mount = harness(t, { usePage: () => page });
     const current = mount('pages/ShowProject', {
         selectedProject: { id: 'project-a', tags: [], revision: 1, links: [
-            { id: 'social-a', category: 'Social' },
-            { id: 'uncategorized', category: null },
-            { id: 'docs', category: 'Documentation' },
-            { id: 'social-b', category: 'Social' },
-            { id: 'hosting', category: 'Hosting' },
+            { id: 'reference', important: false },
         ] },
         inspection: [], activity: [], connections: [], native: false,
     });
-    const ids = () => Array.from(current.state.visibleLinks.value, link => link.id);
-    assert.deepEqual(ids(), ['social-a', 'uncategorized', 'docs']);
-    current.state.linksOpen.value = true;
-    assert.deepEqual(ids(), ['social-a', 'uncategorized', 'docs', 'social-b', 'hosting']);
-    current.props.selectedProject.links[0].category = 'ZZZ';
-    assert.deepEqual(ids(), ['social-a', 'uncategorized', 'docs', 'social-b', 'hosting']);
+    assert.equal(current.state.linksOpen.value, false);
+
+    page.url = '/projects/project-a?tab=overview&link=reference';
+    await vue.nextTick();
+    assert.equal(current.state.linksOpen.value, true);
+    assert.equal(current.state.importantLinks.value.length, 0);
+
+    current.state.linksOpen.value = false;
+    page.url = '/projects/project-a?tab=overview&link=removed';
+    await vue.nextTick();
+    assert.equal(current.state.missingLink.value, true);
+    assert.equal(current.state.linksOpen.value, false);
+});
+
+test('link search focuses and reveals its result instead of the first link in the dialog', async t => {
+    const calls = [];
+    let mounted = false;
+    const target = {
+        querySelector: () => ({ focus: options => calls.push(['focus', options.preventScroll]) }),
+        scrollIntoView: options => calls.push(['scroll', options.block]),
+    };
+    const current = harness(t, { usePage: () => ({ url: '/projects/project-a?tab=overview&link=reference' }) }, [], {
+        document: { getElementById: id => mounted && id === 'link-reference' ? target : null },
+    })('pages/ShowProject', {
+        selectedProject: { id: 'project-a', revision: 1, links: [{ id: 'reference', important: false }] },
+        inspection: [], activity: [], connections: [], native: false,
+    });
+    await vue.nextTick();
+
+    mounted = true;
+    current.state.focusTargetLink({ preventDefault: () => calls.push(['prevent-default']) });
+    assert.deepEqual(calls, [['prevent-default'], ['focus', true], ['scroll', 'center']]);
+
+    mounted = false;
+    calls.length = 0;
+    current.state.focusTargetLink({ preventDefault: () => calls.push(['prevent-default']) });
+    assert.deepEqual(calls, []);
+});
+
+test('overview document and link cards show only starred items in saved order', t => {
+    const current = harness(t)('pages/ShowProject', {
+        selectedProject: { id: 'project-a', revision: 1, links: [
+            { id: 'ordinary-link', important: false }, { id: 'starred-link', important: true }, { id: 'second-starred-link', important: true },
+        ], documents: [{ id: 'ordinary-document', important: false }, { id: 'starred-document', important: true }] },
+        inspection: [], activity: [], connections: [], native: false,
+    });
+
+    assert.deepEqual(Array.from(current.state.importantLinks.value, item => item.id), ['starred-link', 'second-starred-link']);
+    assert.deepEqual(Array.from(current.state.importantDocuments.value, item => item.id), ['starred-document']);
+    current.props.selectedProject.links[1].important = false;
+    current.props.selectedProject.documents[1].important = false;
+    assert.deepEqual(Array.from(current.state.importantLinks.value, item => item.id), ['second-starred-link']);
+    assert.equal(current.state.importantDocuments.value.length, 0);
+});
+
+test('importance buttons use current revisions and retain their state on a failed save', t => {
+    const requests = [];
+    const notifications = [];
+    const current = harness(t, { router: { put: (...args) => requests.push(args) } }, notifications)('components/ProjectImportanceButton', {
+        project: { id: 'project-a', revision: 4 }, kind: 'links', item: { id: 'link-a', important: false }, label: 'Website',
+    });
+
+    current.state.toggle();
+    assert.equal(requests[0][0], '/projects/project-a/important');
+    assert.deepEqual({ ...requests[0][1] }, { kind: 'links', id: 'link-a', important: true, revision: 4 });
+    current.state.toggle();
+    assert.equal(requests.length, 1);
+    requests[0][2].onError({ revision: 'Reload before changing important items.' });
+    requests[0][2].onFinish();
+    assert.deepEqual(notifications, ['Reload before changing important items.']);
+    assert.equal(current.props.item.important, false);
+    assert.equal(current.state.saving.value, false);
+
+    current.props.project.revision = 5;
+    current.props.item.important = true;
+    current.state.toggle();
+    assert.equal(requests[1][1].revision, 5);
+    assert.equal(requests[1][1].important, false);
+    requests[1][2].onNetworkError();
+    requests[1][2].onFinish();
+    assert.equal(current.props.item.important, true);
+    assert.equal(notifications.at(-1), 'Could not update important items. Try again.');
+    current.props.disabled = true;
+    current.state.toggle();
+    assert.equal(requests.length, 2);
 });
 
 test('scratchpad suggestions include project actions and saved notes clear without losing new drafts', async t => {

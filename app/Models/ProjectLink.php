@@ -13,9 +13,14 @@ class ProjectLink extends Model
     /** @use HasFactory<ProjectLinkFactory> */
     use HasFactory, HasUuids;
 
-    protected $fillable = ['id', 'label', 'url', 'category', 'description', 'icon', 'position'];
+    protected $fillable = ['id', 'label', 'url', 'category', 'description', 'icon', 'position', 'important'];
 
     protected $appends = ['description_html'];
+
+    protected function casts(): array
+    {
+        return ['important' => 'boolean'];
+    }
 
     public function getDescriptionHtmlAttribute(): string
     {

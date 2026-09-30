@@ -189,7 +189,7 @@ class WorkspaceRestore
             }
         }
         foreach ($tables['project_links'] as $link) {
-            if (! isset($projects[$link['project_id'] ?? '']) || ! $this->validUrl($link['url'] ?? null) || ! is_int($link['position'] ?? null) || Validator::make($link, ['description' => ['nullable', 'string', 'max:10000']])->fails()) {
+            if (! isset($projects[$link['project_id'] ?? '']) || ! $this->validUrl($link['url'] ?? null) || ! is_int($link['position'] ?? null) || Validator::make($link, ['description' => ['nullable', 'string', 'max:10000'], 'important' => ['sometimes', 'boolean']])->fails()) {
                 $this->invalid();
             }
         }
@@ -200,7 +200,8 @@ class WorkspaceRestore
         }
         foreach ($tables['project_documents'] as $document) {
             if (! isset($projects[$document['project_id'] ?? '']) || Validator::make(['document' => $document], [
-                'document' => ['array:id,project_id,title,body,position,revision,created_at,updated_at'],
+                'document' => ['array:id,project_id,title,body,position,revision,created_at,updated_at,important'],
+                'document.important' => ['sometimes', 'boolean'],
                 'document.title' => ['required', 'string', 'max:255', 'regex:/\S/u'],
                 'document.body' => ['present', 'string', 'max:50000'],
                 'document.position' => ['required', 'integer', 'min:0'],

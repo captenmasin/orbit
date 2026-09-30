@@ -226,7 +226,7 @@ function addConnectedRepository(repository: SelectedRepository) {
     return id;
 }
 function addLink() {
-    form.links.push({ id: crypto.randomUUID(), label: '', url: '', category: '', description: '' });
+    form.links.push({ id: crypto.randomUUID(), label: '', url: '', category: '', description: '', important: false });
 }
 </script>
 

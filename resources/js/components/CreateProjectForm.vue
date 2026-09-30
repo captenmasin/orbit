@@ -109,7 +109,7 @@ async function moveLink(index: number, direction: number, event?: KeyboardEvent)
     handle?.focus();
 }
 function addLink() {
-    form.links.push({ id: crypto.randomUUID(), label: '', url: '', category: '', description: '' });
+    form.links.push({ id: crypto.randomUUID(), label: '', url: '', category: '', description: '', important: false });
 }
 </script>
 

@@ -128,6 +128,7 @@ export interface Project {
     updated_at: string;
     name: string;
     description: string | null;
+    description_html: string;
     notes?: string | null;
     scratchpad: string | null;
     documents?: ProjectDocument[];

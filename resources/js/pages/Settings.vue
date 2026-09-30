@@ -18,10 +18,10 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { applyAppearance, applyMotionPreference, reducedMotion, type Appearance, type MotionPreference } from '@/lib/appearance';
+import { applyAppearance, applyMotionPreference, applyPointerCursors, reducedMotion, type Appearance, type MotionPreference } from '@/lib/appearance';
 
 type Column = { name: string; color: string | null };
-type Values = { general: { startup_destination: string }; appearance: { theme: Appearance; reduce_motion: MotionPreference }; security: { lock_minutes: number; clipboard_seconds: number }; project_defaults: { columns: Column[] }; project_statuses: { names: string[]; colors: Record<string, string> }; tools: { paths: Record<string, string | null> } };
+type Values = { general: { startup_destination: string }; appearance: { theme: Appearance; reduce_motion: MotionPreference; pointer_cursors: boolean }; security: { lock_minutes: number; clipboard_seconds: number }; project_defaults: { columns: Column[] }; project_statuses: { names: string[]; colors: Record<string, string> }; tools: { paths: Record<string, string | null> } };
 const props = defineProps<{ native: boolean; pinSet: boolean | null; preferences: { revision: number; values: Values }; section: string; statusUsage: { name: string; count: number }[]; columnColors: string[]; defaultColumns: Column[]; connections: ProviderConnection[]; ai: { configured: boolean; provider: string | null; model: string | null; providers: string[]; default_models: Record<string, string> }; launchAtLogin: boolean | null; nativeError: string | null; about: { version: string; updatesAvailable: boolean; releaseNotes: string | null }; mcp: { command: string; args: string[]; env: Record<string, string> } | null }>();
 const sections = [
     { value: 'general', label: 'General' }, { value: 'appearance', label: 'Appearance' }, { value: 'security', label: 'Security' },
@@ -42,6 +42,7 @@ function selectSection(value: string) {
 const revision = ref(props.preferences.revision);
 const savedTheme = ref(props.preferences.values.appearance.theme);
 const savedMotion = ref(props.preferences.values.appearance.reduce_motion);
+const savedPointerCursors = ref(props.preferences.values.appearance.pointer_cursors);
 const general = useHttp({ revision: revision.value, ...props.preferences.values.general });
 const appearance = useHttp({ revision: revision.value, ...props.preferences.values.appearance });
 const security = useHttp({ revision: revision.value, ...props.preferences.values.security });
@@ -96,7 +97,7 @@ function discardSection(name: DraftSection) {
     (form.clearErrors as () => void)();
     recoveredSections.delete(name);
     router.remember(null, `settings:${name}:draft`);
-    if (name === 'appearance') { savedTheme.value = appearance.theme; savedMotion.value = appearance.reduce_motion; void previewTheme(savedTheme.value); applyMotionPreference(savedMotion.value); }
+    if (name === 'appearance') { savedTheme.value = appearance.theme; savedMotion.value = appearance.reduce_motion; savedPointerCursors.value = appearance.pointer_cursors; void previewTheme(savedTheme.value); applyMotionPreference(savedMotion.value); applyPointerCursors(savedPointerCursors.value); }
 }
 function discardDeparture() {
     for (const name of departureSections.value) discardSection(name);
@@ -197,13 +198,15 @@ async function previewTheme(mode: Appearance) {
 }
 watch(() => appearance.theme, mode => { if (activeSection.value === 'appearance') void previewTheme(mode); });
 watch(() => appearance.reduce_motion, mode => { if (activeSection.value === 'appearance') applyMotionPreference(mode); });
+watch(() => appearance.pointer_cursors, enabled => { if (activeSection.value === 'appearance') applyPointerCursors(enabled); });
 watch(activeSection, (next, previous) => {
     error.value = '';
     if (previous === 'appearance') {
         void previewTheme(savedTheme.value);
         applyMotionPreference(savedMotion.value);
+        applyPointerCursors(savedPointerCursors.value);
     }
-    if (next === 'appearance') { void previewTheme(appearance.theme); applyMotionPreference(appearance.reduce_motion); }
+    if (next === 'appearance') { void previewTheme(appearance.theme); applyMotionPreference(appearance.reduce_motion); applyPointerCursors(appearance.pointer_cursors); }
     if (next === 'tools') void probeTools();
     if (next === 'about' && props.about.updatesAvailable) void refreshUpdates();
 });
@@ -228,8 +231,10 @@ async function save(name: keyof typeof forms) {
         if (name === 'appearance') {
             savedTheme.value = result.preferences.values.appearance.theme;
             savedMotion.value = result.preferences.values.appearance.reduce_motion;
+            savedPointerCursors.value = result.preferences.values.appearance.pointer_cursors;
             void previewTheme(activeSection.value === 'appearance' ? appearance.theme : savedTheme.value);
             applyMotionPreference(activeSection.value === 'appearance' ? appearance.reduce_motion : savedMotion.value);
+            applyPointerCursors(activeSection.value === 'appearance' ? appearance.pointer_cursors : savedPointerCursors.value);
         }
         toast.success('Settings saved.');
     } catch (exception) {
@@ -301,6 +306,7 @@ onBeforeUnmount(() => {
     login.cancel(); runtimeProbe.cancel(); runtimePicker.cancel(); updates.cancel(); clearInterval(updateTimer);
     if (appearance.theme !== savedTheme.value) void previewTheme(savedTheme.value);
     if (appearance.reduce_motion !== savedMotion.value) applyMotionPreference(savedMotion.value);
+    if (appearance.pointer_cursors !== savedPointerCursors.value) applyPointerCursors(savedPointerCursors.value);
 });
 </script>
 
@@ -496,6 +502,30 @@ onBeforeUnmount(() => {
                                     :options="[{ value: 'system', label: 'System' }, { value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]" /><FieldDescription>Limit animations and transitions. System follows your device's motion preference.</FieldDescription><FieldError v-if="appearance.errors.reduce_motion">
                                         {{ appearance.errors.reduce_motion }}
                                     </FieldError>
+                            </Field>
+                            <Field class="border-y py-4">
+                                <div class="flex items-center justify-between gap-4">
+                                    <div class="grid gap-2">
+                                        <FieldLabel for="appearance-pointer-cursors">
+                                            Use pointer cursors
+                                        </FieldLabel>
+                                        <FieldDescription id="appearance-pointer-cursors-description">
+                                            Change the cursor to a pointer when hovering over interactive elements
+                                        </FieldDescription>
+                                    </div>
+                                    <input
+                                        id="appearance-pointer-cursors"
+                                        v-model="appearance.pointer_cursors"
+                                        type="checkbox"
+                                        role="switch"
+                                        :aria-checked="appearance.pointer_cursors"
+                                        aria-describedby="appearance-pointer-cursors-description"
+                                        :disabled="appearance.processing"
+                                        class="h-5 w-9 shrink-0 appearance-none rounded-full bg-input p-0.5 outline-none transition-colors checked:bg-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 after:block after:size-4 after:rounded-full after:bg-background after:shadow-sm after:transition-transform checked:after:translate-x-4">
+                                </div>
+                                <FieldError v-if="appearance.errors.pointer_cursors">
+                                    {{ appearance.errors.pointer_cursors }}
+                                </FieldError>
                             </Field>
                             <Button
                                 class="justify-self-start"

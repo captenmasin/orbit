@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import BulkIdeas from '@/components/BulkIdeas.vue';
 import ChoiceSelect from '@/components/ChoiceSelect.vue';
+import BoardCardMenu from '@/components/BoardCardMenu.vue';
 import MarkdownContent from '@/components/MarkdownContent.vue';
 import NumberTransition from '@/components/NumberTransition.vue';
-import {cn} from '@/lib/utils';
 import {toast} from 'vue-sonner';
 import {Input} from '@/components/ui/input';
 import {Button} from '@/components/ui/button';
@@ -16,10 +16,10 @@ import {router, useForm, useHttp, usePage} from '@inertiajs/vue3';
 import {Field, FieldGroup, FieldLabel} from '@/components/ui/field';
 import {VueDraggable, type DraggableEvent} from 'vue-draggable-plus';
 import {boardColumnColors as columnColors, boardColumnColor as columnColor} from '@/lib/project';
+import {DropdownMenuContent, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger} from 'reka-ui';
+import {ContextMenuItem, contextMenuContentClass, contextMenuItemClass} from '@/components/ui/context-menu';
 import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
-import {AlignLeftIcon, ArrowRightIcon, ChevronRightIcon, EllipsisIcon, PaperclipIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon, XIcon} from '@lucide/vue';
-import {ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, contextMenuContentClass, contextMenuItemClass} from '@/components/ui/context-menu';
-import {ContextMenuPortal, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger} from 'reka-ui';
+import {AlignLeftIcon, EllipsisIcon, PaperclipIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon, XIcon} from '@lucide/vue';
 
 const props = defineProps<{ project: Project; targetTaskId?: string | null }>();
 const page = usePage();
@@ -426,34 +426,34 @@ function reload() {
                                     :side-offset="4"
                                     :class="contextMenuContentClass"
                                     @close-auto-focus="event => { if (editor) event.preventDefault(); }">
-                                    <DropdownMenuItem
+                                    <ContextMenuItem
                                         :class="contextMenuItemClass"
                                         :disabled="busy || columnIndex === 0"
                                         @select="reorderList(column, -1)">
                                         Move list left
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
                                         :class="contextMenuItemClass"
                                         :disabled="busy || columnIndex === columns.length - 1"
                                         @select="reorderList(column, 1)">
                                         Move list right
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
                                         :class="contextMenuItemClass"
                                         @select="editColumn(column)">
                                         <PencilIcon
                                             class="size-4"
                                             aria-hidden="true" />
                                         Edit list
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        :class="cn(contextMenuItemClass, 'text-destructive focus:bg-destructive/10 focus:text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive [&_svg]:text-destructive')"
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                        variant="destructive"
                                         @select="deleteColumn(column)">
                                         <Trash2Icon
                                             class="size-4"
                                             aria-hidden="true" />
                                         Delete list
-                                    </DropdownMenuItem>
+                                    </ContextMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenuPortal>
                         </DropdownMenuRoot>
@@ -472,108 +472,54 @@ function reload() {
                         @start="startDrag($event, 'task')"
                         @end="finishDrag">
                         <li
-                            v-for="(task, taskIndex) in column.tasks"
+                            v-for="task in column.tasks"
                             v-show="!query.trim() || matchingTaskIds.has(task.id)"
                             :key="task.id">
-                            <ContextMenu @update:open="value => { if (value) cardMenuTaskId = task.id; else if (cardMenuTaskId === task.id) cardMenuTaskId = null; }">
-                                <ContextMenuTrigger
-                                    as-child
-                                    :disabled="busy || !!editor || !!dragged">
+                            <BoardCardMenu
+                                :column="column"
+                                :task="task"
+                                :columns="columns"
+                                :disabled="busy || !!editor || !!dragged"
+                                :preserve-focus="!!editor"
+                                @update:open="value => { if (value) cardMenuTaskId = task.id; else if (cardMenuTaskId === task.id) cardMenuTaskId = null; }"
+                                @open-details="editTask(column, task)"
+                                @reorder="reorderCard(column, task, $event)"
+                                @move="moveTask(column, task, $event)"
+                                @delete="deleteTask(column, task)">
+                                <div
+                                    :id="`card-${task.id}`"
+                                    data-task-handle
+                                    role="button"
+                                    tabindex="0"
+                                    aria-haspopup="menu"
+                                    :aria-expanded="cardMenuTaskId === task.id"
+                                    :aria-label="`Open card: ${task.title}`"
+                                    :aria-disabled="busy"
+                                    class="cursor-grab rounded-lg bg-white p-3 transition-colors hover:bg-white/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:cursor-grabbing dark:bg-neutral-900 dark:hover:bg-neutral-900/70"
+                                    @click="openTaskCard($event, column, task)"
+                                    @keydown="openCardMenu"
+                                    @keydown.enter.prevent="editTask(column, task)"
+                                    @keydown.space.prevent="editTask(column, task)">
+                                    <p class="break-words text-[13px] leading-[19px] font-medium">
+                                        {{ task.title }}
+                                    </p>
                                     <div
-                                        :id="`card-${task.id}`"
-                                        data-task-handle
-                                        role="button"
-                                        tabindex="0"
-                                        aria-haspopup="menu"
-                                        :aria-expanded="cardMenuTaskId === task.id"
-                                        :aria-label="`Open card: ${task.title}`"
-                                        :aria-disabled="busy"
-                                        class="cursor-grab rounded-lg bg-white p-3 transition-colors hover:bg-white/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:cursor-grabbing dark:bg-neutral-900 dark:hover:bg-neutral-900/70"
-                                        @click="openTaskCard($event, column, task)"
-                                        @keydown="openCardMenu"
-                                        @keydown.enter.prevent="editTask(column, task)"
-                                        @keydown.space.prevent="editTask(column, task)">
-                                        <p class="break-words text-[13px] leading-[19px] font-medium">
-                                            {{ task.title }}
-                                        </p>
-                                        <div
-                                            v-if="task.description || task.attachments.length"
-                                            class="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                                            <AlignLeftIcon
-                                                v-if="task.description"
+                                        v-if="task.description || task.attachments.length"
+                                        class="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                                        <AlignLeftIcon
+                                            v-if="task.description"
+                                            class="size-3.5"
+                                            role="img"
+                                            aria-label="Has description" />
+                                        <span
+                                            v-if="task.attachments.length"
+                                            class="flex items-center gap-1"
+                                            :aria-label="`${task.attachments.length} attachments`"><PaperclipIcon
                                                 class="size-3.5"
-                                                role="img"
-                                                aria-label="Has description" />
-                                            <span
-                                                v-if="task.attachments.length"
-                                                class="flex items-center gap-1"
-                                                :aria-label="`${task.attachments.length} attachments`"><PaperclipIcon
-                                                    class="size-3.5"
-                                                    aria-hidden="true" />{{ task.attachments.length }}</span>
-                                        </div>
+                                                aria-hidden="true" />{{ task.attachments.length }}</span>
                                     </div>
-                                </ContextMenuTrigger>
-                                <ContextMenuContent
-                                    class="min-w-44"
-                                    @close-auto-focus="event => { if (editor) event.preventDefault(); }">
-                                    <ContextMenuItem
-                                        :disabled="busy"
-                                        @select="editTask(column, task)">
-                                        <AlignLeftIcon aria-hidden="true" />
-                                        Open details
-                                    </ContextMenuItem>
-                                    <ContextMenuItem
-                                        :class="contextMenuItemClass"
-                                        :disabled="busy || taskIndex === 0"
-                                        @select="reorderCard(column, task, -1)">
-                                        Move card up
-                                    </ContextMenuItem>
-                                    <ContextMenuItem
-                                        :class="contextMenuItemClass"
-                                        :disabled="busy || taskIndex === column.tasks.length - 1"
-                                        @select="reorderCard(column, task, 1)">
-                                        Move card down
-                                    </ContextMenuItem>
-                                    <ContextMenuSub>
-                                        <ContextMenuSubTrigger
-                                            :disabled="busy || columns.length < 2"
-                                            :class="contextMenuItemClass">
-                                            <ArrowRightIcon
-                                                class="size-4"
-                                                aria-hidden="true" />
-                                            Move to list
-                                            <ChevronRightIcon
-                                                class="ml-auto size-4"
-                                                aria-hidden="true" />
-                                        </ContextMenuSubTrigger>
-                                        <ContextMenuPortal>
-                                            <ContextMenuSubContent
-                                                :class="contextMenuContentClass"
-                                                class="max-h-(--reka-context-menu-content-available-height)">
-                                                <ContextMenuItem
-                                                    v-for="destination in columns"
-                                                    :key="destination.id"
-                                                    :disabled="busy || destination.id === column.id"
-                                                    @select="moveTask(column, task, destination)">
-                                                    <span
-                                                        class="size-1.5 shrink-0 rounded-full"
-                                                        :class="columnColors[columnColor(destination)]?.dotClass ?? columnColors.gray.dotClass"
-                                                        aria-hidden="true" />
-                                                    {{ destination.name }}
-                                                </ContextMenuItem>
-                                            </ContextMenuSubContent>
-                                        </ContextMenuPortal>
-                                    </ContextMenuSub>
-                                    <ContextMenuSeparator class="mx-2.5 my-1.5 h-px bg-border/80" />
-                                    <ContextMenuItem
-                                        variant="destructive"
-                                        :disabled="busy"
-                                        @select="deleteTask(column, task)">
-                                        <Trash2Icon aria-hidden="true" />
-                                        Delete card
-                                    </ContextMenuItem>
-                                </ContextMenuContent>
-                            </ContextMenu>
+                                </div>
+                            </BoardCardMenu>
                         </li>
                     </VueDraggable>
                     <form

@@ -83,7 +83,7 @@ test('project menus change status, archive, and confirm deletion using the chose
     assert.equal(menu.removing.value, null);
 });
 
-test('project cards and sidebar items offer every status and hide archive for archived projects', async () => {
+test('project cards and sidebar items offer every status and hide archive for archived projects', async t => {
     const passthrough = (_, { slots }) => slots.default?.();
     const controls = new Proxy({ default: passthrough }, { get: (target, name) => target[name] ?? passthrough });
     const modules = {
@@ -96,7 +96,7 @@ test('project cards and sidebar items offer every status and hide archive for ar
         '@/lib/appearance': { reducedMotion: vue.ref(false) },
         '@/lib/project': { projectStatusDotClasses: { Paused: '', Archived: '' } },
     };
-    for (const component of ['ProjectContextMenu', 'ProjectCard', 'WorkspaceSidebar']) {
+    for (const component of ['MarkdownContent', 'ProjectContextMenu', 'ProjectCard', 'ProjectHeader', 'WorkspaceSidebar']) {
         const { descriptor } = parse(readFileSync(new URL(`../resources/js/components/${component}.vue`, import.meta.url), 'utf8'));
         const script = compileScript(descriptor, { id: `${component}-render-test`, inlineTemplate: true });
         const { outputText } = ts.transpileModule(script.content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
@@ -131,7 +131,7 @@ test('project cards and sidebar items offer every status and hide archive for ar
     }
 
     for (const description of [null, '', 'Project CRM']) {
-        const project = { id: 'beta', name: 'Beta', description, status: 'Paused', revision: 7, tags: [] };
+        const project = { id: 'beta', name: 'Beta', description, description_html: description ? '<p>Project CRM</p>' : '', status: 'Paused', revision: 7, tags: [] };
         const html = await renderToString(vue.createSSRApp(modules['@/components/ProjectCard.vue'].default, { project, selectedTags: [] }));
 
         if (description) {
@@ -141,4 +141,16 @@ test('project cards and sidebar items offer every status and hide archive for ar
             assert.match(html, /<a\b[^>]*href="\/projects\/beta\/edit\?tab=overview"[^>]*>\s*Add a description…\s*<\/a>/);
         }
     }
+
+    await t.test('project cards and headers render formatted Markdown descriptions', async () => {
+        const project = { id: 'beta', name: 'Beta', description: '**Project CRM**', description_html: '<p><strong>Project CRM</strong></p>', status: 'Paused', revision: 7, tags: [] };
+        for (const component of ['ProjectCard', 'ProjectHeader']) {
+            const html = await renderToString(vue.createSSRApp(modules[`@/components/${component}.vue`].default, {
+                project, selectedTags: [], statuses: ['Paused'], statusDisabled: false, statusError: '', statusNeedsReload: false,
+            }));
+
+            assert.match(html, /<p><strong>Project CRM<\/strong><\/p>/);
+            assert.doesNotMatch(html, /\*\*Project CRM\*\*/);
+        }
+    });
 });

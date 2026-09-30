@@ -54,6 +54,7 @@
 }
 
 :root {
+    --interactive-cursor: default;
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -166,7 +167,12 @@ html.reduce-motion *::after {
   [role="option"] {
     @apply select-none;
     }
-  button:not(:disabled):not([aria-disabled="true"]) {
-    cursor: pointer;
-    }
+}
+
+html[data-orbit-pointer-cursors="true"] {
+    --interactive-cursor: pointer;
+}
+
+html :is(a[href], button, select, summary, label[for], input[type="button"], input[type="submit"], input[type="reset"], input[type="checkbox"], input[type="radio"], input[type="range"], [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"], [role="option"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], .cursor-pointer):not(:disabled, [aria-disabled="true"], [data-disabled], .cursor-grab, .cursor-grabbing, .cursor-text, .cursor-not-allowed) {
+    cursor: var(--interactive-cursor);
 }

@@ -23,7 +23,7 @@ interface ConnectedRepository {
 }
 type SelectedRepository = ConnectedRepository & { connection_id: string };
 
-const props = withDefaults(defineProps<{ connections: ProviderConnection[]; existingUrls: string[]; native: boolean; clone?: boolean; busy?: boolean }>(), { clone: false, busy: false });
+const props = withDefaults(defineProps<{ connections: ProviderConnection[]; existingUrls: string[]; native: boolean; busy?: boolean }>(), { busy: false });
 const emit = defineEmits<{ select: [repository: SelectedRepository] }>();
 const fieldId = useId();
 const open = ref(false);
@@ -63,13 +63,8 @@ async function load(page = 1) {
 
 function choose(repository: ConnectedRepository) {
     if (props.busy || added(repository)) return;
-    if (!props.clone) {
-        if (selected(repository)) selectedRepositories.value = selectedRepositories.value.filter(item => normalize(item.remote_url) !== normalize(repository.remote_url));
-        else selectedRepositories.value.push({ ...repository, connection_id: connectionId.value });
-        return;
-    }
-    emit('select', { ...repository, connection_id: connectionId.value });
-    open.value = false;
+    if (selected(repository)) selectedRepositories.value = selectedRepositories.value.filter(item => normalize(item.remote_url) !== normalize(repository.remote_url));
+    else selectedRepositories.value.push({ ...repository, connection_id: connectionId.value });
 }
 
 function addSelected() {
@@ -95,13 +90,13 @@ onBeforeUnmount(() => listing.cancel());
             variant="outline"
             :disabled="busy"
             @click="open = true">
-            <GitBranchIcon aria-hidden="true" />{{ clone ? 'Choose repository' : 'From connected account' }}
+            <GitBranchIcon aria-hidden="true" />From connected account
         </Button>
         <Dialog v-model:open="open">
             <DialogContent class="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-xl">
                 <DialogHeader>
-                    <DialogTitle>{{ clone ? 'Choose a repository' : 'Add repositories' }}</DialogTitle>
-                    <DialogDescription>{{ clone ? 'Choose a repository, then select where to clone it.' : 'Select repositories from your connected accounts. They’ll be linked when you save the project.' }}</DialogDescription>
+                    <DialogTitle>Add repositories</DialogTitle>
+                    <DialogDescription>Select repositories from your connected accounts. They’ll be linked when you save the project.</DialogDescription>
                 </DialogHeader>
                 <p
                     v-if="!native"
@@ -180,23 +175,14 @@ onBeforeUnmount(() => listing.cancel());
                             <li
                                 v-for="repository in visible"
                                 :key="repository.id">
-                                <component
-                                    :is="clone ? 'button' : 'label'"
-                                    :type="clone ? 'button' : undefined"
+                                <label
                                     class="flex w-full items-center gap-3 rounded-none px-3 py-3 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
-                                    :class="[selected(repository) ? 'bg-muted' : 'hover:bg-muted/50', added(repository) ? 'cursor-default opacity-55' : 'cursor-pointer']"
-                                    :disabled="clone ? added(repository) || busy : undefined"
-                                    @click="clone && choose(repository)">
+                                    :class="[selected(repository) ? 'bg-muted' : 'hover:bg-muted/50', added(repository) ? 'cursor-default opacity-55' : 'cursor-pointer']">
                                     <Checkbox
-                                        v-if="!clone"
                                         :model-value="selected(repository) || added(repository)"
                                         :disabled="added(repository) || busy"
                                         :aria-label="repository.full_name"
                                         @update:model-value="choose(repository)" />
-                                    <GitBranchIcon
-                                        v-else
-                                        class="size-4 shrink-0 text-muted-foreground"
-                                        aria-hidden="true" />
                                     <span class="min-w-0 flex-1"><span class="flex flex-wrap items-center gap-2 font-medium"><span class="truncate">{{ repository.full_name }}</span><Badge
                                         v-if="repository.private"
                                         variant="secondary">Private</Badge></span><span
@@ -207,7 +193,7 @@ onBeforeUnmount(() => listing.cancel());
                                         class="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><CheckIcon
                                             class="size-3.5"
                                             aria-hidden="true" />Added</span>
-                                </component>
+                                </label>
                             </li>
                         </ul>
                         <p
@@ -229,7 +215,7 @@ onBeforeUnmount(() => listing.cancel());
                         </Button>
                     </div>
                 </div>
-                <DialogFooter v-if="native && connections.length && !clone">
+                <DialogFooter v-if="native && connections.length">
                     <p
                         class="mr-auto self-center text-sm text-muted-foreground"
                         role="status">

@@ -82,6 +82,7 @@ class SettingsController extends Controller
             'appearance' => [
                 'theme' => ['required', Rule::in(['light', 'dark', 'system'])],
                 'reduce_motion' => ['sometimes', 'string', Rule::in(['system', 'on', 'off'])],
+                'pointer_cursors' => ['sometimes', 'boolean:strict'],
             ],
             'security' => ['lock_minutes' => ['required', 'integer', Rule::in([5, 15, 60, 480])], 'clipboard_seconds' => ['required', 'integer', Rule::in([0, 30, 60])]],
             'project_defaults' => ['columns' => ['required', 'array']],

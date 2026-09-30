@@ -10,7 +10,7 @@ import * as vue from 'vue';
 const { http } = inertia;
 const paths = Object.fromEntries(['php', 'node', 'composer', 'npm', 'pnpm', 'yarn'].map(tool => [tool, null]));
 const values = {
-    general: { startup_destination: 'dashboard' }, appearance: { theme: 'system', reduce_motion: 'system' },
+    general: { startup_destination: 'dashboard' }, appearance: { theme: 'system', reduce_motion: 'system', pointer_cursors: false },
     security: { lock_minutes: 15, clipboard_seconds: 30 },
     project_defaults: { columns: [{ name: 'Backlog', color: null }, { name: 'Done', color: 'Green' }] },
     tools: { paths },
@@ -22,6 +22,7 @@ function mount(t, overrides = {}) {
         { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } });
     const themes = [];
     const motions = [];
+    const cursors = [];
     const confirmations = [];
     const successes = [];
     const props = vue.reactive({
@@ -33,7 +34,7 @@ function mount(t, overrides = {}) {
     });
     const modules = {
         vue: { ...vue, onMounted() {}, onBeforeUnmount: vue.onScopeDispose }, '@inertiajs/vue3': inertia,
-        '@/lib/appearance': { applyAppearance: theme => themes.push(theme), applyMotionPreference: motion => motions.push(motion) },
+        '@/lib/appearance': { applyAppearance: theme => themes.push(theme), applyMotionPreference: motion => motions.push(motion), applyPointerCursors: enabled => cursors.push(enabled) },
         'vue-sonner': { toast: { error() {}, success: message => successes.push(message) } },
     };
     const browserWindow = { addEventListener() {}, removeEventListener() {}, confirm: message => { confirmations.push(message); return true; } };
@@ -43,7 +44,7 @@ function mount(t, overrides = {}) {
     const scope = vue.effectScope();
     t.after(() => scope.stop());
     const state = scope.run(() => context.exports.default.setup(props, { expose() {} }));
-    return { ...state, themes, motions, confirmations, successes, browserWindow, scope };
+    return { ...state, themes, motions, cursors, confirmations, successes, browserWindow, scope };
 }
 
 function response(data, status = 200) {
@@ -86,6 +87,7 @@ test('a stale save keeps the draft and saved preference intact and reports no su
     t.mock.method(http.getClient(), 'request', async () => response({ message: 'Settings changed in another window. Reload before saving.' }, 409));
     state.appearance.theme = 'dark';
     state.appearance.reduce_motion = 'on';
+    state.appearance.pointer_cursors = true;
 
     await state.save('appearance');
 
@@ -96,6 +98,8 @@ test('a stale save keeps the draft and saved preference intact and reports no su
     assert.equal(state.savedMotion.value, 'system');
     assert.equal(state.appearance.theme, 'dark');
     assert.equal(state.appearance.reduce_motion, 'on');
+    assert.equal(state.appearance.pointer_cursors, true);
+    assert.equal(state.savedPointerCursors.value, false);
     assert.equal(state.appearance.isDirty, true);
 });
 
@@ -120,13 +124,15 @@ test('a failed launch at login save shows the error without a success toast', as
     assert.deepEqual(state.successes, []);
 });
 
-test('leaving appearance restores the saved theme and motion after an unsaved preview', async t => {
+test('leaving appearance restores the saved theme, motion and cursors after an unsaved preview', async t => {
     const state = mount(t, { section: 'appearance' });
     state.appearance.theme = 'dark';
     state.appearance.reduce_motion = 'on';
+    state.appearance.pointer_cursors = true;
     await vue.nextTick();
     assert.deepEqual(state.themes, ['dark']);
     assert.deepEqual(state.motions, ['on']);
+    assert.deepEqual(state.cursors, [true]);
 
     state.activeSection.value = 'general';
     await vue.nextTick();
@@ -135,28 +141,36 @@ test('leaving appearance restores the saved theme and motion after an unsaved pr
     assert.deepEqual(state.themes, ['dark', 'system']);
     assert.equal(state.appearance.reduce_motion, 'on');
     assert.deepEqual(state.motions, ['on', 'system']);
+    assert.equal(state.appearance.pointer_cursors, true);
+    assert.deepEqual(state.cursors, [true, false]);
+    state.activeSection.value = 'appearance';
+    await vue.nextTick();
+    assert.deepEqual(state.cursors, [true, false, true]);
 });
 
 test('unmounting settings restores an unsaved appearance preview', async t => {
     const state = mount(t, { section: 'appearance' });
     state.appearance.theme = 'light';
     state.appearance.reduce_motion = 'on';
+    state.appearance.pointer_cursors = true;
     await vue.nextTick();
 
     state.scope.stop();
 
     assert.deepEqual(state.themes, ['light', 'system']);
     assert.deepEqual(state.motions, ['on', 'system']);
+    assert.deepEqual(state.cursors, [true, false]);
 });
 
-test('saving appearance keeps the confirmed motion preference when leaving or unmounting', async t => {
+test('saving appearance keeps confirmed motion and cursors when leaving or unmounting', async t => {
     const state = mount(t, { section: 'appearance' });
     const requests = [];
     t.mock.method(http.getClient(), 'request', async request => {
         requests.push(request);
-        return response({ preferences: { revision: 8, values: { ...values, appearance: { theme: 'system', reduce_motion: 'on' } } } });
+        return response({ preferences: { revision: 8, values: { ...values, appearance: { theme: 'system', reduce_motion: 'on', pointer_cursors: true } } } });
     });
     state.appearance.reduce_motion = 'on';
+    state.appearance.pointer_cursors = true;
     await vue.nextTick();
 
     await state.save('appearance');
@@ -164,12 +178,28 @@ test('saving appearance keeps the confirmed motion preference when leaving or un
     await vue.nextTick();
     state.scope.stop();
 
-    assert.deepEqual(JSON.parse(requests[0].data), { revision: 7, theme: 'system', reduce_motion: 'on' });
+    assert.deepEqual(JSON.parse(requests[0].data), { revision: 7, theme: 'system', reduce_motion: 'on', pointer_cursors: true });
     assert.equal(state.savedMotion.value, 'on');
     assert.equal(state.appearance.reduce_motion, 'on');
+    assert.equal(state.savedPointerCursors.value, true);
+    assert.equal(state.appearance.pointer_cursors, true);
     assert.equal(state.appearance.isDirty, false);
     assert.deepEqual(state.motions, ['on', 'on', 'on']);
+    assert.deepEqual(state.cursors, [true, true, true]);
     assert.deepEqual(state.successes, ['Settings saved.']);
+});
+
+test('discarding appearance restores the saved cursor preference and clears the draft', async t => {
+    const state = mount(t, { section: 'appearance' });
+    state.appearance.pointer_cursors = true;
+    await vue.nextTick();
+
+    state.discardSection('appearance');
+    await vue.nextTick();
+
+    assert.equal(state.appearance.pointer_cursors, false);
+    assert.equal(state.appearance.isDirty, false);
+    assert.equal(state.cursors.at(-1), false);
 });
 
 test('board ordering and Restore default columns keep reactive props independent from editable drafts', async t => {

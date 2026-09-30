@@ -108,7 +108,7 @@ class ProviderCredentialTest extends TestCase
         $this->assertSame('native-ciphertext', $connection->encrypted_token);
         $this->assertArrayNotHasKey('encrypted_token', $connection->toArray());
         $this->get('/settings/connections')->assertInertia(fn (Assert $page) => $page->where('connections.0.login', 'octocat')->missing('connections.0.encrypted_token'));
-        $this->get('/projects/create')->assertInertia(fn (Assert $page) => $page->component('CreateProject')->where('connections.0.id', $connection->id)->missing('connections.0.encrypted_token'));
+        $this->get('/projects/create')->assertInertia(fn (Assert $page) => $page->component('CreateProject')->missing('connections'));
         $this->assertStringNotContainsString('DISTINCT-DUMMY-TOKEN', json_encode(session()->all()));
         $this->assertDatabaseHas('credential_access_events', ['connection_id' => $connection->id, 'operation' => 'create', 'result' => 'Succeeded']);
         Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'Bearer DISTINCT-DUMMY-TOKEN') && $request->hasHeader('X-GitHub-Api-Version', '2026-03-10'));

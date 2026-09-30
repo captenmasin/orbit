@@ -19,6 +19,7 @@ function workspace(initialPage = {}, savedRecents = [], deferMessageClear = fals
     let mounted;
     let unmounted;
     let navigate;
+    let before;
     let wheel;
     let keydown;
     let message;
@@ -42,8 +43,15 @@ function workspace(initialPage = {}, savedRecents = [], deferMessageClear = fals
         '@inertiajs/vue3': {
             usePage: () => page,
             router: {
-                visit: url => visits.push(url),
-                on: (event, callback) => { assert.equal(event, 'navigate'); navigate = callback; return () => calls.push('unsubscribe'); },
+                visit: url => {
+                    const event = { detail: { visit: { method: 'get', url: new URL(url, 'http://localhost:8000') } }, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopImmediatePropagation() {} };
+                    before?.(event);
+                    if (!event.defaultPrevented) visits.push(url);
+                },
+                on: (event, callback) => {
+                    if (event === 'before') { before = callback; return () => calls.push('unsubscribe-create'); }
+                    assert.equal(event, 'navigate'); navigate = callback; return () => calls.push('unsubscribe');
+                },
                 replaceProp: (name, value) => {
                     assert.equal(name, 'message');
                     if (deferMessageClear) pendingMessageClear = () => { page.props.message = value; };
@@ -87,14 +95,18 @@ function workspace(initialPage = {}, savedRecents = [], deferMessageClear = fals
         menu: (id, overrides = {}) => message({ source: context.window, origin: context.window.location.origin, data: { type: 'native-event', event: 'Native\\Desktop\\Events\\Menu\\MenuItemClicked', payload: { item: { id } } }, ...overrides }),
         menuRegistered: () => Boolean(message), menuListenerRemoved: () => menuListenerRemoved,
         flushMessageClear: () => pendingMessageClear(),
+        before: event => before(event),
     };
 }
 
 test('native workspace menu opens existing pages and search without resetting the current form', () => {
     const { layout, page, visits, mounted, unmounted, menu, menuListenerRemoved } = workspace();
     mounted();
+    menu('new-project');
+    assert.equal(layout.createProjectOpen.value, true);
+    assert.deepEqual(visits, []);
     for (const [id, destination] of [
-        ['new-project', '/projects/create'], ['settings', '/settings'], ['backups', '/settings/backups'],
+        ['settings', '/settings'], ['backups', '/settings/backups'],
         ['connections', '/settings/connections'], ['tools', '/settings?section=tools'], ['about', '/settings?section=about'],
     ]) {
         layout.searchOpen.value = true;
@@ -186,10 +198,10 @@ test('workspace navigation and success messages follow browser visits', () => {
     unmounted();
     assert.equal(listenerRemoved(), true);
     assert.equal(shortcutRemoved(), true);
-    assert.deepEqual(calls, ['back', 'forward', 'back', 'forward', 'unsubscribe']);
+    assert.deepEqual(calls, ['back', 'forward', 'back', 'forward', 'unsubscribe-create', 'unsubscribe']);
 });
 
-test('new project shortcut opens the creation page across the workspace without resetting an existing form', () => {
+test('new project shortcut opens a dialog across the workspace without visiting or resetting a page', () => {
     const { layout, page, mounted, keydown, visits, ScrollableElement } = workspace();
     mounted();
     const shortcut = (overrides = {}) => {
@@ -203,18 +215,40 @@ test('new project shortcut opens the creation page across the workspace without 
         layout.searchOpen.value = true;
         assert.equal(shortcut().prevented, true);
         assert.equal(layout.searchOpen.value, false);
+        assert.equal(layout.createProjectOpen.value, true);
     }
     const input = new ScrollableElement();
     input.selectors = ['input'];
     assert.equal(shortcut({ key: 'N', metaKey: false, ctrlKey: true, target: input }).prevented, true);
-    assert.deepEqual(visits, Array(4).fill('/projects/create'));
+    assert.deepEqual(visits, []);
 
     for (const overrides of [{ metaKey: false }, { altKey: true }, { shiftKey: true }, { isComposing: true }, { defaultPrevented: true }, { repeat: true }, { key: 'x' }]) {
         assert.equal(shortcut(overrides).prevented, undefined);
     }
     page.component = 'CreateProject';
     assert.equal(shortcut().prevented, true);
-    assert.equal(visits.length, 4);
+    assert.equal(visits.length, 0);
+});
+
+test('creation links preserve the current page and ignore unrelated or cancelled requests', () => {
+    const { layout, page, before } = workspace({ component: 'EditProject', url: '/projects/orbit/edit' });
+    const event = (url = 'http://localhost:8000/projects/create', method = 'get', defaultPrevented = false) => ({
+        defaultPrevented, detail: { visit: { url: new URL(url), method } }, preventDefault() { this.defaultPrevented = true; }, stopImmediatePropagation() { this.propagationStopped = true; },
+    });
+    const create = event();
+
+    before(create);
+
+    assert.equal(create.defaultPrevented, true);
+    assert.equal(create.propagationStopped, true);
+    assert.equal(layout.createProjectOpen.value, true);
+    assert.equal(page.component, 'EditProject');
+    assert.equal(page.url, '/projects/orbit/edit');
+    for (const ignored of [event('http://localhost:8000/settings'), event('https://example.com/projects/create'), event(undefined, 'post'), event(undefined, 'get', true)]) {
+        layout.createProjectOpen.value = false;
+        before(ignored);
+        assert.equal(layout.createProjectOpen.value, false);
+    }
 });
 
 test('number shortcuts open projects in the current dashboard order', () => {
@@ -261,6 +295,9 @@ test('number shortcuts leave editing, dialogs, unavailable projects, and other p
     layout.searchOpen.value = true;
     shortcut();
     layout.searchOpen.value = false;
+    layout.createProjectOpen.value = true;
+    shortcut();
+    layout.createProjectOpen.value = false;
     page.component = 'ShowProject';
     shortcut();
     page.component = 'Dashboard';

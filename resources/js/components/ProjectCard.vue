@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ProjectIcon from '@/components/ProjectIcon.vue';
+import MarkdownContent from '@/components/MarkdownContent.vue';
 import ProjectStatusDot from '@/components/ProjectStatusDot.vue';
 import ProjectContextMenu from '@/components/ProjectContextMenu.vue';
 import { Link } from '@inertiajs/vue3';
@@ -23,7 +24,7 @@ const date = (value: string) => new Date(value).toLocaleDateString();
             <CardHeader class="flex min-w-0 items-center px-3 pt-2 sm:px-3 gap-3">
                 <Link
                     :href="`/projects/${project.id}`"
-                    class="flex min-w-0 flex-1 items-center gap-3 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                    class="flex min-w-0 cursor-pointer flex-1 items-center gap-3 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
                     <ProjectIcon
                         :name="project.name"
                         :type="project.icon_type"
@@ -39,11 +40,10 @@ const date = (value: string) => new Date(value).toLocaleDateString();
                     class="size-2" />{{ project.status }}</span>
             </CardHeader>
             <CardContent class="min-h-32 pb-2">
-                <p
+                <MarkdownContent
                     v-if="project.description"
-                    class="line-clamp-2 text-sm leading-6 text-muted-foreground">
-                    {{ project.description }}
-                </p>
+                    :html="project.description_html"
+                    class="line-clamp-2 text-sm leading-6 text-muted-foreground" />
                 <Link
                     v-else
                     :href="`/projects/${project.id}/edit?tab=overview`"

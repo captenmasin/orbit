@@ -25,11 +25,41 @@ class ProjectDetailsTest extends TestCase
 
         $this->get('/?q=Find%20me')->assertInertia(fn (Assert $page) => $page->component('Dashboard')
             ->has('projects.data', 1)->has('sidebarProjects', 26)->missing('sidebarProjects.0.notes'));
-        $this->get('/projects/create')->assertInertia(fn (Assert $page) => $page->component('CreateProject')->has('sidebarProjects', 26));
+        $this->get('/projects/create')->assertInertia(fn (Assert $page) => $page->component('CreateProject')->has('sidebarProjects', 26)->missing('connections'));
         $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page) => $page->component('ShowProject')->where('selectedProject.id', $project->id));
         $this->get('/projects/'.$project->id.'/edit')->assertInertia(fn (Assert $page) => $page->component('EditProject'));
         $this->get('/settings/connections')->assertInertia(fn (Assert $page) => $page->component('Settings')->where('section', 'connections'));
         $this->get('/settings/backups')->assertInertia(fn (Assert $page) => $page->component('Settings')->where('section', 'backups'));
+    }
+
+    public function test_repository_clone_route_is_unavailable(): void
+    {
+        $this->postJson('/repositories/clone')->assertNotFound();
+    }
+
+    public function test_project_descriptions_preserve_markdown_and_render_safely_on_project_and_dashboard_pages(): void
+    {
+        $description = "## Summary\n\n**Bold** and _italic_ with `code`\n\n- First\n- Second\n\n[Docs](https://example.com)\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[Unsafe](javascript:alert(1))";
+
+        $this->post('/projects', ['name' => 'Markdown project', 'status' => 'Idea', 'description' => $description])->assertRedirect();
+
+        $project = Project::sole();
+        $this->assertSame($description, $project->description);
+        $html = $project->description_html;
+        foreach (['<h2>Summary</h2>', '<strong>Bold</strong>', '<em>italic</em>', '<code>code</code>', '<li>First</li>', 'href="https://example.com"', 'rel="noopener noreferrer"'] as $expected) {
+            $this->assertStringContainsString($expected, $html);
+        }
+        foreach (['<script', '<img', 'onerror', 'javascript:'] as $unsafe) {
+            $this->assertStringNotContainsString($unsafe, $html);
+        }
+        $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page) => $page
+            ->where('selectedProject.description', $description)->where('selectedProject.description_html', $html));
+        $this->get('/')->assertInertia(fn (Assert $page) => $page->where('projects.data.0.description_html', $html));
+        $this->get('/projects/'.$project->id.'/edit')->assertInertia(fn (Assert $page) => $page->where('selectedProject.description', $description));
+
+        $this->put('/projects/'.$project->id, ['name' => $project->name, 'status' => 'Idea', 'revision' => 1, 'description' => '**Updated**'])->assertRedirect();
+        $this->assertSame('**Updated**', $project->fresh()->description);
+        $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page) => $page->where('selectedProject.description_html', "<p><strong>Updated</strong></p>\n"));
     }
 
     public function test_notes_are_saved_rendered_safely_and_protected_against_stale_edits(): void

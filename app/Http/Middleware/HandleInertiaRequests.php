@@ -27,6 +27,7 @@ class HandleInertiaRequests extends Middleware
             'statusColors' => fn () => app(WorkspacePreferences::class)->get('project_statuses.colors'),
             'appearance' => fn () => app(WorkspacePreferences::class)->get('appearance.theme'),
             'reduceMotion' => fn () => app(WorkspacePreferences::class)->get('appearance.reduce_motion'),
+            'pointerCursors' => fn () => app(WorkspacePreferences::class)->get('appearance.pointer_cursors'),
             'native' => (bool) config('nativephp-internal.running'),
         ];
     }

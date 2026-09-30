@@ -10,8 +10,8 @@ import { router, useForm } from '@inertiajs/vue3';
 import { computed, onScopeDispose, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
+import { DropdownMenuContent, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ArrowLeftIcon, ChevronRightIcon, DownloadIcon, EllipsisVerticalIcon, FileArchiveIcon, FileAudioIcon, FileCode2Icon, FileIcon, FileTextIcon, FileVideoIcon, FolderIcon, FolderPlusIcon, LayoutGridIcon, ListIcon, PencilIcon, SearchIcon, Trash2Icon, UploadIcon } from '@lucide/vue';
 const props = defineProps<{ project: Project }>();
@@ -702,24 +702,24 @@ function renameFile() {
                                             align="end"
                                             :side-offset="4"
                                             class="t-dropdown z-50 min-w-40 rounded-md border retina:border-[0.5px] bg-popover p-1 text-popover-foreground shadow-md">
-                                            <DropdownMenuItem
+                                            <ContextMenuItem
                                                 :class="menuItemClass"
                                                 @select="openItem('folder', folder.id)">
                                                 Open
-                                            </DropdownMenuItem><DropdownMenuItem
+                                            </ContextMenuItem><ContextMenuItem
                                                 :class="menuItemClass"
                                                 :disabled="selectedKeys.length !== 1"
                                                 @select="editFolder(folder)">
                                                 Rename
-                                            </DropdownMenuItem><DropdownMenuItem
+                                            </ContextMenuItem><ContextMenuItem
                                                 :class="menuItemClass"
                                                 @select="showMove(selectionKey('folder', folder.id))">
                                                 Move
-                                            </DropdownMenuItem><DropdownMenuItem
+                                            </ContextMenuItem><ContextMenuItem
                                                 :class="menuItemClass"
                                                 @select="showRemove(selectionKey('folder', folder.id))">
                                                 {{ removalLabel }}
-                                            </DropdownMenuItem>
+                                            </ContextMenuItem>
                                         </DropdownMenuContent>
                                     </DropdownMenuPortal>
                                 </DropdownMenuRoot>
@@ -807,31 +807,31 @@ function renameFile() {
                                             align="end"
                                             :side-offset="4"
                                             class="t-dropdown z-50 min-w-40 rounded-md border retina:border-[0.5px] bg-popover p-1 text-popover-foreground shadow-md">
-                                            <DropdownMenuItem
+                                            <ContextMenuItem
                                                 v-if="file.preview_url"
                                                 :class="menuItemClass"
                                                 @select="preview = file">
                                                 Preview
-                                            </DropdownMenuItem><DropdownMenuItem
+                                            </ContextMenuItem><ContextMenuItem
                                                 as-child
                                                 :class="menuItemClass">
                                                 <a
                                                     :href="file.url"
                                                     download>Download</a>
-                                            </DropdownMenuItem><DropdownMenuItem
+                                            </ContextMenuItem><ContextMenuItem
                                                 :class="menuItemClass"
                                                 :disabled="selectedKeys.length !== 1"
                                                 @select="renamingFile = file; fileName = file.name">
                                                 Rename
-                                            </DropdownMenuItem><DropdownMenuItem
+                                            </ContextMenuItem><ContextMenuItem
                                                 :class="menuItemClass"
                                                 @select="showMove(selectionKey('file', file.id))">
                                                 Move
-                                            </DropdownMenuItem><DropdownMenuItem
+                                            </ContextMenuItem><ContextMenuItem
                                                 :class="menuItemClass"
                                                 @select="showRemove(selectionKey('file', file.id))">
                                                 {{ removalLabel }}
-                                            </DropdownMenuItem>
+                                            </ContextMenuItem>
                                         </DropdownMenuContent>
                                     </DropdownMenuPortal>
                                 </DropdownMenuRoot>

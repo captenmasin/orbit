@@ -48,10 +48,17 @@ class SaveProject
             'folders.*.repository_id' => ['nullable', 'uuid'],
             'links' => ['sometimes', 'array', 'max:200'],
             'links.*.id' => ['required', 'uuid', 'distinct'],
-            'links.*.label' => ['required', 'string', 'max:255', 'regex:/\S/u'],
+            'links.*.label' => ['nullable', 'string', 'max:2048'],
             'links.*.url' => ['required', 'string', 'max:2048', new ProjectUrl],
             'links.*.category' => ['nullable', 'string', 'max:50'],
             'links.*.description' => ['nullable', 'string', 'max:10000'],
+        ], [
+            'name.required' => 'Enter a project name.',
+            'links.*.url.required' => 'Enter a URL for this link.',
+        ], [
+            'icon_type' => 'icon style', 'icon_emoji' => 'emoji', 'icon_file' => 'project image',
+            'tags.*' => 'tag', 'links.*.id' => 'link', 'links.*.label' => 'link label',
+            'links.*.url' => 'link URL', 'links.*.category' => 'link category', 'links.*.description' => 'link notes',
         ])->validate();
 
         $revision = $data['revision'] ?? null;
@@ -194,6 +201,8 @@ class SaveProject
                 if (isset($data['links'])) {
                     $project->links()->whereNotIn('id', array_column($data['links'], 'id'))->delete();
                     foreach ($data['links'] as $position => $link) {
+                        $label = trim($link['label'] ?? '');
+                        $link['label'] = $label !== '' ? $label : $link['url'];
                         $project->links()->updateOrCreate(['id' => $link['id']], [...Arr::except($link, ['id']), 'position' => $position]);
                     }
                 }

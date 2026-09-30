@@ -9,12 +9,40 @@ import ts from 'typescript';
 import * as vue from 'vue';
 import { renderToString } from 'vue/server-renderer';
 
-test('sidebar project drags follow changes to the reduced motion preference', async () => {
+test('sidebar plus renders a project creation button and closes the mobile sidebar', async () => {
+    const { descriptor } = parse(readFileSync(new URL('../resources/js/components/WorkspaceSidebar.vue', import.meta.url), 'utf8'));
+    const script = compileScript(descriptor, { id: 'sidebar-create-test', inlineTemplate: true });
+    const { outputText } = ts.transpileModule(script.content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
+    const mobileOpen = vue.ref(true);
+    let createLink;
+    const passthrough = (_, { slots }) => slots.default?.();
+    const controls = new Proxy({ default: passthrough }, { get: (target, name) => target[name] ?? passthrough });
+    const modules = {
+        vue, '@/lib/appearance': { reducedMotion: vue.ref(false) },
+        '@inertiajs/vue3': { ...inertia, Link: (props, { slots }) => {
+            if (props.href === '/projects/create') createLink = props;
+            return vue.h(inertia.Link, props, slots);
+        } },
+        '@vueuse/core': { useLocalStorage: (_, value) => vue.ref(value) },
+        '@/components/ui/sidebar': new Proxy({ useSidebar: () => ({ setOpenMobile: value => { mobileOpen.value = value; } }) }, { get: (target, name) => target[name] ?? passthrough }),
+    };
+    const context = { exports: {}, require: name => modules[name] ?? controls };
+    runInNewContext(outputText, context);
+
+    const html = await renderToString(vue.createSSRApp(context.exports.default, { projects: [], selectedProject: null, page: 'Dashboard' }));
+
+    assert.match(html, /<button\b(?=[^>]*type="button")(?=[^>]*aria-label="New project")/);
+    createLink.onClick();
+    assert.equal(mobileOpen.value, false);
+});
+
+test('sidebar project drags target wrapped rows and follow the reduced motion preference', async () => {
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/WorkspaceSidebar.vue', import.meta.url), 'utf8'));
     const script = compileScript(descriptor, { id: 'sidebar-motion-test', inlineTemplate: true });
     const { outputText } = ts.transpileModule(script.content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
     const reducedMotion = vue.ref(false);
     const animations = [];
+    const draggableSelectors = [];
     const passthrough = (_, { slots }) => slots.default?.();
     const controls = new Proxy({ default: passthrough }, { get: (target, name) => target[name] ?? passthrough });
     const modules = {
@@ -23,8 +51,8 @@ test('sidebar project drags follow changes to the reduced motion preference', as
         '@/components/ui/sidebar': new Proxy({ useSidebar: () => ({ setOpenMobile() {} }) }, { get: (target, name) => target[name] ?? passthrough }),
         'vue-draggable-plus': { VueDraggable: vue.defineComponent({
             inheritAttrs: false,
-            props: ['animation'],
-            setup: (props, { slots }) => () => { animations.push(props.animation); return slots.default?.(); },
+            props: ['animation', 'draggable'],
+            setup: (props, { slots }) => () => { animations.push(props.animation); draggableSelectors.push(props.draggable); return slots.default?.(); },
         }) },
     };
     const context = { exports: {}, require: name => modules[name] ?? controls };
@@ -34,8 +62,10 @@ test('sidebar project drags follow changes to the reduced motion preference', as
     for (const [reduced, expected] of [[false, [150]], [true, [0]], [false, [150]]]) {
         reducedMotion.value = reduced;
         animations.length = 0;
+        draggableSelectors.length = 0;
         await renderToString(vue.createSSRApp(context.exports.default, props));
         assert.deepEqual(animations, expected);
+        assert.deepEqual(draggableSelectors, ['>div']);
     }
 });
 

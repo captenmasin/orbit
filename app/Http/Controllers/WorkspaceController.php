@@ -72,7 +72,6 @@ class WorkspaceController extends Controller
     {
         return $this->render($request, 'CreateProject', [
             'statuses' => Project::statuses(),
-            'connections' => ProviderConnection::orderBy('label')->get(),
         ]);
     }
 

@@ -51,6 +51,18 @@ test('initial defaults follow the operating system for appearance and reduced mo
     assert.equal(state.root.classList.contains('reduce-motion'), true);
 });
 
+test('pointer cursors toggle immediately without changing the theme or motion', () => {
+    const state = load({ theme: 'dark', motion: 'on' });
+
+    state.applyPointerCursors(true);
+
+    assert.equal(state.root.dataset.orbitPointerCursors, 'true');
+    state.applyPointerCursors(false);
+    assert.equal(state.root.dataset.orbitPointerCursors, 'false');
+    assert.equal(state.appearance.value, 'dark');
+    assert.equal(state.reducedMotion.value, true);
+});
+
 for (const [mode, osReduced, effective] of [['on', false, true], ['off', true, false]]) {
     test(`saved reduced motion ${mode} overrides the operating system at startup`, () => {
         const state = load({ motion: mode, reduced: osReduced });

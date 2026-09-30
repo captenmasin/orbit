@@ -19,6 +19,9 @@ export function applyMotionPreference(mode: MotionPreference) {
     document.documentElement.dataset.orbitMotion = mode;
     document.documentElement.classList.toggle('reduce-motion', reducedMotion.value);
 }
+export function applyPointerCursors(enabled: boolean) {
+    document.documentElement.dataset.orbitPointerCursors = String(enabled);
+}
 system.addEventListener('change', () => { if (appearance.value === 'system') applyAppearance('system'); });
 systemMotion.addEventListener('change', () => { if (motionPreference.value === 'system') applyMotionPreference('system'); });
 applyAppearance(appearance.value);

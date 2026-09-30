@@ -27,6 +27,7 @@ class WorkspacePreferencesTest extends TestCase
     {
         $this->assertSame('system', app(WorkspacePreferences::class)->get('appearance.theme'));
         $this->assertSame('system', app(WorkspacePreferences::class)->get('appearance.reduce_motion'));
+        $this->assertSame(false, app(WorkspacePreferences::class)->get('appearance.pointer_cursors'));
         $this->assertSame(15, app(WorkspacePreferences::class)->get('security.lock_minutes'));
         $this->putJson('/settings/appearance', ['revision' => 1, 'theme' => 'dark'])
             ->assertOk()->assertJsonPath('preferences.revision', 2);
@@ -47,7 +48,8 @@ class WorkspacePreferencesTest extends TestCase
 
         $this->get('/settings')->assertInertia(fn (Assert $page): Assert => $page
             ->where('appearance', 'dark')->where('reduceMotion', 'system')
-            ->where('preferences.values.appearance.reduce_motion', 'system'));
+            ->where('preferences.values.appearance.reduce_motion', 'system')
+            ->where('pointerCursors', false)->where('preferences.values.appearance.pointer_cursors', false));
 
         $this->assertSame('system', app(WorkspacePreferences::class)->get('appearance.reduce_motion'));
         $this->assertSame(7, app(WorkspacePreferences::class)->snapshot()['revision']);
@@ -66,15 +68,31 @@ class WorkspacePreferencesTest extends TestCase
             ->where('appearance', 'dark')->where('reduceMotion', $reduceMotion));
     }
 
-    public function test_theme_only_saves_preserve_the_saved_motion_preference(): void
+    #[TestWith([true])]
+    #[TestWith([false])]
+    public function test_pointer_cursor_preferences_persist_and_are_shared_with_pages(bool $pointerCursors): void
     {
-        app(WorkspacePreferences::class)->merge(['appearance' => ['reduce_motion' => 'on']]);
+        app(WorkspacePreferences::class)->merge(['appearance' => ['pointer_cursors' => ! $pointerCursors]]);
+
+        $this->putJson('/settings/appearance', ['revision' => 2, 'theme' => 'system', 'pointer_cursors' => $pointerCursors])
+            ->assertOk()->assertJsonPath('preferences.values.appearance.pointer_cursors', $pointerCursors);
+
+        $this->assertSame($pointerCursors, (new WorkspacePreferences)->get('appearance.pointer_cursors'));
+        $this->get('/settings')->assertInertia(fn (Assert $page): Assert => $page
+            ->where('pointerCursors', $pointerCursors)->where('preferences.values.appearance.pointer_cursors', $pointerCursors));
+        $this->get('/')->assertSee('data-orbit-pointer-cursors="'.($pointerCursors ? 'true' : 'false').'"', false);
+    }
+
+    public function test_theme_only_saves_preserve_the_saved_motion_and_cursor_preferences(): void
+    {
+        app(WorkspacePreferences::class)->merge(['appearance' => ['reduce_motion' => 'on', 'pointer_cursors' => true]]);
 
         $this->putJson('/settings/appearance', ['revision' => 2, 'theme' => 'light'])
             ->assertOk()->assertJsonPath('preferences.values.appearance.theme', 'light')
-            ->assertJsonPath('preferences.values.appearance.reduce_motion', 'on');
+            ->assertJsonPath('preferences.values.appearance.reduce_motion', 'on')
+            ->assertJsonPath('preferences.values.appearance.pointer_cursors', true);
 
-        $this->assertSame(['theme' => 'light', 'reduce_motion' => 'on'], (new WorkspacePreferences)->get('appearance'));
+        $this->assertSame(['theme' => 'light', 'reduce_motion' => 'on', 'pointer_cursors' => true], (new WorkspacePreferences)->get('appearance'));
     }
 
     #[DataProvider('invalidSections')]
@@ -95,6 +113,8 @@ class WorkspacePreferencesTest extends TestCase
             'unknown theme' => ['appearance', ['theme' => 'auto'], 'theme'],
             'unknown motion preference' => ['appearance', ['theme' => 'dark', 'reduce_motion' => 'auto'], 'reduce_motion'],
             'non-string motion preference' => ['appearance', ['theme' => 'dark', 'reduce_motion' => true], 'reduce_motion'],
+            'non-boolean cursor preference' => ['appearance', ['theme' => 'dark', 'pointer_cursors' => 'true'], 'pointer_cursors'],
+            'null cursor preference' => ['appearance', ['theme' => 'dark', 'pointer_cursors' => null], 'pointer_cursors'],
             'invalid lock duration' => ['security', ['lock_minutes' => 7, 'clipboard_seconds' => 30], 'lock_minutes'],
             'invalid clipboard duration' => ['security', ['lock_minutes' => 15, 'clipboard_seconds' => 20], 'clipboard_seconds'],
             'empty columns' => ['project_defaults', ['columns' => []], 'columns'],

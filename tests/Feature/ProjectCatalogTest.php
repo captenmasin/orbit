@@ -57,6 +57,43 @@ class ProjectCatalogTest extends TestCase
         $this->assertDatabaseHas('projects', ['id' => $project->id, 'name' => 'Renamed project', 'status' => 'Live', 'revision' => 2]);
     }
 
+    #[TestWith([[], 'https://example.com'])]
+    #[TestWith([['label' => null], 'https://example.com'])]
+    #[TestWith([['label' => ''], 'https://example.com'])]
+    #[TestWith([['label' => '  '], 'https://example.com'])]
+    #[TestWith([['label' => 'Docs'], 'Docs'])]
+    #[TestWith([['label' => '0'], '0'])]
+    public function test_optional_link_labels_default_to_the_url_without_replacing_custom_labels(array $labelInput, string $expectedLabel): void
+    {
+        $linkId = (string) Str::uuid();
+
+        $this->post('/projects', ['name' => 'Project', 'status' => 'Idea', 'links' => [[
+            'id' => $linkId, 'url' => 'https://example.com', ...$labelInput,
+        ]]])->assertRedirect();
+
+        $this->assertDatabaseHas('project_links', ['id' => $linkId, 'label' => $expectedLabel, 'url' => 'https://example.com']);
+    }
+
+    public function test_clearing_a_link_label_uses_the_complete_url_and_can_be_saved_again(): void
+    {
+        $project = Project::factory()->create();
+        $link = ProjectLink::factory()->for($project)->create(['label' => 'Docs']);
+        $url = 'https://example.com/'.str_repeat('a', 2028);
+        $payload = ['name' => $project->name, 'status' => $project->status, 'revision' => 1, 'links' => [[
+            'id' => $link->id, 'label' => '', 'url' => $url,
+        ]]];
+
+        $this->put('/projects/'.$project->id, $payload)->assertRedirect('/projects/'.$project->id);
+
+        $this->assertDatabaseHas('project_links', ['id' => $link->id, 'label' => $url, 'url' => $url]);
+
+        $payload['revision'] = 2;
+        $payload['links'][0]['label'] = $url;
+        $this->put('/projects/'.$project->id, $payload)->assertRedirect('/projects/'.$project->id);
+
+        $this->assertDatabaseHas('projects', ['id' => $project->id, 'revision' => 3]);
+    }
+
     public function test_creating_project_with_selected_github_repository_verifies_and_queues_it(): void
     {
         $connection = ProviderConnection::factory()->create();

@@ -44,7 +44,7 @@ class WorkspacePreferences
     {
         return [
             'general' => ['startup_destination' => 'dashboard'],
-            'appearance' => ['theme' => 'system', 'reduce_motion' => 'system'],
+            'appearance' => ['theme' => 'system', 'reduce_motion' => 'system', 'pointer_cursors' => false],
             'security' => ['lock_minutes' => 15, 'clipboard_seconds' => 30, 'generation' => 0],
             'project_defaults' => ['columns' => self::defaultBoardColumns()],
             'project_statuses' => [

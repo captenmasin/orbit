@@ -2,50 +2,62 @@
 import ProjectIcon from '@/components/ProjectIcon.vue';
 import ProjectStatusDot from '@/components/ProjectStatusDot.vue';
 import ProjectContextMenu from '@/components/ProjectContextMenu.vue';
-import { toast } from 'vue-sonner';
-import { computed, ref, watch } from 'vue';
-import { useLocalStorage } from '@vueuse/core';
-import { Link, useForm } from '@inertiajs/vue3';
-import { Button } from '@/components/ui/button';
-import { reducedMotion } from '@/lib/appearance';
-import { VueDraggable } from 'vue-draggable-plus';
-import type { Project, SidebarProject } from '@/types';
-import { BugIcon, GripVerticalIcon, LayoutGridIcon, SettingsIcon, PlusIcon, ChevronRightIcon, SearchIcon } from '@lucide/vue';
-import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, useSidebar } from '@/components/ui/sidebar';
+import {toast} from 'vue-sonner';
+import {computed, ref, watch} from 'vue';
+import {useLocalStorage} from '@vueuse/core';
+import {Link, useForm} from '@inertiajs/vue3';
+import {Button} from '@/components/ui/button';
+import {reducedMotion} from '@/lib/appearance';
+import {VueDraggable} from 'vue-draggable-plus';
+import type {Project, SidebarProject} from '@/types';
+import {BugIcon, GripVerticalIcon, LayoutGridIcon, SettingsIcon, PlusIcon, ChevronRightIcon, SearchIcon} from '@lucide/vue';
+import {Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, useSidebar} from '@/components/ui/sidebar';
 
 const props = defineProps<{ projects: SidebarProject[]; selectedProject: Project | null; page: string; statuses?: string[] }>();
 const emit = defineEmits<{ searchWorkspace: [] }>();
-const { setOpenMobile } = useSidebar();
+const {setOpenMobile} = useSidebar();
 const ordered = ref<SidebarProject[]>([]);
 const projectQuery = ref('');
-const groupOpen = useLocalStorage<Record<string, boolean>>('orbit:sidebar-groups', {}, { flush: 'sync' });
-const order = useForm({ ids: [] as string[] });
+const groupOpen = useLocalStorage<Record<string, boolean>>('orbit:sidebar-groups', {}, {flush: 'sync'});
+const order = useForm({ids: [] as string[]});
 const announcement = ref('');
-watch(() => props.projects, projects => { ordered.value = [...projects]; }, { immediate: true });
+watch(() => props.projects, projects => {
+    ordered.value = [...projects];
+}, {immediate: true});
 const groups = computed(() => {
     const projectsByStatus = new Map<string, SidebarProject[]>((props.statuses ?? []).map(status => [status, []]));
     for (const project of ordered.value.filter(project => project.name.toLocaleLowerCase().includes(projectQuery.value.trim().toLocaleLowerCase()))) {
         if (!projectsByStatus.has(project.status)) projectsByStatus.set(project.status, []);
         projectsByStatus.get(project.status)!.push(project);
     }
-    return Array.from(projectsByStatus, ([status, projects]) => ({ status, projects })).filter(group => group.projects.length);
+    return Array.from(projectsByStatus, ([status, projects]) => ({status, projects})).filter(group => group.projects.length);
 });
+
 function reorderGroup(status: string, projects: SidebarProject[]) {
     if (projectQuery.value.trim()) return;
     let index = 0;
     ordered.value = ordered.value.map(project => project.status === status ? projects[index++]! : project);
 }
+
 function saveOrder() {
     if (order.processing) return;
     order.ids = ordered.value.map(project => project.id);
     if (order.ids.every((id, index) => id === props.projects[index]?.id)) return;
     order.put('/projects/order', {
         preserveScroll: true,
-        onSuccess: () => { announcement.value = 'Project order saved.'; },
-        onError: () => { ordered.value = [...props.projects]; toast.error('Could not save project order. Reload and try again.'); },
-        onFinish: () => { ordered.value = [...props.projects]; },
+        onSuccess: () => {
+            announcement.value = 'Project order saved.';
+        },
+        onError: () => {
+            ordered.value = [...props.projects];
+            toast.error('Could not save project order. Reload and try again.');
+        },
+        onFinish: () => {
+            ordered.value = [...props.projects];
+        },
     });
 }
+
 function move(status: string, index: number, direction: number) {
     const projects = groups.value.find(group => group.status === status)?.projects;
     if (projectQuery.value.trim() || order.processing || !projects || index + direction < 0 || index + direction >= projects.length) return;
@@ -55,6 +67,7 @@ function move(status: string, index: number, direction: number) {
     reorderGroup(status, reordered);
     saveOrder();
 }
+
 function setGroupOpen(status: string, event: Event) {
     groupOpen.value[status] = (event.currentTarget as HTMLDetailsElement).open;
 }
@@ -95,7 +108,7 @@ function setGroupOpen(status: string, event: Event) {
                 class="text-sidebar-foreground/60"
                 aria-label="Search workspace"
                 @click="setOpenMobile(false); emit('searchWorkspace')">
-                <SearchIcon aria-hidden="true" />
+                <SearchIcon aria-hidden="true"/>
             </Button>
         </SidebarHeader>
         <SidebarContent class="gap-0">
@@ -111,7 +124,8 @@ function setGroupOpen(status: string, event: Event) {
                                 href="/"
                                 :aria-current="page === 'Dashboard' ? 'page' : undefined"
                                 @click="setOpenMobile(false)">
-                                <LayoutGridIcon aria-hidden="true" /><span>Projects</span>
+                                <LayoutGridIcon aria-hidden="true"/>
+                                <span>Projects</span>
                             </Link>
                         </SidebarMenuButton>
                         <Button
@@ -120,6 +134,7 @@ function setGroupOpen(status: string, event: Event) {
                             size="icon-sm"
                             class="text-sidebar-foreground/60">
                             <Link
+                                as="button"
                                 href="/projects/create"
                                 aria-label="New project"
                                 title="New project"
@@ -137,7 +152,7 @@ function setGroupOpen(status: string, event: Event) {
                     class="relative">
                     <SearchIcon
                         class="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-sidebar-foreground/60"
-                        aria-hidden="true" />
+                        aria-hidden="true"/>
                     <input
                         v-model="projectQuery"
                         type="search"
@@ -161,13 +176,16 @@ function setGroupOpen(status: string, event: Event) {
                     <summary class="flex h-9 cursor-default list-none items-center gap-2 rounded-lg px-3 text-sm font-medium text-sidebar-foreground/65 hover:text-sidebar-foreground focus-visible:outline-2 focus-visible:outline-sidebar-ring [&::-webkit-details-marker]:hidden">
                         <ProjectStatusDot
                             :status="group.status"
-                            class="size-1.5" /><span class="truncate">{{ group.status }}</span><ChevronRightIcon
-                                class="size-3.5 shrink-0 transition-transform group-open/status:rotate-90"
-                                aria-hidden="true" />
+                            class="size-1.5"/>
+                        <span class="truncate">{{ group.status }}</span>
+                        <ChevronRightIcon
+                            class="size-3.5 shrink-0 transition-transform group-open/status:rotate-90"
+                            aria-hidden="true"/>
                     </summary>
                     <VueDraggable
                         :model-value="group.projects"
                         tag="ul"
+                        draggable=">div"
                         handle=".project-handle"
                         :animation="reducedMotion ? 0 : 150"
                         :disabled="order.processing || !!projectQuery.trim()"
@@ -195,7 +213,8 @@ function setGroupOpen(status: string, event: Event) {
                                             :emoji="project.icon_emoji"
                                             :image="project.icon_url"
                                             size="sm"
-                                            class="size-5!" /><span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
+                                            class="size-5!"/>
+                                        <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
                                     </Link>
                                 </SidebarMenuButton>
                                 <button
@@ -209,7 +228,7 @@ function setGroupOpen(status: string, event: Event) {
                                     @keydown.down.prevent="move(group.status, index, 1)">
                                     <GripVerticalIcon
                                         class="size-3.5"
-                                        aria-hidden="true" />
+                                        aria-hidden="true"/>
                                 </button>
                             </SidebarMenuItem>
                         </ProjectContextMenu>
@@ -245,7 +264,8 @@ function setGroupOpen(status: string, event: Event) {
                             href="/debug"
                             :aria-current="page === 'Debug' ? 'page' : undefined"
                             @click="setOpenMobile(false)">
-                            <BugIcon aria-hidden="true" /><span>Debug</span>
+                            <BugIcon aria-hidden="true"/>
+                            <span>Debug</span>
                         </Link>
                     </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -259,12 +279,13 @@ function setGroupOpen(status: string, event: Event) {
                             href="/settings"
                             :aria-current="page === 'Settings' ? 'page' : undefined"
                             @click="setOpenMobile(false)">
-                            <SettingsIcon aria-hidden="true" /><span>Settings</span>
+                            <SettingsIcon aria-hidden="true"/>
+                            <span>Settings</span>
                         </Link>
                     </SidebarMenuButton>
                 </SidebarMenuItem>
             </SidebarMenu>
         </SidebarFooter>
-        <SidebarRail />
+        <SidebarRail/>
     </Sidebar>
 </template>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import LinkIcon from '@/components/LinkIcon.vue';
 import ProjectBoard from '@/components/ProjectBoard.vue';
+import BoardCardMenu from '@/components/BoardCardMenu.vue';
 import ProjectHeader from '@/components/ProjectHeader.vue';
 import ContentSearch from '@/components/ContentSearch.vue';
 import ProjectAssets from '@/components/ProjectAssets.vue';
@@ -17,14 +18,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { computed, nextTick, ref, watch } from 'vue';
 import { dependencyHealth } from '@/lib/dependencies';
+import { boardColumnColor, boardColumnColors } from '@/lib/project';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Head, Link, router, useHttp, usePage } from '@inertiajs/vue3';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { Project, ProjectFolder, ProviderConnection, Repository } from '@/types';
+import type { BoardColumn, BoardTask, Project, ProjectFolder, ProviderConnection, Repository } from '@/types';
 import { useDocumentVisibility, useIntervalFn, useSessionStorage, useTimeAgo, useWindowFocus } from '@vueuse/core';
-import { ArrowRightIcon, ChevronDownIcon, Clock3Icon, FolderOpenIcon, GitBranchIcon, InfoIcon } from '@lucide/vue';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlignLeftIcon, ArrowRightIcon, ChevronDownIcon, Clock3Icon, FolderOpenIcon, GitBranchIcon, InfoIcon, PaperclipIcon } from '@lucide/vue';
 
 const props = defineProps<{ selectedProject: Project; statuses: string[]; inspection: ProjectFolder[]; activity: Repository[]; connections: ProviderConnection[]; native: boolean }>();
 const project = computed(() => props.selectedProject);
@@ -58,8 +60,38 @@ const taskCount = computed(() => (project.value.board_columns ?? []).reduce((cou
 const summaryPillClass = 'inline-flex h-8 shrink-0 select-none items-center gap-1.5 rounded-full bg-muted py-1 pr-3 pl-1 text-[13px] font-normal shadow-[0_0_0_1px_#0000000a] dark:shadow-[0_0_0_1px_#ffffff0d]';
 const summaryValueClass = 'grid h-6 min-w-6 shrink-0 place-items-center rounded-full bg-background px-1.5 font-medium tabular-nums';
 const previewTasks = computed(() => (project.value.board_columns ?? [])
-    .flatMap(column => column.tasks.map(task => ({ ...task, column: column.name })))
+    .flatMap(column => column.tasks.map(task => ({ ...task, column })))
     .slice(0, 3));
+const previewBusy = ref(false);
+const deletingPreviewTask = ref<BoardTask | null>(null);
+const previewError = ref('');
+function updatePreviewTask(action: 'task.move' | 'task.delete', task: BoardTask, column?: BoardColumn, position?: number) {
+    if (previewBusy.value) return;
+    previewError.value = '';
+    router.put(`/projects/${project.value.id}/board`, {
+        action, revision: project.value.revision, id: task.id, ...(column ? { column_id: column.id, position } : {}),
+    }, {
+        preserveScroll: true, errorBag: 'board',
+        onStart: () => { previewBusy.value = true; },
+        onSuccess: () => { deletingPreviewTask.value = null; },
+        onError: errors => {
+            const message = String(Object.values(errors)[0] ?? 'The card could not be updated. Try again.');
+            if (action === 'task.delete') previewError.value = message;
+            else toast.error(message);
+        },
+        onNetworkError: () => {
+            if (action === 'task.delete') previewError.value = 'The card could not be deleted. Try again.';
+            else toast.error('The card could not be moved. Try again.');
+        },
+        onFinish: () => { previewBusy.value = false; },
+    });
+}
+function reorderPreviewTask(column: BoardColumn, task: BoardTask, direction: number) {
+    updatePreviewTask('task.move', task, column, column.tasks.findIndex(item => item.id === task.id) + direction);
+}
+function movePreviewTask(task: BoardTask, destination: BoardColumn) {
+    updatePreviewTask('task.move', task, destination, destination.tasks.length);
+}
 const recentDocuments = computed(() => [...(project.value.documents ?? [])].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 2));
 function reloadProject() {
     router.reload({ only: ['selectedProject'], onSuccess: () => {
@@ -88,7 +120,7 @@ async function changeTab(value: string | number) {
     if (tab.value === 'secrets' && secretsPage.value && !await secretsPage.value.flush()) return;
     tab.value = String(value);
 }
-watch(tab, value => { if (!['overview', 'documents', 'board', 'assets', 'dependencies', 'secrets'].includes(value)) tab.value = 'overview'; }, { immediate: true });
+watch(tab, value => { if (!['overview', 'sources', 'documents', 'board', 'assets', 'dependencies', 'secrets'].includes(value)) tab.value = 'overview'; }, { immediate: true });
 const query = computed(() => new URL(page.url ?? '/', 'https://orbit.local').searchParams);
 const targetDocumentId = computed(() => query.value.get('document'));
 const targetTaskId = computed(() => query.value.get('task'));
@@ -105,12 +137,14 @@ async function copyLink(url: string) {
 watch(() => project.value.id, () => {
     linksOpen.value = false;
     sourcesOpen.value = false;
+    deletingPreviewTask.value = null;
+    previewError.value = '';
     statusError.value = '';
     statusNeedsReload.value = false;
 });
 watch(query, value => {
     const requested = value.get('tab');
-    if (requested && ['overview', 'documents', 'board', 'assets', 'dependencies', 'secrets'].includes(requested)) tab.value = requested;
+    if (requested && ['overview', 'sources', 'documents', 'board', 'assets', 'dependencies', 'secrets'].includes(requested)) tab.value = requested;
 }, { immediate: true });
 watch([targetLinkId, tab, () => project.value.links], async () => {
     await nextTick();
@@ -196,6 +230,11 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                         Overview
                     </TabsTrigger>
                     <TabsTrigger
+                        value="sources"
+                        class="h-8 flex-none rounded-none px-3 text-[13px]">
+                        Sources
+                    </TabsTrigger>
+                    <TabsTrigger
                         value="documents"
                         class="h-8 flex-none rounded-none px-3 text-[13px]">
                         Documents
@@ -271,247 +310,96 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                     </button>
                     <button
                         v-if="needsAttention"
-                        @click="tab = 'dependencies'"
                         :class="summaryPillClass"
-                        class="transition-colors hover:bg-neutral-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-neutral-700"><span
+                        class="transition-colors hover:bg-neutral-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:hover:bg-neutral-700"
+                        @click="tab = 'dependencies'">
+                        <span
                             :class="summaryValueClass"
-                            class="text-destructive"><NumberTransition :value="dependencies.issueCount + folderIssueCount" /></span>Needs attention</button>
+                            class="text-destructive"><NumberTransition :value="dependencies.issueCount + folderIssueCount" /></span>Needs attention
+                    </button>
                 </div>
                 <div class="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(19rem,1fr)]">
                     <div class="min-w-0 space-y-5">
-                        <ProjectScratchpad
-                            ref="scratchpad"
-                            :key="project.id"
-                            :project="project" />
-
-                        <Card
-                            as="section"
-                            aria-labelledby="board-preview-title">
-                            <CardHeader class="flex flex-wrap items-center justify-between gap-2">
-                                <h2
-                                    id="board-preview-title"
-                                    class="text-sm font-normal">
-                                    Board <span class="ml-1 text-xs font-normal text-muted-foreground">{{ taskCount }} {{ taskCount === 1 ? 'card' : 'cards' }}</span>
-                                </h2>
-                                <!--                            <Button type="button" variant="ghost" size="sm" @click="tab = 'board'">View board <ArrowUpRightIcon aria-hidden="true" /></Button>-->
-                            </CardHeader>
-                            <CardContent>
-                                <ul
-                                    v-if="previewTasks.length"
-                                    class="grid gap-1">
-                                    <li
-                                        v-for="task in previewTasks"
-                                        :key="task.id">
-                                        <Link
-                                            :href="`/projects/${project.id}?tab=board&task=${task.id}`"
-                                            class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-lg px-2 py-2.5 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-                                            <span class="min-w-0 break-words text-sm font-medium">{{ task.title }}</span>
-                                            <span class="shrink-0 text-xs text-muted-foreground">{{ task.column }}</span>
-                                        </Link>
-                                    </li>
-                                </ul>
+                        <ul
+                            v-if="previewTasks.length"
+                            aria-label="Board cards"
+                            class="grid gap-3 md:grid-cols-3">
+                            <li
+                                v-for="task in previewTasks"
+                                :key="task.id">
+                                <BoardCardMenu
+                                    :column="task.column"
+                                    :task="task"
+                                    :columns="project.board_columns ?? []"
+                                    :disabled="previewBusy"
+                                    :preserve-focus="!!deletingPreviewTask"
+                                    @open-details="router.visit(`/projects/${project.id}?tab=board&task=${task.id}`)"
+                                    @reorder="reorderPreviewTask(task.column, task, $event)"
+                                    @move="movePreviewTask(task, $event)"
+                                    @delete="previewError = ''; deletingPreviewTask = task">
+                                    <Link
+                                        :href="`/projects/${project.id}?tab=board&task=${task.id}`"
+                                        class="flex h-full flex-col gap-5 rounded-2xl bg-background p-4 shadow-sm ring-1 retina:ring-[0.5px] ring-black/5 dark:ring-white/10 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                                        <span class="flex items-center gap-2 text-xs text-muted-foreground">
+                                            <span
+                                                class="size-2 shrink-0 rounded-full"
+                                                :class="boardColumnColors[boardColumnColor(task.column)]?.dotClass ?? boardColumnColors.gray.dotClass"
+                                                aria-hidden="true" />
+                                            {{ task.column.name }}
+                                        </span>
+                                        <span class="min-w-0 break-words text-sm font-medium leading-5">{{ task.title }}</span>
+                                        <span
+                                            v-if="task.description || task.attachments.length"
+                                            class="mt-auto flex items-center gap-3 text-xs text-muted-foreground">
+                                            <AlignLeftIcon
+                                                v-if="task.description"
+                                                class="size-4"
+                                                role="img"
+                                                aria-label="Has description" />
+                                            <span
+                                                v-if="task.attachments.length"
+                                                class="flex items-center gap-1"
+                                                :aria-label="`${task.attachments.length} attachments`"><PaperclipIcon
+                                                    class="size-4"
+                                                    aria-hidden="true" />{{ task.attachments.length }}</span>
+                                        </span>
+                                    </Link>
+                                </BoardCardMenu>
+                            </li>
+                        </ul>
+                        <Dialog
+                            :open="!!deletingPreviewTask"
+                            @update:open="value => { if (!value && !previewBusy) deletingPreviewTask = null; }">
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Delete card?</DialogTitle>
+                                    <DialogDescription>“{{ deletingPreviewTask?.title }}” will be permanently deleted.</DialogDescription>
+                                </DialogHeader>
                                 <p
-                                    v-else
-                                    class="text-sm text-muted-foreground">
-                                    No cards yet.
+                                    v-if="previewError"
+                                    role="alert"
+                                    class="text-sm text-destructive">
+                                    {{ previewError }}
                                 </p>
-                            </CardContent>
-                        </Card>
-
-                        <Card
-                            as="section"
-                            aria-labelledby="sources-title">
-                            <CardHeader class="flex flex-wrap items-center justify-between gap-3">
-                                <h2
-                                    id="sources-title"
-                                    class="text-sm font-normal">
-                                    Sources
-                                </h2>
-<!--                                <Button-->
-<!--                                    v-if="inspection.length"-->
-<!--                                    variant="outline"-->
-<!--                                    size="sm"-->
-<!--                                    :disabled="scan.processing || pending"-->
-<!--                                    @click="refresh()">-->
-<!--                                    Refresh local folders-->
-<!--                                </Button>-->
-                            </CardHeader>
-
-                            <CardContent
-                                id="project-sources"
-                                class="divide-y divide-border/70 p-0">
-                                <div
-                                    v-if="project.repositories.length"
-                                    class="px-5 py-4">
-                                    <h3 class="text-sm font-normal">
-                                        Repositories <span class="ml-1 font-normal text-muted-foreground">{{ project.repositories.length }}</span>
-                                    </h3>
-                                    <ul class="mt-2 divide-y divide-border/70">
-                                        <li
-                                            v-for="repo in visibleRepositories"
-                                            :key="repo.id"
-                                            class="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                                            <div class="min-w-0 flex-1">
-                                                <p class="break-words text-sm font-medium">
-                                                    {{ repo.name }}
-                                                </p>
-                                                <p class="break-all text-xs text-muted-foreground">
-                                                    {{ repo.remote_url }}
-                                                </p>
-                                            </div>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                @click="connectProvider(repo)">
-                                                {{ repositoryActivity(repo).provider_connection_id ? 'Connection settings' : 'Connect provider' }}
-                                            </Button>
-                                            <Button
-                                                v-if="repositoryActivity(repo).provider_connection_id"
-                                                variant="outline"
-                                                size="sm"
-                                                :disabled="!providerActivity || providerActivity.disabled(repositoryActivity(repo))"
-                                                @click="refreshActivity(repo)">
-                                                Refresh activity
-                                            </Button>
-                                            <OpenTargetButton
-                                                :id="repo.id"
-                                                :project-id="project.id"
-                                                kind="repositories"
-                                                :native="native"
-                                                :href="repo.web_url"
-                                                label="Open repository"
-                                                compact />
-                                        </li>
-                                    </ul>
-                                </div>
-
-                                <div
-                                    v-if="inspection.length"
-                                    class="px-5 py-4">
-                                    <h3 class="text-sm font-normal">
-                                        Local folders <span class="ml-1 font-normal text-muted-foreground">{{ inspection.length }}</span>
-                                    </h3>
-                                    <ul class="mt-2 divide-y divide-border/70">
-                                        <li
-                                            v-for="folder in visibleFolders"
-                                            :key="folder.id">
-                                            <details
-                                                class="t-disclosure group py-3"
-                                                :open="!!folder.scan_error || !!(folder.availability && folder.availability !== 'Available')">
-                                                <summary class="flex cursor-pointer list-none items-center gap-2 rounded-md text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
-                                                    <span class="min-w-0 flex-1 select-text break-all font-medium">{{ folder.path }}</span>
-                                                    <Badge
-                                                        v-if="folder.availability && folder.availability !== 'Available'"
-                                                        variant="destructive">
-                                                        {{ folder.availability }}
-                                                    </Badge>
-                                                    <ChevronDownIcon
-                                                        class="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
-                                                        aria-hidden="true" />
-                                                </summary>
-                                                <div class="mt-3 grid gap-2 pl-2">
-                                                    <div class="flex flex-wrap items-center justify-between gap-3">
-                                                        <div class="flex flex-wrap gap-1.5">
-                                                            <Badge
-                                                                v-if="folder.availability === 'Available'"
-                                                                variant="secondary">
-                                                                {{ folder.availability }}
-                                                            </Badge>
-                                                            <Badge
-                                                                v-if="folder.git_state"
-                                                                variant="outline">
-                                                                {{ folder.git_state }}
-                                                            </Badge>
-                                                            <Badge
-                                                                v-if="folder.branch"
-                                                                variant="outline">
-                                                                {{ folder.branch }}
-                                                            </Badge>
-                                                            <Badge
-                                                                v-if="folder.scan_state"
-                                                                variant="outline">
-                                                                {{ folder.scan_state }}
-                                                            </Badge>
-                                                        </div>
-                                                        <OpenTargetButton
-                                                            :id="folder.id"
-                                                            :project-id="project.id"
-                                                            kind="folders"
-                                                            :native="native"
-                                                            label="Open folder" />
-                                                    </div>
-                                                    <p
-                                                        v-if="folder.repository_id"
-                                                        class="text-xs text-muted-foreground">
-                                                        Repository: {{ project.repositories.find(repo => repo.id === folder.repository_id)?.name }}
-                                                    </p>
-                                                    <p
-                                                        v-if="folder.commit_subject"
-                                                        class="break-words text-sm">
-                                                        {{ folder.commit_subject }}
-                                                    </p>
-                                                    <p
-                                                        v-if="folder.last_commit_at"
-                                                        class="break-all text-xs text-muted-foreground">
-                                                        {{ date(folder.last_commit_at) }} · {{ folder.last_commit_hash }}
-                                                    </p>
-                                                    <p class="text-xs text-muted-foreground">
-                                                        Last scanned: {{ date(folder.scanned_at) }}
-                                                    </p>
-                                                    <p
-                                                        v-if="folder.scan_error"
-                                                        class="text-sm text-destructive">
-                                                        {{ folder.scan_error }}. Previous results retained.
-                                                    </p>
-                                                </div>
-                                            </details>
-                                        </li>
-                                    </ul>
-                                </div>
-
-                                <div
-                                    v-if="project.repositories.length > 2 || inspection.length > 2"
-                                    class="px-5 py-3">
+                                <DialogFooter>
                                     <Button
                                         type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        :aria-expanded="sourcesOpen"
-                                        aria-controls="project-sources"
-                                        @click="sourcesOpen = !sourcesOpen">
-                                        {{ sourcesOpen ? 'Show fewer sources' : 'View all sources' }}
-                                    </Button>
-                                </div>
-
-                                <div
-                                    v-if="!project.repositories.length && !inspection.length"
-                                    class="px-5 py-6">
-                                    <FolderOpenIcon
-                                        class="size-5 text-muted-foreground"
-                                        aria-hidden="true" />
-                                    <p class="mt-3 text-sm font-medium">
-                                        Connect the code behind this project.
-                                    </p>
-                                    <p class="mt-1 text-sm text-muted-foreground">
-                                        Add a repository or local folder to see commits and scan details here.
-                                    </p>
-                                    <Button
-                                        as-child
                                         variant="outline"
-                                        size="sm"
-                                        class="mt-4">
-                                        <Link :href="'/projects/' + project.id + '/edit'">
-                                            Edit project
-                                        </Link>
+                                        :disabled="previewBusy"
+                                        @click="deletingPreviewTask = null">
+                                        Cancel
                                     </Button>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="destructive"
+                                        :disabled="previewBusy"
+                                        @click="deletingPreviewTask && updatePreviewTask('task.delete', deletingPreviewTask)">
+                                        {{ previewBusy ? 'Deleting…' : 'Delete card' }}
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
 
-                    <aside
-                        class="grid min-w-0 gap-4"
-                        aria-label="Project details">
                         <Card
                             v-if="needsAttention"
                             as="section"
@@ -535,66 +423,16 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                         class="size-3"
                                         aria-hidden="true" /></span>
                                 </button>
-                                <a
+                                <button
                                     v-if="folderIssueCount"
-                                    href="#sources-title"
-                                    class="block select-none rounded-lg px-2 py-2.5 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                                    @click="sourcesOpen = true">
+                                    type="button"
+                                    class="block select-none rounded-lg px-2 py-2.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                                    @click="sourcesOpen = true; tab = 'sources'">
                                     <span class="block text-sm font-medium">{{ folderIssueCount }} local {{ folderIssueCount === 1 ? 'folder needs' : 'folders need' }} review</span>
                                     <span class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">Review sources <ArrowRightIcon
                                         class="size-3"
                                         aria-hidden="true" /></span>
-                                </a>
-                            </CardContent>
-                        </Card>
-
-                        <Card
-                            v-if="latestCommit || recentDocuments.length"
-                            as="section"
-                            aria-labelledby="recent-activity-title">
-                            <CardHeader>
-                                <h2
-                                    id="recent-activity-title"
-                                    class="text-sm font-normal">
-                                    Recent activity
-                                </h2>
-                            </CardHeader>
-                            <CardContent class="gap-4">
-                                <div v-if="latestCommit">
-                                    <h3 class="text-xs font-normal text-muted-foreground">
-                                        Latest commit
-                                    </h3>
-                                    <p class="mt-1 break-words text-sm font-medium">
-                                        {{ latestCommit.commit_subject ?? 'Commit found' }}
-                                    </p>
-                                    <p class="mt-1 text-xs leading-5 text-muted-foreground">
-                                        {{ latestCommit.branch ?? latestCommit.git_state }} · <time :datetime="latestCommit.last_commit_at ?? undefined">{{ latestCommitAge }}</time>
-                                    </p>
-                                    <p
-                                        class="mt-1 truncate text-xs text-muted-foreground"
-                                        :title="latestCommit.path">
-                                        {{ latestCommit.path }}
-                                    </p>
-                                </div>
-                                <div
-                                    v-if="recentDocuments.length"
-                                    class="border-t border-border/70 pt-3 first:border-0 first:pt-0">
-                                    <h3 class="text-xs font-normal text-muted-foreground">
-                                        Documents
-                                    </h3>
-                                    <ul class="mt-1 divide-y divide-border/70">
-                                        <li
-                                            v-for="document in recentDocuments"
-                                            :key="document.id">
-                                            <Link
-                                                :href="`/projects/${project.id}?tab=documents&document=${document.id}`"
-                                                class="block rounded-lg px-1 py-2 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-                                                <span class="block break-words text-sm font-medium">{{ document.title }}</span>
-                                                <span class="mt-0.5 block text-xs text-muted-foreground">Updated {{ date(document.updated_at) }}</span>
-                                            </Link>
-                                        </li>
-                                    </ul>
-                                </div>
+                                </button>
                             </CardContent>
                         </Card>
 
@@ -713,8 +551,261 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                 </Button>
                             </CardContent>
                         </Card>
+                    </div>
+
+                    <aside
+                        class="grid min-w-0 content-start gap-4"
+                        aria-label="Project details">
+                        <ProjectScratchpad
+                            ref="scratchpad"
+                            :key="project.id"
+                            :project="project" />
+
+                        <Card
+                            v-if="latestCommit || recentDocuments.length"
+                            as="section"
+                            aria-labelledby="recent-activity-title">
+                            <CardHeader>
+                                <h2
+                                    id="recent-activity-title"
+                                    class="text-sm font-normal">
+                                    Recent activity
+                                </h2>
+                            </CardHeader>
+                            <CardContent class="gap-4">
+                                <div v-if="latestCommit">
+                                    <h3 class="text-xs font-normal text-muted-foreground">
+                                        Latest commit
+                                    </h3>
+                                    <p class="mt-1 break-words text-sm font-medium">
+                                        {{ latestCommit.commit_subject ?? 'Commit found' }}
+                                    </p>
+                                    <p class="mt-1 text-xs leading-5 text-muted-foreground">
+                                        {{ latestCommit.branch ?? latestCommit.git_state }} · <time :datetime="latestCommit.last_commit_at ?? undefined">{{ latestCommitAge }}</time>
+                                    </p>
+                                    <p
+                                        class="mt-1 truncate text-xs text-muted-foreground"
+                                        :title="latestCommit.path">
+                                        {{ latestCommit.path }}
+                                    </p>
+                                </div>
+                                <div
+                                    v-if="recentDocuments.length"
+                                    class="border-t border-border/70 pt-3 first:border-0 first:pt-0">
+                                    <h3 class="text-xs font-normal text-muted-foreground">
+                                        Documents
+                                    </h3>
+                                    <ul class="mt-1 divide-y divide-border/70">
+                                        <li
+                                            v-for="document in recentDocuments"
+                                            :key="document.id">
+                                            <Link
+                                                :href="`/projects/${project.id}?tab=documents&document=${document.id}`"
+                                                class="block rounded-lg px-1 py-2 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                                                <span class="block break-words text-sm font-medium">{{ document.title }}</span>
+                                                <span class="mt-0.5 block text-xs text-muted-foreground">Updated {{ date(document.updated_at) }}</span>
+                                            </Link>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </CardContent>
+                        </Card>
                     </aside>
                 </div>
+            </TabsContent>
+
+            <TabsContent
+                value="sources"
+                class="space-y-5 pt-5">
+                <Card
+                    as="section"
+                    aria-labelledby="sources-title">
+                    <CardHeader class="flex flex-wrap items-center justify-between gap-3">
+                        <h2
+                            id="sources-title"
+                            class="text-sm font-normal">
+                            Sources
+                        </h2>
+                        <!--                                <Button-->
+                        <!--                                    v-if="inspection.length"-->
+                        <!--                                    variant="outline"-->
+                        <!--                                    size="sm"-->
+                        <!--                                    :disabled="scan.processing || pending"-->
+                        <!--                                    @click="refresh()">-->
+                        <!--                                    Refresh local folders-->
+                        <!--                                </Button>-->
+                    </CardHeader>
+
+                    <CardContent
+                        id="project-sources"
+                        class="divide-y divide-border/70 p-0">
+                        <div
+                            v-if="project.repositories.length"
+                            class="px-5 py-4">
+                            <h3 class="text-sm font-normal">
+                                Repositories <span class="ml-1 font-normal text-muted-foreground">{{ project.repositories.length }}</span>
+                            </h3>
+                            <ul class="mt-2 divide-y divide-border/70">
+                                <li
+                                    v-for="repo in visibleRepositories"
+                                    :key="repo.id"
+                                    class="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                                    <div class="min-w-0 flex-1">
+                                        <p class="break-words text-sm font-medium">
+                                            {{ repo.name }}
+                                        </p>
+                                        <p class="break-all text-xs text-muted-foreground">
+                                            {{ repo.remote_url }}
+                                        </p>
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        @click="connectProvider(repo)">
+                                        {{ repositoryActivity(repo).provider_connection_id ? 'Connection settings' : 'Connect provider' }}
+                                    </Button>
+                                    <Button
+                                        v-if="repositoryActivity(repo).provider_connection_id"
+                                        variant="outline"
+                                        size="sm"
+                                        :disabled="!providerActivity || providerActivity.disabled(repositoryActivity(repo))"
+                                        @click="refreshActivity(repo)">
+                                        Refresh activity
+                                    </Button>
+                                    <OpenTargetButton
+                                        :id="repo.id"
+                                        :project-id="project.id"
+                                        kind="repositories"
+                                        :native="native"
+                                        :href="repo.web_url"
+                                        label="Open repository"
+                                        compact />
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div
+                            v-if="inspection.length"
+                            class="px-5 py-4">
+                            <h3 class="text-sm font-normal">
+                                Local folders <span class="ml-1 font-normal text-muted-foreground">{{ inspection.length }}</span>
+                            </h3>
+                            <ul class="mt-2 divide-y divide-border/70">
+                                <li
+                                    v-for="folder in visibleFolders"
+                                    :key="folder.id">
+                                    <details
+                                        class="t-disclosure group py-3"
+                                        :open="!!folder.scan_error || !!(folder.availability && folder.availability !== 'Available')">
+                                        <summary class="flex cursor-pointer list-none items-center gap-2 rounded-md text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+                                            <span class="min-w-0 flex-1 select-text break-all font-medium">{{ folder.path }}</span>
+                                            <Badge
+                                                v-if="folder.availability && folder.availability !== 'Available'"
+                                                variant="destructive">
+                                                {{ folder.availability }}
+                                            </Badge>
+                                            <ChevronDownIcon
+                                                class="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+                                                aria-hidden="true" />
+                                        </summary>
+                                        <div class="mt-3 grid gap-2 pl-2">
+                                            <div class="flex flex-wrap items-center justify-between gap-3">
+                                                <div class="flex flex-wrap gap-1.5">
+                                                    <Badge
+                                                        v-if="folder.availability === 'Available'"
+                                                        variant="secondary">
+                                                        {{ folder.availability }}
+                                                    </Badge>
+                                                    <Badge
+                                                        v-if="folder.git_state"
+                                                        variant="outline">
+                                                        {{ folder.git_state }}
+                                                    </Badge>
+                                                    <Badge
+                                                        v-if="folder.branch"
+                                                        variant="outline">
+                                                        {{ folder.branch }}
+                                                    </Badge>
+                                                    <Badge
+                                                        v-if="folder.scan_state"
+                                                        variant="outline">
+                                                        {{ folder.scan_state }}
+                                                    </Badge>
+                                                </div>
+                                                <OpenTargetButton
+                                                    :id="folder.id"
+                                                    :project-id="project.id"
+                                                    kind="folders"
+                                                    :native="native"
+                                                    label="Open folder" />
+                                            </div>
+                                            <p
+                                                v-if="folder.repository_id"
+                                                class="text-xs text-muted-foreground">
+                                                Repository: {{ project.repositories.find(repo => repo.id === folder.repository_id)?.name }}
+                                            </p>
+                                            <p
+                                                v-if="folder.commit_subject"
+                                                class="break-words text-sm">
+                                                {{ folder.commit_subject }}
+                                            </p>
+                                            <p
+                                                v-if="folder.last_commit_at"
+                                                class="break-all text-xs text-muted-foreground">
+                                                {{ date(folder.last_commit_at) }} · {{ folder.last_commit_hash }}
+                                            </p>
+                                            <p class="text-xs text-muted-foreground">
+                                                Last scanned: {{ date(folder.scanned_at) }}
+                                            </p>
+                                            <p
+                                                v-if="folder.scan_error"
+                                                class="text-sm text-destructive">
+                                                {{ folder.scan_error }}. Previous results retained.
+                                            </p>
+                                        </div>
+                                    </details>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div
+                            v-if="project.repositories.length > 2 || inspection.length > 2"
+                            class="px-5 py-3">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                :aria-expanded="sourcesOpen"
+                                aria-controls="project-sources"
+                                @click="sourcesOpen = !sourcesOpen">
+                                {{ sourcesOpen ? 'Show fewer sources' : 'View all sources' }}
+                            </Button>
+                        </div>
+
+                        <div
+                            v-if="!project.repositories.length && !inspection.length"
+                            class="px-5 py-6">
+                            <FolderOpenIcon
+                                class="size-5 text-muted-foreground"
+                                aria-hidden="true" />
+                            <p class="mt-3 text-sm font-medium">
+                                Connect the code behind this project.
+                            </p>
+                            <p class="mt-1 text-sm text-muted-foreground">
+                                Add a repository or local folder to see commits and scan details here.
+                            </p>
+                            <Button
+                                as-child
+                                variant="outline"
+                                size="sm"
+                                class="mt-4">
+                                <Link :href="'/projects/' + project.id + '/edit'">
+                                    Edit project
+                                </Link>
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
 
                 <div
                     v-if="project.repositories.length"
@@ -738,7 +829,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                             :project-id="project.id"
                             :repositories="activity"
                             :connections="connections"
-                            :active="active && tab === 'overview'" />
+                            :active="active && tab === 'sources'" />
                     </Transition>
                 </div>
             </TabsContent>

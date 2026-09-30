@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import ProjectForm from '@/components/ProjectForm.vue';
+import EditProjectForm from '@/components/EditProjectForm.vue';
 import { Head, Link } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
 import type { Project, ProviderConnection } from '@/types';
@@ -21,7 +21,7 @@ defineProps<{ selectedProject: Project; statuses: string[]; native: boolean; con
                 </Link>
             </Button>
         </div>
-        <ProjectForm
+        <EditProjectForm
             :key="selectedProject.id"
             :project="selectedProject"
             :statuses="statuses"

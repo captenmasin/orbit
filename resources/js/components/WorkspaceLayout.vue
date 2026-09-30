@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ContentSearch from '@/components/ContentSearch.vue';
 import WorkspaceSidebar from '@/components/WorkspaceSidebar.vue';
+import CreateProjectDialog from '@/components/CreateProjectDialog.vue';
 import { Toaster, toast } from 'vue-sonner';
 import { useLocalStorage } from '@vueuse/core';
 import { Button } from '@/components/ui/button';
@@ -10,13 +11,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Project, ProjectPage, SearchResult, SidebarProject } from '@/types';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { appearance, applyAppearance, applyMotionPreference, type Appearance, type MotionPreference } from '@/lib/appearance';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
+import { appearance, applyAppearance, applyMotionPreference, applyPointerCursors, type Appearance, type MotionPreference } from '@/lib/appearance';
 
-const page = usePage<{ sidebarProjects: SidebarProject[]; statuses: string[]; projects?: ProjectPage; selectedProject?: Project; message?: string | null; native: boolean; appearance: Appearance; reduceMotion: MotionPreference }>();
+const page = usePage<{ sidebarProjects: SidebarProject[]; statuses: string[]; projects?: ProjectPage; selectedProject?: Project; message?: string | null; native: boolean; appearance: Appearance; reduceMotion: MotionPreference; pointerCursors: boolean }>();
 const nativeMac = page.props.native && typeof navigator !== 'undefined' && navigator.platform.startsWith('Mac');
 watch(() => page.props.appearance, value => { if (value) applyAppearance(value); });
 watch(() => page.props.reduceMotion, value => { if (value) applyMotionPreference(value); });
+watch(() => page.props.pointerCursors, value => { if (typeof value === 'boolean') applyPointerCursors(value); });
 watch(() => page.props.message, message => {
     if (!message) return;
     toast.success(message);
@@ -26,6 +28,15 @@ const project = computed(() => page.props.selectedProject);
 const titles: Record<string, string> = { Dashboard: 'Dashboard', CreateProject: 'New project', EditProject: 'Edit project', Connections: 'Connections', Backups: 'Backups', Settings: 'Settings', Debug: 'Debug' };
 const title = computed(() => titles[page.component] ?? project.value?.name ?? 'Orbit');
 const searchOpen = ref(false);
+const createProjectOpen = ref(false);
+const stopCreating = router.on('before', event => {
+    const visit = event.detail.visit;
+    if (event.defaultPrevented || visit.method.toLowerCase() !== 'get' || visit.url.origin !== window.location.origin || visit.url.pathname !== '/projects/create' || page.component === 'CreateProject') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    searchOpen.value = false;
+    createProjectOpen.value = true;
+});
 const storedRecentItems = useLocalStorage<SearchResult[]>('orbit:recent-items', [], { flush: 'sync' });
 const resultTabs: Record<string, string> = { project: 'overview', document: 'documents', task: 'board', link: 'overview', secret: 'secrets' };
 const currentItems = computed<Record<string, { id: string; title?: string; label?: string; name?: string }[] | undefined>>(() => ({
@@ -120,6 +131,7 @@ onMounted(() => {
     }
 });
 onBeforeUnmount(() => {
+    stopCreating();
     stopTrackingHistory?.();
     window.removeEventListener('keydown', handleWorkspaceShortcut);
     window.removeEventListener('message', handleNativeMenu);
@@ -141,7 +153,7 @@ function handleWorkspaceShortcut(event: KeyboardEvent) {
         if (page.component !== 'CreateProject') router.visit('/projects/create');
         return;
     }
-    if (event.defaultPrevented || event.repeat || page.component !== 'Dashboard' || searchOpen.value || !/^[1-9]$/.test(event.key)) return;
+    if (event.defaultPrevented || event.repeat || page.component !== 'Dashboard' || searchOpen.value || createProjectOpen.value || !/^[1-9]$/.test(event.key)) return;
     if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select, [role="dialog"], [role="menu"]'))) return;
     const targetProject = page.props.projects?.data[Number(event.key) - 1];
     if (!targetProject) return;
@@ -266,6 +278,12 @@ function handleTrackpadSwipe(event: WheelEvent) {
                     @close="searchOpen = false" />
             </DialogContent>
         </Dialog>
+        <CreateProjectDialog
+            v-if="createProjectOpen"
+            :open="createProjectOpen"
+            :statuses="page.props.statuses"
+            @close="createProjectOpen = false"
+            @created="createProjectOpen = false" />
         <Toaster
             position="bottom-right"
             :theme="appearance"

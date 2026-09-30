@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ProjectIcon from '@/components/ProjectIcon.vue';
 import ChoiceSelect from '@/components/ChoiceSelect.vue';
+import MarkdownContent from '@/components/MarkdownContent.vue';
 import ProjectStatusDot from '@/components/ProjectStatusDot.vue';
 import { Link } from '@inertiajs/vue3';
 import type { Project } from '@/types';
@@ -51,11 +52,10 @@ const emit = defineEmits<{ 'change-status': [status: string]; reload: [] }>();
                         Reload project
                     </Button>
                 </p>
-                <p
+                <MarkdownContent
                     v-if="project.description"
-                    class="max-w-2xl text-sm leading-6 whitespace-pre-line break-words text-muted-foreground">
-                    {{ project.description }}
-                </p>
+                    :html="project.description_html"
+                    class="max-w-2xl text-sm leading-6 break-words text-muted-foreground" />
                 <div
                     v-if="project.tags.length"
                     class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">

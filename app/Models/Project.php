@@ -25,7 +25,12 @@ class Project extends Model
 
     protected $hidden = ['icon_path', 'asset_files', 'scratchpad'];
 
-    protected $appends = ['icon_url', 'assets'];
+    protected $appends = ['icon_url', 'assets', 'description_html'];
+
+    public function getDescriptionHtmlAttribute(): string
+    {
+        return Task::renderDescription($this->description ?? '');
+    }
 
     /** @return list<string> */
     public static function statuses(): array

@@ -239,7 +239,7 @@ async function remove() {
                                         class="underline"
                                         @click="openTokenPage">GitLab’s token creation page</a>. Choose Generate token → Legacy token.
                                 </li>
-                                <li>Enter a name and expiration date. Select <code>read_api</code> to read repository activity. Also select <code>read_repository</code> if you want to clone private repositories in Orbit.</li>
+                                <li>Enter a name and expiration date. Select <code>read_api</code> to read repository activity.</li>
                                 <li>Generate the token, copy it before leaving the page, and paste it below.</li>
                             </ol>
                         </div>

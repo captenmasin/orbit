@@ -113,7 +113,6 @@ Route::prefix('projects/{project}/repositories/{repository}')->name('repositorie
 });
 
 Route::post('/folders/inspect', [CatalogController::class, 'inspect'])->name('folders.inspect');
-Route::post('/repositories/clone', [CatalogController::class, 'clone'])->name('repositories.clone');
 
 Route::prefix('secrets')->name('secrets.')->controller(SecretVaultController::class)->group(function (): void {
     Route::get('/unlock/status', 'status')->name('unlock.status');

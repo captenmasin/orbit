@@ -7,7 +7,7 @@ import ts from 'typescript';
 import * as vue from 'vue';
 
 function mount(t, overrides = {}) {
-    const props = vue.reactive({ connections: [{ id: 'github', provider: 'github' }, { id: 'gitlab', provider: 'gitlab' }], existingUrls: [], native: true, clone: false, busy: false, ...overrides });
+    const props = vue.reactive({ connections: [{ id: 'github', provider: 'github' }, { id: 'gitlab', provider: 'gitlab' }], existingUrls: [], native: true, busy: false, ...overrides });
     const listing = { processing: false, errors: {}, cancel() {}, async get() { return { repositories: [], next_page: null }; } };
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/ConnectedRepositoryPicker.vue', import.meta.url), 'utf8'));
     const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'repository-picker-test' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
@@ -92,17 +92,4 @@ test('cancel discards selections and busy projects cannot add repositories', asy
     assert.equal(state.query.value, '');
     state.addSelected();
     assert.deepEqual(events, []);
-});
-
-test('cloning immediately chooses one repository and blocks linked remotes', async t => {
-    const { state, events } = mount(t, { clone: true, existingUrls: [docs.remote_url] });
-    state.open.value = true;
-    await vue.nextTick();
-    state.choose(docs);
-    assert.equal(state.open.value, true);
-
-    state.choose(orbit);
-
-    assert.deepEqual(events, [{ event: 'select', repository: { ...orbit, connection_id: 'github' } }]);
-    assert.equal(state.open.value, false);
 });

@@ -11,7 +11,7 @@ export default defineConfig({
             refresh: true,
             detectTls: false,
         }),
-        vue(),
+        vue({ template: { compilerOptions: { isCustomElement: tag => tag === 'emoji-picker' } } }),
         tailwindcss(),
     ],
     resolve: {

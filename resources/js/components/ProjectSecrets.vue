@@ -20,7 +20,7 @@ import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ContextMenuSeparator, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
+import { ContextMenuSeparator, DropdownMenuContent, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger } from 'reka-ui';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, contextMenuContentClass, contextMenuItemClass } from '@/components/ui/context-menu';
 import { CheckIcon, ChevronDownIcon, CopyIcon, EllipsisIcon, EyeIcon, EyeOffIcon, LockKeyholeIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon } from '@lucide/vue';
 
@@ -562,22 +562,22 @@ onBeforeUnmount(() => {
                             align="end"
                             :side-offset="4"
                             :class="contextMenuContentClass">
-                            <DropdownMenuItem
+                            <ContextMenuItem
                                 :class="contextMenuItemClass"
                                 @select="openPaste">
                                 Paste .env entries
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
+                            </ContextMenuItem>
+                            <ContextMenuItem
                                 :class="contextMenuItemClass"
                                 @select="openImport">
                                 Import .env file
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
+                            </ContextMenuItem>
+                            <ContextMenuItem
                                 :class="contextMenuItemClass"
                                 :disabled="!secrets.length"
                                 @select="openExport">
                                 Export .env file
-                            </DropdownMenuItem>
+                            </ContextMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenuPortal>
                 </DropdownMenuRoot>

@@ -6,6 +6,7 @@ import { compileScript, parse } from '@vue/compiler-sfc';
 import * as inertia from '@inertiajs/vue3';
 import ts from 'typescript';
 import * as vue from 'vue';
+import { renderToString } from 'vue/server-renderer';
 
 function mount(t, props = {}) {
     const { descriptor } = parse(readFileSync(new URL('../resources/js/components/SecretPinRecovery.vue', import.meta.url), 'utf8'));
@@ -22,6 +23,34 @@ function mount(t, props = {}) {
 
 const response = (data, status = 200) => ({ status, data: JSON.stringify(data), headers: {} });
 const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test('recovery renders only the authentication methods available on the device', async () => {
+    const { descriptor } = parse(readFileSync(new URL('../resources/js/components/SecretPinRecovery.vue', import.meta.url), 'utf8'));
+    const { outputText } = ts.transpileModule(compileScript(descriptor, { id: 'recovery-methods-render', inlineTemplate: true }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
+    const passthrough = (_, { slots }) => slots.default?.();
+    const controls = new Proxy({ default: passthrough }, { get: (target, name) => target[name] ?? passthrough });
+
+    for (const [touchId, windowsHello, recoveryCode, expected] of [
+        [true, false, true, ['Touch ID', 'recovery code']],
+        [false, true, true, ['Windows Hello', 'recovery code']],
+        [false, false, true, ['recovery code']],
+        [false, false, false, []],
+    ]) {
+        let request = 0;
+        const modules = { vue, '@inertiajs/vue3': { useHttp: () => request++ === 0
+            ? vue.reactive({ processing: false, response: { touch_id_available: touchId, windows_hello_available: windowsHello, recovery_code_set: recoveryCode } })
+            : vue.reactive({ processing: false }) } };
+        const context = { exports: {}, require: name => modules[name] ?? controls };
+        runInNewContext(outputText, context);
+        const html = await renderToString(vue.createSSRApp(context.exports.default));
+
+        for (const name of ['Touch ID', 'Windows Hello', 'recovery code']) {
+            assert.equal(html.includes(`Use ${name}`), expected.includes(name), `${name} availability`);
+        }
+        assert.match(html, /Reset secrets/);
+        if (!recoveryCode) assert.match(html, /No recovery code saved/);
+    }
+});
 
 function enterRecovery(state, method) {
     state.open.value = true;
@@ -81,7 +110,7 @@ test('failed recovery discovery reports an error and can be retried', async t =>
     assert.deepEqual(state.status.response, { touch_id_available: true, recovery_code_set: false });
 });
 
-for (const method of ['touch_id', 'recovery_code', 'reset']) {
+for (const method of ['touch_id', 'windows_hello', 'recovery_code', 'reset']) {
     test(`${method} recovery sends the chosen method and retains the replacement code until acknowledged`, async t => {
         const state = mount(t);
         const requests = [];

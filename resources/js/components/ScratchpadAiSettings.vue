@@ -6,8 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { onBeforeUnmount, ref, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Field, FieldDescription, FieldLabel, FieldError } from '@/components/ui/field';
+import { CircleCheckIcon, InfoIcon, SlidersHorizontalIcon, Trash2Icon, XIcon } from '@lucide/vue';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 type AiStatus = { configured: boolean; provider: string | null; model: string | null; providers: string[]; default_models: Record<string, string> };
@@ -47,39 +47,84 @@ onBeforeUnmount(() => { form.cancel(); clearKey(); });
 </script>
 
 <template>
-    <Card
-        as="section"
+    <section
+        class="grid gap-5"
         aria-labelledby="scratchpad-ai-title">
-        <CardHeader>
+        <div class="flex items-center justify-between gap-4">
             <h2
                 id="scratchpad-ai-title"
-                class="text-sm font-normal">
+                class="text-lg font-semibold">
                 Scratchpad AI
             </h2>
-        </CardHeader>
-        <CardContent class="gap-6">
-            <FieldDescription>Generating actions sends your scratchpad and limited project context (name, description, status and tags) to this provider. Review every action before applying it.</FieldDescription>
-            <p class="text-sm">
-                {{ status.configured ? `Connected to ${providerLabels[status.provider ?? ''] ?? status.provider} · ${status.model}` : 'No AI connection configured.' }}
-            </p>
-            <Alert v-if="!native">
-                <AlertDescription>Open the desktop app to configure encrypted AI credentials.</AlertDescription>
-            </Alert>
+            <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                class="text-muted-foreground"
+                aria-label="About scratchpad AI"
+                title="Generating suggestions sends your scratchpad and project name, description, status and tags to your AI provider. Review every action before applying it.">
+                <InfoIcon aria-hidden="true" />
+            </Button>
+        </div>
+        <div class="grid gap-3">
             <div
-                v-if="native && status.configured"
-                class="flex gap-2">
-                <Button
-                    variant="outline"
-                    :disabled="form.processing"
-                    @click="replacing = !replacing; clearKey()">
-                    {{ replacing ? 'Cancel replacement' : 'Replace' }}
-                </Button><Button
-                    variant="outline"
-                    :disabled="form.processing"
-                    @click="removing = true">
-                    Remove
-                </Button>
+                v-if="status.configured"
+                class="flex items-center gap-3 overflow-hidden rounded-xl border px-4 py-3">
+                <div class="min-w-0 flex-1 space-y-1">
+                    <p class="break-words text-sm font-medium">
+                        {{ providerLabels[status.provider ?? ''] ?? status.provider }}
+                    </p>
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span class="break-all">{{ status.model }}</span>
+                        <span class="inline-flex items-center gap-1">
+                            <CircleCheckIcon
+                                class="size-3.5 text-emerald-600 dark:text-emerald-400"
+                                aria-hidden="true" />
+                            Connected
+                        </span>
+                    </div>
+                </div>
+                <div
+                    v-if="native"
+                    class="flex shrink-0 gap-0.5 text-muted-foreground">
+                    <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        :aria-label="replacing ? 'Cancel AI connection replacement' : 'Replace AI connection'"
+                        :disabled="form.processing"
+                        @click="replacing = !replacing; clearKey()">
+                        <XIcon
+                            v-if="replacing"
+                            aria-hidden="true" />
+                        <SlidersHorizontalIcon
+                            v-else
+                            aria-hidden="true" />
+                    </Button>
+                    <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label="Remove AI connection"
+                        :disabled="form.processing"
+                        @click="removing = true">
+                        <Trash2Icon aria-hidden="true" />
+                    </Button>
+                </div>
             </div>
+            <p
+                v-else-if="native"
+                class="text-sm text-muted-foreground">
+                Connect a provider to generate actions from your scratchpad.
+            </p>
+            <p
+                v-if="!native"
+                class="text-sm text-muted-foreground">
+                Open the desktop app to connect an AI provider.
+            </p>
+            <p class="text-xs text-muted-foreground">
+                Suggestions share your scratchpad and basic project details with your provider.
+            </p>
             <form
                 v-if="native && replacing"
                 class="grid gap-6"
@@ -167,6 +212,6 @@ onBeforeUnmount(() => { form.cancel(); clearKey(); });
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </CardContent>
-    </Card>
+        </div>
+    </section>
 </template>

@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\DependencyVersions;
 use RuntimeException;
 use stdClass;
 use Symfony\Component\Filesystem\Path;
@@ -16,17 +17,24 @@ class ReadDependencies
 
     public const ENTRY_LIMIT = 20000;
 
+    public const ADDITIONAL_FILES = [
+        'requirements.txt' => 'python', 'pyproject.toml' => 'python', 'uv.lock' => 'python', 'poetry.lock' => 'python',
+        'Cargo.toml' => 'rust', 'Cargo.lock' => 'rust', 'go.mod' => 'go', 'Gemfile.lock' => 'ruby',
+        'packages.lock.json' => 'nuget', 'pubspec.lock' => 'dart', 'pom.xml' => 'maven',
+        'gradle.lockfile' => 'maven', 'buildscript-gradle.lockfile' => 'maven',
+    ];
+
     public function handle(string $path, array $previous = []): array
     {
         $files = [];
-        foreach (['composer.json', 'composer.lock', 'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'] as $file) {
+        foreach (['composer.json', 'composer.lock', 'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb', ...array_keys(self::ADDITIONAL_FILES)] as $file) {
             $source = ['file' => $file, 'state' => 'Current', 'scanned_at' => now()->toIso8601String(), 'entries' => [], 'requirements' => []];
             try {
                 $source = [...$source, ...match ($file) {
                     'pnpm-lock.yaml' => $this->pnpmLock($this->readYaml($path, $file)),
                     'yarn.lock' => $this->yarnLock($this->readYaml($path, $file), $files['package.json']['entries'] ?? []),
                     'bun.lockb' => $this->rejectBinaryLock($path, $file),
-                    default => $this->jsonSource($path, $file),
+                    default => isset(self::ADDITIONAL_FILES[$file]) ? $this->additionalSource($path, $file) : $this->jsonSource($path, $file, $files['composer.json']['vcs_repositories'] ?? []),
                 }];
             } catch (Throwable $exception) {
                 $state = $exception instanceof RuntimeException ? $exception->getMessage() : 'Malformed file';
@@ -45,19 +53,135 @@ class ReadDependencies
             $lockfile = count($present) === 1 ? $present[0] : null;
         }
         $unsupported = array_values(array_filter(['yarn.lock', 'pnpm-lock.yaml', 'bun.lock', 'bun.lockb'], fn ($file) => ($lockfile === null || $file === $lockfile) && in_array($files[$file]['state'], ['Unsupported lockfile version', 'Unsupported lockfile format', 'Parser unavailable'])));
-        $snapshot = ['version' => 1, 'path' => $path, 'files' => $files, 'npm_lockfile' => $lockfile, 'unsupported_lockfiles' => $unsupported];
+        foreach (self::ADDITIONAL_FILES as $file => $ecosystem) {
+            if (in_array($files[$file]['state'], ['Unsupported lockfile version', 'Unsupported lockfile format', 'Parser unavailable'], true)) {
+                $unsupported[] = $file;
+            }
+        }
+        $snapshot = ['version' => 1, 'path' => $path, 'files' => $files, 'npm_lockfile' => $lockfile, 'unsupported_lockfiles' => $unsupported,
+            'additional_ecosystems' => $this->additionalEcosystems($files)];
 
         return [...$snapshot, 'fingerprint' => self::fingerprint($snapshot)];
     }
 
-    private function jsonSource(string $path, string $file): array
+    private function additionalSource(string $path, string $file): array
+    {
+        $limit = in_array($file, ['requirements.txt', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'pom.xml'], true) ? self::MANIFEST_LIMIT : self::LOCK_LIMIT;
+        $contents = $this->readFile($path, $file, $limit);
+        if (str_contains($contents, "\0") || substr_count($contents, "\n") > 100000) {
+            throw new RuntimeException('Malformed file');
+        }
+
+        $source = str_ends_with($file, '.toml') || in_array($file, ['uv.lock', 'poetry.lock', 'Cargo.lock'], true)
+            ? app(ReadTomlDependencies::class)->handle($file, $contents)
+            : app(ReadEcosystemDependencies::class)->handle($file, $contents);
+        if ($file === 'pom.xml') {
+            $source['requirements']['securityCoverage'] = 'Only declared dependencies; transitive dependencies are not resolved.';
+        }
+
+        return $source;
+    }
+
+    private function additionalEcosystems(array $files): array
+    {
+        $present = fn (string $file): bool => $files[$file]['state'] !== 'Missing file';
+        $ecosystems = [];
+        $pythonLocks = array_values(array_filter(['uv.lock', 'poetry.lock'], $present));
+        $pythonManifest = $present('pyproject.toml') ? 'pyproject.toml' : ($present('requirements.txt') ? 'requirements.txt' : null);
+        if ($pythonManifest || $pythonLocks) {
+            $ecosystems['python'] = ['manifest' => $pythonManifest, 'lockfile' => count($pythonLocks) === 1 ? $pythonLocks[0] : ($pythonLocks ? null : ($pythonManifest === 'requirements.txt' ? $pythonManifest : null))];
+        }
+        if ($present('Cargo.toml') || $present('Cargo.lock')) {
+            $ecosystems['rust'] = ['manifest' => $present('Cargo.toml') ? 'Cargo.toml' : null, 'lockfile' => $present('Cargo.lock') ? 'Cargo.lock' : null];
+        }
+        foreach (['go' => 'go.mod', 'ruby' => 'Gemfile.lock', 'nuget' => 'packages.lock.json', 'dart' => 'pubspec.lock'] as $ecosystem => $file) {
+            if ($present($file)) {
+                $ecosystems[$ecosystem] = ['manifest' => $ecosystem === 'go' ? $file : null, 'lockfile' => $file];
+            }
+        }
+        $javaFiles = array_values(array_filter(['pom.xml', 'gradle.lockfile', 'buildscript-gradle.lockfile'], $present));
+        if ($javaFiles) {
+            $ecosystems['maven'] = ['manifest' => null, 'lockfile' => $javaFiles[0], 'lockfiles' => $javaFiles];
+        }
+
+        return $ecosystems;
+    }
+
+    /** @return array{0: array, 1: int} */
+    public static function additionalPackages(array $snapshot, bool $directOnly = false): array
+    {
+        $packages = [];
+        $skipped = 0;
+        foreach ($snapshot['additional_ecosystems'] ?? [] as $ecosystem => $selection) {
+            $manifest = $snapshot['files'][$selection['manifest'] ?? ''] ?? null;
+            $locks = array_values(array_filter($selection['lockfiles'] ?? [$selection['lockfile'] ?? null]));
+            $entries = [];
+            foreach ($locks as $file) {
+                $source = $snapshot['files'][$file] ?? [];
+                if (($source['state'] ?? null) !== 'Current') {
+                    $skipped += max(1, count($source['entries'] ?? []));
+
+                    continue;
+                }
+                if (! $directOnly && ! empty($source['requirements']['securityCoverage'])) {
+                    $skipped++;
+                }
+                array_push($entries, ...($source['entries'] ?? []));
+            }
+            if (! $locks) {
+                $skipped += max(1, count($manifest['entries'] ?? []));
+
+                continue;
+            }
+            if ($manifest && ($manifest['state'] ?? null) !== 'Current') {
+                $skipped += max(1, count($manifest['entries'] ?? []));
+                if ($directOnly) {
+                    continue;
+                }
+            }
+            if ($directOnly && $manifest && ($selection['manifest'] ?? null) !== ($selection['lockfile'] ?? null)) {
+                $resolved = [];
+                foreach ($manifest['entries'] ?? [] as $entry) {
+                    $name = DependencyVersions::name($ecosystem, $entry['name'] ?? '');
+                    $matches = array_values(array_filter($entries, fn (array $locked): bool => DependencyVersions::name($ecosystem, $locked['name'] ?? '') === $name));
+                    if (! empty($entry['link']) || count(array_unique(array_column($matches, 'version'))) !== 1) {
+                        $skipped++;
+
+                        continue;
+                    }
+                    $resolved[] = [...$matches[0], 'name' => $entry['name']];
+                }
+                $entries = $resolved;
+            }
+            foreach ($entries as $entry) {
+                if (! empty($entry['root']) || (! empty($entry['link']) && ($manifest['requirements']['project-name'] ?? null) === ($entry['name'] ?? null))) {
+                    continue;
+                }
+                if ($directOnly && ($entry['identity'] ?? null) === 'Transitive') {
+                    continue;
+                }
+                $name = DependencyVersions::name($ecosystem, $entry['name'] ?? '');
+                $version = $entry['version'] ?? null;
+                if (! DependencyVersions::validName($ecosystem, $name) || ! DependencyVersions::valid($ecosystem, $version) || ! empty($entry['link']) || ($directOnly && ! DependencyVersions::comparable($ecosystem, $version))) {
+                    $skipped++;
+
+                    continue;
+                }
+                $packages[$ecosystem.':'.$name.':'.$version] = ['name' => $name, 'ecosystem' => $ecosystem, 'current' => $version];
+            }
+        }
+
+        return [array_values($packages), $skipped];
+    }
+
+    private function jsonSource(string $path, string $file, array $composerRepositories = []): array
     {
         $data = $this->readJson($path, $file, in_array($file, ['composer.lock', 'package-lock.json', 'bun.lock']) ? self::LOCK_LIMIT : self::MANIFEST_LIMIT);
 
         return match ($file) {
-            'composer.json' => $this->manifest($data, ['require' => 'Production', 'require-dev' => 'Development']),
+            'composer.json' => $this->composerManifest($data),
             'package.json' => $this->manifest($data, ['dependencies' => 'Production', 'devDependencies' => 'Development', 'peerDependencies' => 'Peer', 'optionalDependencies' => 'Optional']),
-            'composer.lock' => $this->composerLock($data),
+            'composer.lock' => $this->composerLock($data, $composerRepositories),
             'package-lock.json' => $this->npmLock($data),
             'bun.lock' => $this->bunLock($data),
         };
@@ -65,9 +189,9 @@ class ReadDependencies
 
     public static function fingerprint(array $snapshot): string
     {
-        $files = array_map(fn (array $file): array => array_intersect_key($file, array_flip(['state', 'entries', 'requirements'])), $snapshot['files'] ?? []);
+        $files = array_map(fn (array $file): array => array_intersect_key($file, array_flip(['state', 'entries', 'requirements', 'vcs_repositories'])), $snapshot['files'] ?? []);
 
-        return hash('sha256', json_encode([$files, array_key_exists('npm_lockfile', $snapshot) ? $snapshot['npm_lockfile'] : 'package-lock.json'], JSON_THROW_ON_ERROR));
+        return hash('sha256', json_encode([$files, array_key_exists('npm_lockfile', $snapshot) ? $snapshot['npm_lockfile'] : 'package-lock.json', $snapshot['additional_ecosystems'] ?? []], JSON_THROW_ON_ERROR));
     }
 
     public function readJson(string $path, string $file, int $limit = self::MANIFEST_LIMIT): stdClass
@@ -179,7 +303,31 @@ class ReadDependencies
         return ['entries' => $entries, 'requirements' => $requirements];
     }
 
-    private function composerLock(stdClass $data): array
+    private function composerManifest(stdClass $data): array
+    {
+        $source = $this->manifest($data, ['require' => 'Production', 'require-dev' => 'Development']);
+        $repositories = $data->repositories ?? [];
+        if (! is_array($repositories) && ! $repositories instanceof stdClass) {
+            throw new RuntimeException('Malformed file');
+        }
+        $urls = [];
+        foreach ($repositories as $repository) {
+            if ($repository instanceof stdClass && ($repository->type ?? null) === 'vcs') {
+                $url = $this->text($repository->url ?? null);
+                $urls[$this->repositoryUrl($url)] = $url;
+                $this->limit($urls);
+            }
+        }
+
+        return [...$source, 'vcs_repositories' => $urls];
+    }
+
+    private function repositoryUrl(string $url): string
+    {
+        return preg_replace('/\.git\z/', '', rtrim($url, '/'));
+    }
+
+    private function composerLock(stdClass $data, array $repositories = []): array
     {
         if (! property_exists($data, 'packages')) {
             throw new RuntimeException('Malformed file');
@@ -194,9 +342,16 @@ class ReadDependencies
                 if (! $package instanceof stdClass) {
                     throw new RuntimeException('Malformed file');
                 }
+                $link = null;
+                if ($repositories && isset($package->source->url)) {
+                    $url = $this->text($package->source->url);
+                    if (isset($repositories[$this->repositoryUrl($url)])) {
+                        $link = $url;
+                    }
+                }
                 $entries[] = [
                     'name' => $this->text($package->name ?? null, 255), 'version' => $this->text($package->version ?? null),
-                    'scope' => $scope, 'location' => null, 'link' => null,
+                    'scope' => $scope, 'location' => null, 'link' => $link,
                 ];
                 $this->limit($entries);
             }

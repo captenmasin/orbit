@@ -143,15 +143,13 @@ test('launcher opens a result only after searching finishes', async t => {
 
 test('launcher offers workspace commands and matches their titles and aliases', t => {
     const state = mount(t, { launcher: true });
-    assert.deepEqual(Array.from(state.matchingCommands.value, command => command.title), ['New project', 'Settings', 'Backups', 'Go to dashboard']);
+    assert.deepEqual(Array.from(state.matchingCommands.value, command => command.title), ['New project', 'Settings', 'Go to dashboard']);
 
     for (const [query, commandId, url] of [
         ['NEW PROJECT', 'new-project', '/projects/create'],
         ['add project', 'new-project', '/projects/create'],
         ['settings', 'settings', '/settings'],
         ['appearance preferences', 'settings', '/settings'],
-        ['backups', 'backups', '/settings/backups'],
-        ['restore export', 'backups', '/settings/backups'],
         ['go to dashboard', 'dashboard', '/'],
         ['home workspace', 'dashboard', '/'],
     ]) {
@@ -160,8 +158,10 @@ test('launcher offers workspace commands and matches their titles and aliases', 
         state.openResult(state.matchingCommands.value[0]);
         assert.equal(state.visits.at(-1), url);
     }
-    state.query.value = 'home restore';
-    assert.equal(state.matchingCommands.value.length, 0);
+    for (const query of ['backups', 'restore export', 'home restore']) {
+        state.query.value = query;
+        assert.equal(state.matchingCommands.value.length, 0);
+    }
 
     for (const query of ['type:task home', 'project:Orbit settings', 'TYPE:document preferences', 'project:"My project" export']) {
         state.query.value = query;
@@ -174,7 +174,7 @@ test('empty launcher groups recent items and commands and allows clearing recent
     const state = mount(t, { launcher: true, recentItems: [recent] });
     assert.deepEqual(Array.from(state.resultGroups.value, group => group.heading), ['Recent items', 'Commands']);
     assert.equal(state.resultGroups.value[0].items[0].id, 'recent');
-    assert.equal(state.itemCount.value, 5);
+    assert.equal(state.itemCount.value, 4);
     assert.equal(state.requests.length, 0);
 
     const clearButton = findNode(state.render(), 'Button');

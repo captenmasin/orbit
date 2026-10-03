@@ -37,7 +37,7 @@ async function copyConfiguration() {
                 </Button>
             </div>
             <p class="text-sm text-muted-foreground">
-                Add this local MCP server to your AI client to manage projects, links, documents, boards, and assets. It can add encrypted secrets but cannot reveal their values.
+                Add this local MCP server to your AI client to manage projects, links, documents, tasks, and assets. It can add encrypted secrets but cannot reveal their values.
             </p>
             <pre class="overflow-x-auto rounded-md bg-muted p-3 text-xs"><code>{{ configuration }}</code></pre>
         </section>

@@ -42,7 +42,12 @@ class WorkspaceController extends Controller
             'sort' => ['nullable', Rule::in(['name', 'name-desc', 'last-commit'])],
         ]);
         $selectedTags = array_map(fn (string $tag): string => mb_strtolower(trim($tag)), $filters['tag'] ?? []);
-        $query = Project::with('tags')->withCount(['repositories', 'folders'])->withLatestCommit();
+        $query = Project::with([
+            'tags',
+            'boardColumns' => fn ($columns) => $columns->select('id', 'project_id', 'name', 'position', 'color')->withCount('tasks'),
+            'folders:id,project_id,path',
+            'folders.packageRoots:id,project_folder_id,relative_path,scan_state,scan_error,snapshot,outdated,security',
+        ])->withLatestCommit();
         if ($search = $filters['q'] ?? null) {
             $search = mb_strtolower($search);
             $query->where(fn ($query) => $query->whereRaw('instr(lower(name), ?) > 0', [$search])

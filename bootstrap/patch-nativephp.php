@@ -51,6 +51,26 @@ foreach (['src/server/api/clipboard.ts', 'dist/server/api/clipboard.js'] as $fil
     }
 }
 
+// Attach Windows Hello verification to Orbit's native window, through the authenticated native API.
+foreach (['src/server/api/system.ts', 'dist/server/api/system.js'] as $file) {
+    $path = $directory.'/'.$file;
+    $source = file_get_contents($path);
+    if ($source === false) {
+        throw new RuntimeException('Unable to read NativePHP system handler: '.$path);
+    }
+    $import = "import { windowsHelloStatus, verifyWindowsHello } from './orbit-windows-hello.mjs';\n";
+    if (! str_contains($source, $import)) {
+        $source = $import.str_replace('export default router;', "router.get('/windows-hello', windowsHelloStatus);\nrouter.post('/windows-hello', verifyWindowsHello);\n\nexport default router;", $source, $count);
+        if ($count !== 1 || file_put_contents($path, $source) === false) {
+            throw new RuntimeException('NativePHP system handler changed; review bootstrap/patch-nativephp.php.');
+        }
+    }
+    if (! copy(__DIR__.'/native-windows-hello.mjs', dirname($path).'/orbit-windows-hello.mjs')
+        || ! copy(__DIR__.'/windows-hello.ps1', dirname($path).'/windows-hello.ps1')) {
+        throw new RuntimeException('Unable to install the Windows Hello handler.');
+    }
+}
+
 // Orbit requires an explicit download and restart, and offline checks must not
 // become unhandled Electron promise rejections.
 foreach (['src/index.ts', 'dist/index.js', 'src/server/api/autoUpdater.ts', 'dist/server/api/autoUpdater.js'] as $file) {

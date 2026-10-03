@@ -45,6 +45,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
                 <Button
                     variant="ghost"
                     class="absolute top-4 right-4"
+                    aria-label="Close"
                     size="icon-sm">
                     <XIcon />
                     <span class="sr-only">Close</span>

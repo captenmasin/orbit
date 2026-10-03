@@ -52,7 +52,6 @@ class WorkspacePreferences
                 'colors' => ['Idea' => 'purple', 'In Progress' => 'blue', 'Live' => 'green', 'Paused' => 'amber', 'Maintenance' => 'orange'],
             ],
             'tools' => ['paths' => array_fill_keys(['php', 'node', 'composer', 'npm', 'pnpm', 'yarn'], null)],
-            'backups' => ['folder' => null, 'last_export_at' => null, 'last_export_path' => null],
             'startup' => ['last_project_id' => null],
             'ai' => ['provider' => null, 'model' => null, 'credential' => null],
         ];

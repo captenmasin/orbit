@@ -87,7 +87,6 @@ class SettingsController extends Controller
             'security' => ['lock_minutes' => ['required', 'integer', Rule::in([5, 15, 60, 480])], 'clipboard_seconds' => ['required', 'integer', Rule::in([0, 30, 60])]],
             'project_defaults' => ['columns' => ['required', 'array']],
             'tools' => ['paths' => ['required', 'array:php,node,composer,npm,pnpm,yarn'], 'paths.*' => ['nullable', 'string', 'max:4096']],
-            'backups' => ['folder' => ['present', 'nullable', 'string', 'max:4096']],
             default => abort(404),
         };
         $data = $request->validate([...$rules, 'revision' => ['required', 'integer', 'min:1']]);
@@ -103,9 +102,6 @@ class SettingsController extends Controller
         if ($section === 'tools') {
             app(ProbeRuntimes::class)->validatePaths($data['paths']);
             $data['paths'] = array_replace(WorkspacePreferences::defaults()['tools']['paths'], $data['paths']);
-        }
-        if ($section === 'backups' && filled($data['folder']) && (! is_dir($data['folder']) || ! is_writable($data['folder']))) {
-            throw ValidationException::withMessages(['folder' => 'Choose an existing, writable backup folder.']);
         }
         DB::transaction(function () use ($preferences, $section, $data, $revision): void {
             $previous = $preferences->get($section);

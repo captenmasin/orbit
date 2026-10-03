@@ -86,6 +86,10 @@ test('project menus change status, archive, and confirm deletion using the chose
 test('project cards and sidebar items offer every status and hide archive for archived projects', async t => {
     const passthrough = (_, { slots }) => slots.default?.();
     const controls = new Proxy({ default: passthrough }, { get: (target, name) => target[name] ?? passthrough });
+    const dependencies = { exports: {} };
+    runInNewContext(ts.transpileModule(readFileSync(new URL('../resources/js/lib/dependencies.ts', import.meta.url), 'utf8'), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText, dependencies);
     const modules = {
         vue, '@inertiajs/vue3': { ...inertia, usePage: () => ({ props: { statuses: ['Idea', 'In Progress', 'Live', 'Paused', 'Archived'] } }) },
         '@vueuse/core': { ...vueuse, useLocalStorage: (_, value) => vue.ref(value) },
@@ -95,6 +99,7 @@ test('project cards and sidebar items offer every status and hide archive for ar
         '@/components/ui/context-menu': new Proxy({ ContextMenuContent: (_, { slots }) => vue.h('section', { 'data-test-menu': 'context' }, slots.default?.()), ContextMenuItem: (_, { slots, attrs }) => vue.h('button', { disabled: attrs.disabled }, slots.default?.()) }, { get: (target, name) => target[name] ?? passthrough }),
         '@/lib/appearance': { reducedMotion: vue.ref(false) },
         '@/lib/project': { projectStatusDotClasses: { Paused: '', Archived: '' } },
+        '@/lib/dependencies': dependencies.exports,
     };
     for (const component of ['MarkdownContent', 'ProjectContextMenu', 'ProjectCard', 'ProjectHeader', 'WorkspaceSidebar']) {
         const { descriptor } = parse(readFileSync(new URL(`../resources/js/components/${component}.vue`, import.meta.url), 'utf8'));
@@ -152,5 +157,46 @@ test('project cards and sidebar items offer every status and hide archive for ar
             assert.match(html, /<p><strong>Project CRM<\/strong><\/p>/);
             assert.doesNotMatch(html, /\*\*Project CRM\*\*/);
         }
+    });
+
+    await t.test('project cards link outstanding tasks and merged dependency issues to their tabs', async () => {
+        const root = {
+            id: 'root', relative_path: '.', scan_state: 'Current', scan_error: null,
+            snapshot: { fingerprint: 'current', unsupported_lockfiles: [], files: {
+                'package.json': { state: 'Current', entries: [{ name: 'vue', scope: 'Production' }] },
+                'package-lock.json': { state: 'Current', entries: [{ name: 'vue', version: '3.5.20', location: 'node_modules/vue', scope: 'Production' }] },
+            } },
+            outdated: { fingerprint: 'current', checked: 1, unavailable: 0, skipped: 0, packages: [{ name: 'vue', ecosystem: 'npm', current: '3.5.20', latest: '3.5.30' }] },
+            security: { fingerprint: 'current', checked: 1, unavailable: 0, skipped: 0, packages: [{ name: 'vue', ecosystem: 'npm', current: '3.5.20', advisories: [{ severity: 'High' }] }] },
+        };
+        const project = {
+            id: 'beta', name: 'Beta', status: 'Paused', tags: [],
+            board_columns: [
+                { name: 'Backlog', tasks_count: 2 }, { name: 'To Do', tasks_count: 3 },
+                { name: 'In Progress', tasks_count: 4 }, { name: ' DONE ', tasks_count: 5 },
+            ],
+            folders: [{ id: 'folder', path: '/beta', availability: 'Available', package_roots: [root] }],
+        };
+        const render = async () => (await renderToString(vue.createSSRApp(modules['@/components/ProjectCard.vue'].default, { project, selectedTags: [] }))).replace(/<!--.*?-->/gs, '');
+
+        const html = await render();
+
+        assert.match(html, /<a\b[^>]*href="\/projects\/beta\?tab=board"[^>]*>.*?9 to do\s*<\/a>/s);
+        assert.match(html, /<a\b[^>]*href="\/projects\/beta\?tab=dependencies"[^>]*>.*?1 dependency issue\s*<\/a>/s);
+        assert.doesNotMatch(html, /Last commit|No commit data|\d+ repos|\d+ folders/);
+
+        root.outdated.packages = [];
+        root.security.packages = [];
+        assert.match(await render(), /0 dependency issues/);
+
+        root.snapshot.fingerprint = 'changed';
+        const staleHtml = await render();
+        assert.doesNotMatch(staleHtml, /href="\/projects\/beta\?tab=dependencies"|Dependencies unchecked/);
+
+        project.board_columns = [];
+        project.folders = [];
+        const emptyHtml = await render();
+        assert.match(emptyHtml, /0 to do/);
+        assert.doesNotMatch(emptyHtml, /href="\/projects\/beta\?tab=dependencies"|Dependencies unchecked/);
     });
 });

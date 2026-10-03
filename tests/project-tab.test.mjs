@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
-import { compileScript, parse } from '@vue/compiler-sfc';
+import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc';
 import * as inertia from '@inertiajs/vue3';
 import * as vueuse from '@vueuse/core';
 import ts from 'typescript';
@@ -172,6 +172,78 @@ test('project overview recent activity shows the source of the latest local or r
     assert.equal(current.state.latestCommit.value, undefined);
 });
 
+test('latest update links local and provider commits and opens desktop links externally', async t => {
+    const hash = 'a'.repeat(40);
+    const remoteUrl = `https://gitlab.com/team/backend/-/commit/${'b'.repeat(40)}`;
+    const requests = []; const notifications = []; let finish;
+    const request = { url: '', processing: false, post(url) {
+        this.processing = true;
+        requests.push([url, this.url]);
+        return new Promise(resolve => { finish = result => { this.processing = false; resolve(result); }; });
+    } };
+    const current = harness(t, { useHttp: data => Object.hasOwn(data, 'url') ? request : inertia.useHttp(data) }, notifications)('pages/ShowProject', {
+        selectedProject: { id: 'project-a', tags: [], revision: 1 },
+        inspection: [{ path: '/projects/checkout', last_commit_at: '2026-09-19T12:00:00Z', last_commit_hash: hash, commit_subject: 'Fix checkout' }],
+        activity: [{ remote_commit_at: '2026-09-18T12:00:00Z', provider_snapshots: [{ resource: 'overview', payload: { commit: { title: 'Fix backend', url: remoteUrl } } }] }],
+        connections: [], native: false,
+    });
+    const source = readFileSync(new URL('../resources/js/pages/ShowProject.vue', import.meta.url), 'utf8');
+    const start = source.indexOf('<p class="break-words', source.indexOf('Latest update'));
+    const template = compileTemplate({ source: source.slice(start, source.indexOf('</p>', start) + 4), filename: 'ShowProject.vue', id: 'latest-update-test' });
+    assert.deepEqual(template.errors, []);
+    const { render } = script(template.code, { vue });
+    const link = () => render(vue.proxyRefs(current.state), []).children.find(child => child.type === 'a');
+
+    for (const [remote, url] of [
+        ['https://github.com/team/repo.git/', `https://github.com/team/repo/commit/${hash}`],
+        ['git@github.com:team/repo.git', `https://github.com/team/repo/commit/${hash}`],
+        ['ssh://git@github.com/team/repo.git', `https://github.com/team/repo/commit/${hash}`],
+        ['https://gitlab.com/group/team/repo.git', `https://gitlab.com/group/team/repo/-/commit/${hash}`],
+        ['git@gitlab.com:group/team/repo.git', `https://gitlab.com/group/team/repo/-/commit/${hash}`],
+    ]) {
+        current.props.inspection[0].git_remote = remote;
+        assert.equal(link().props.href, url);
+        assert.equal(link().props.target, '_blank');
+        assert.equal(link().props.rel, 'noopener noreferrer');
+        assert.equal(link().children, 'Fix checkout');
+    }
+    for (const remote of [null, 'invalid', 'https://example.com/team/repo.git']) {
+        current.props.inspection[0].git_remote = remote;
+        assert.equal(link(), undefined);
+    }
+    current.props.inspection[0].git_remote = 'git@github.com:team/repo.git';
+    current.props.inspection[0].last_commit_hash = null;
+    assert.equal(link(), undefined);
+
+    current.props.activity[0].remote_commit_at = '2026-09-21T12:00:00Z';
+    assert.equal(link().props.href, remoteUrl);
+    assert.equal(link().children, 'Fix backend');
+    let prevented = false;
+    const event = { preventDefault: () => { prevented = true; } };
+    await link().props.onClick(event);
+    assert.equal(prevented, false);
+    assert.equal(requests.length, 0);
+
+    current.props.native = true;
+    const opening = link().props.onClick(event);
+    await link().props.onClick(event);
+    assert.equal(prevented, true);
+    assert.deepEqual(requests, [['/projects/project-a/open-url', remoteUrl]]);
+    finish({ opened: true });
+    await opening;
+    assert.deepEqual(notifications, []);
+
+    const failed = link().props.onClick(event);
+    finish(null);
+    await failed;
+    assert.deepEqual(notifications, ['The commit could not be opened. Try again.']);
+    t.mock.method(request, 'post', async () => { throw new Error('Offline'); });
+    await link().props.onClick(event);
+    assert.equal(notifications.length, 2);
+    current.props.activity[0].provider_snapshots = [];
+    assert.equal(link(), undefined);
+});
+
 test('project overview retains confirmed attention during unrelated scans and hides invalidated findings', t => {
     const current = harness(t)('pages/ShowProject', {
         selectedProject: { id: 'project-a', tags: [], revision: 1 },
@@ -237,7 +309,7 @@ test('project header changes status with current details and reports conflicts',
     assert.equal(current.state.statusSaving.value, false);
 });
 
-test('link search opens the full list and source previews still expand', async t => {
+test('link search reveals its category and source previews still expand', async t => {
     const page = vue.reactive({ url: '/projects/project-a?link=9' });
     const mount = harness(t, { usePage: () => page });
     const current = mount('pages/ShowProject', {
@@ -253,17 +325,16 @@ test('link search opens the full list and source previews still expand', async t
         ], activity: [], connections: [], native: false,
     });
 
-    assert.equal(current.state.linksOpen.value, true);
+    assert.equal(current.state.isLinkGroupOpen('', 0), true);
     assert.equal(current.state.targetLinkId.value, '9');
     assert.equal(current.state.missingLink.value, false);
     assert.deepEqual(Array.from(current.state.visibleRepositories.value, repo => repo.id), ['repo-0', 'repo-1']);
     assert.deepEqual(Array.from(current.state.visibleFolders.value, folder => folder.id), ['folder', 'folder-two']);
     assert.equal(current.state.folderIssueCount.value, 1);
 
-    current.state.linksOpen.value = false;
     page.url = '/projects/project-a';
     await vue.nextTick();
-    assert.equal(current.state.linksOpen.value, false);
+    assert.equal(current.state.targetLinkId.value, null);
     current.state.sourcesOpen.value = true;
     assert.equal(current.state.visibleRepositories.value.length, 3);
     assert.equal(current.state.visibleFolders.value.length, 3);
@@ -476,25 +547,34 @@ test('link search opens unstarred links on the overview and reports removed link
     const mount = harness(t, { usePage: () => page });
     const current = mount('pages/ShowProject', {
         selectedProject: { id: 'project-a', tags: [], revision: 1, links: [
-            { id: 'reference', important: false },
+            { id: 'app', category: 'Product', important: false },
+            { id: 'reference', category: ' Docs ', important: false },
         ] },
         inspection: [], activity: [], connections: [], native: false,
     });
-    assert.equal(current.state.linksOpen.value, false);
+    assert.equal(current.state.isLinkGroupOpen('Docs', 1), false);
 
+    current.state.setLinkGroupOpen('Docs', { currentTarget: { open: false } });
     page.url = '/projects/project-a?tab=overview&link=reference';
     await vue.nextTick();
-    assert.equal(current.state.linksOpen.value, true);
-    assert.equal(current.state.importantLinks.value.length, 0);
+    assert.equal(current.state.isLinkGroupOpen('Docs', 1), true);
+    assert.deepEqual(Array.from(current.state.overviewLinkGroups.value.flatMap(([, links]) => links), link => link.id), ['app', 'reference']);
 
-    current.state.linksOpen.value = false;
+    current.state.setLinkGroupOpen('Docs', { currentTarget: { open: false } });
     page.url = '/projects/project-a?tab=overview&link=removed';
     await vue.nextTick();
     assert.equal(current.state.missingLink.value, true);
-    assert.equal(current.state.linksOpen.value, false);
+    assert.equal(current.state.isLinkGroupOpen('Docs', 1), false);
+
+    current.props.selectedProject.links[1].important = true;
+    page.url = '/projects/project-a?tab=overview&link=reference';
+    await vue.nextTick();
+    assert.equal(current.state.missingLink.value, false);
+    assert.equal(current.state.isLinkGroupOpen('Docs', 1), false);
+    assert.deepEqual(Array.from(current.state.importantLinks.value, link => link.id), ['reference']);
 });
 
-test('link search focuses and reveals its result instead of the first link in the dialog', async t => {
+test('link search focuses and reveals its result directly on the overview', async t => {
     const calls = [];
     let mounted = false;
     const target = {
@@ -510,16 +590,48 @@ test('link search focuses and reveals its result instead of the first link in th
     await vue.nextTick();
 
     mounted = true;
-    current.state.focusTargetLink({ preventDefault: () => calls.push(['prevent-default']) });
-    assert.deepEqual(calls, [['prevent-default'], ['focus', true], ['scroll', 'center']]);
+    current.state.focusTargetLink();
+    assert.deepEqual(calls, [['focus', true], ['scroll', 'center']]);
 
     mounted = false;
     calls.length = 0;
-    current.state.focusTargetLink({ preventDefault: () => calls.push(['prevent-default']) });
+    current.state.focusTargetLink();
     assert.deepEqual(calls, []);
 });
 
-test('overview previews prioritise starred items in saved order and fall back to existing content', t => {
+test('link groups remember expansion per project and restore it after navigation', async t => {
+    const mount = harness(t);
+    const project = id => ({ id, revision: 1, links: [
+        { id: 'app', label: 'App', category: 'Product', important: false },
+        { id: 'docs', label: 'Docs', category: 'Docs', important: false },
+    ] });
+    const input = id => ({ selectedProject: project(id), inspection: [], activity: [], connections: [], native: false });
+    const current = mount('pages/ShowProject', input('project-a'));
+
+    assert.equal(current.state.isLinkGroupOpen('Product', 0), true);
+    assert.equal(current.state.isLinkGroupOpen('Docs', 1), false);
+    assert.equal(current.state.isLinkGroupOpen('__proto__', 3), false);
+    current.state.setLinkGroupOpen('Product', { currentTarget: { open: false } });
+    current.state.setLinkGroupOpen('Docs', { currentTarget: { open: true } });
+    current.state.setLinkGroupOpen('__proto__', { currentTarget: { open: true } });
+    current.unmount();
+
+    const restored = mount('pages/ShowProject', input('project-a'));
+    assert.equal(restored.state.isLinkGroupOpen('Product', 0), false);
+    assert.equal(restored.state.isLinkGroupOpen('Docs', 1), true);
+    assert.equal(restored.state.isLinkGroupOpen('__proto__', 3), true);
+
+    restored.props.selectedProject = project('project-b');
+    await vue.nextTick();
+    assert.equal(restored.state.isLinkGroupOpen('Product', 0), true);
+    assert.equal(restored.state.isLinkGroupOpen('Docs', 1), false);
+    restored.state.setLinkGroupOpen('Docs', { currentTarget: { open: false } });
+    restored.props.selectedProject = project('project-a');
+    await vue.nextTick();
+    assert.equal(restored.state.isLinkGroupOpen('Docs', 1), true);
+});
+
+test('overview separates starred links from the category grid and document previews prioritise starred items', t => {
     const current = harness(t)('pages/ShowProject', {
         selectedProject: { id: 'project-a', revision: 1, links: [
             { id: 'ordinary-link', important: false }, { id: 'starred-link', important: true }, { id: 'second-starred-link', important: true },
@@ -528,20 +640,22 @@ test('overview previews prioritise starred items in saved order and fall back to
     });
 
     assert.deepEqual(Array.from(current.state.importantLinks.value, item => item.id), ['starred-link', 'second-starred-link']);
+    assert.deepEqual(Array.from(current.state.overviewLinkGroups.value.flatMap(([, links]) => links), item => item.id), ['ordinary-link']);
     assert.deepEqual(Array.from(current.state.importantDocuments.value, item => item.id), ['starred-document']);
-    assert.deepEqual(Array.from(current.state.previewLinks.value, item => item.id), ['starred-link', 'second-starred-link']);
     assert.deepEqual(Array.from(current.state.previewDocuments.value, item => item.id), ['starred-document']);
     current.props.selectedProject.links[1].important = false;
     current.props.selectedProject.documents[1].important = false;
     assert.deepEqual(Array.from(current.state.importantLinks.value, item => item.id), ['second-starred-link']);
+    assert.deepEqual(Array.from(current.state.overviewLinkGroups.value.flatMap(([, links]) => links), item => item.id), ['ordinary-link', 'starred-link']);
     assert.equal(current.state.importantDocuments.value.length, 0);
     assert.deepEqual(Array.from(current.state.previewDocuments.value, item => item.id), ['ordinary-document', 'starred-document']);
     current.props.selectedProject.links[2].important = false;
-    assert.deepEqual(Array.from(current.state.previewLinks.value, item => item.id), ['ordinary-link', 'starred-link', 'second-starred-link']);
+    assert.equal(current.state.importantLinks.value.length, 0);
+    assert.deepEqual(Array.from(current.state.overviewLinkGroups.value.flatMap(([, links]) => links), item => item.id), ['ordinary-link', 'starred-link', 'second-starred-link']);
     assert.equal(current.props.selectedProject.links.some(link => link.important), false);
 });
 
-test('unstarred overview previews show three saved links and the three most recently updated documents', t => {
+test('unstarred overview shows all saved links and the three most recently updated documents', t => {
     const current = harness(t)('pages/ShowProject', {
         selectedProject: { id: 'project-a', revision: 1,
             links: ['one', 'two', 'three', 'four'].map(id => ({ id, important: false })),
@@ -549,19 +663,34 @@ test('unstarred overview previews show three saved links and the three most rece
         }, inspection: [], activity: [], connections: [], native: false,
     });
 
-    assert.deepEqual(Array.from(current.state.previewLinks.value, link => link.id), ['one', 'two', 'three']);
+    assert.deepEqual(Array.from(current.state.overviewLinkGroups.value.flatMap(([, links]) => links), link => link.id), ['one', 'two', 'three', 'four']);
     assert.deepEqual(Array.from(current.state.previewDocuments.value, document => document.id), ['4', '3', '2']);
     assert.deepEqual(Array.from(current.props.selectedProject.documents, document => document.id), ['2', '4', '1', '3']);
     assert.equal(current.state.hasProjectDetails.value, true);
     current.props.selectedProject.links = [];
     assert.equal(current.state.hasProjectDetails.value, true, 'Documents keep the details column visible without links');
     current.props.selectedProject.documents = [];
-    assert.equal(current.state.previewLinks.value.length, 0);
+    assert.equal(current.state.overviewLinkGroups.value.length, 0);
     assert.equal(current.state.previewDocuments.value.length, 0);
     assert.equal(current.state.hasProjectDetails.value, false);
 });
 
-test('overview link search and category filter reach all saved links', async t => {
+test('assets-only projects keep the overview details column hidden and allow opening Assets', async t => {
+    const current = harness(t)('pages/ShowProject', {
+        selectedProject: { id: 'project-a', revision: 1, links: [], repositories: [], assets: [{ id: 'design', name: 'design.png' }] },
+        inspection: [], activity: [], connections: [], native: false,
+    });
+
+    assert.equal(current.state.hasProjectDetails.value, false);
+    assert.equal(current.state.showGettingStarted.value, false);
+    await current.state.changeTab('assets');
+    assert.equal(current.state.tab.value, 'assets');
+    current.props.selectedProject.assets = [];
+    assert.equal(current.state.hasProjectDetails.value, false);
+    assert.equal(current.state.showGettingStarted.value, true);
+});
+
+test('category grid reaches all saved links and follows project changes', async t => {
     const current = harness(t)('pages/ShowProject', {
         selectedProject: { id: 'project-a', revision: 1, links: [
             { id: 'docs', label: 'Docs', url: 'https://example.com/docs', category: 'Documentation', description: 'API guide' },
@@ -571,30 +700,18 @@ test('overview link search and category filter reach all saved links', async t =
         ] }, inspection: [], activity: [], connections: [], native: false,
     });
 
-    assert.deepEqual(Array.from(current.state.visibleLinks.value, link => link.id), ['docs', 'metrics', 'setup']);
-    assert.deepEqual(Array.from(current.state.linkCategories.value), ['Analytics', 'Documentation']);
+    assert.deepEqual(Array.from(current.state.overviewLinkGroups.value, ([category, links]) => [category, Array.from(links, link => link.id)]), [
+        ['Documentation', ['docs', 'setup']], ['Analytics', ['metrics']], ['', ['finance']],
+    ]);
     assert.equal(current.state.hasProjectDetails.value, false);
-
-    current.state.linkSearch.value = 'FINANCE';
-    assert.deepEqual(Array.from(current.state.visibleLinks.value, link => link.id), ['finance']);
-    current.state.linkSearch.value = '';
-    current.state.linkCategory.value = 'Documentation';
-    assert.deepEqual(Array.from(current.state.visibleLinks.value, link => link.id), ['docs', 'setup']);
-    current.state.linkSearch.value = 'api';
-    assert.deepEqual(Array.from(current.state.visibleLinks.value, link => link.id), ['docs']);
-    current.state.linkSearch.value = 'metrics';
-    assert.equal(current.state.visibleLinks.value.length, 0);
 
     current.props.selectedProject.links = current.props.selectedProject.links.filter(link => link.category !== 'Documentation');
     await vue.nextTick();
-    assert.equal(current.state.linkCategory.value, '');
-    current.state.linkCategory.value = 'Analytics';
+    assert.deepEqual(Array.from(current.state.overviewLinkGroups.value, ([category]) => category), ['Analytics', '']);
 
     current.props.selectedProject = { id: 'project-b', revision: 1, links: [{ id: 'new', label: 'New', url: 'https://example.com/new' }] };
     await vue.nextTick();
-    assert.equal(current.state.linkSearch.value, '');
-    assert.equal(current.state.linkCategory.value, '');
-    assert.deepEqual(Array.from(current.state.visibleLinks.value, link => link.id), ['new']);
+    assert.deepEqual(Array.from(current.state.overviewLinkGroups.value.flatMap(([, links]) => links), link => link.id), ['new']);
 });
 
 test('importance buttons use current revisions and retain their state on a failed save', t => {
@@ -627,6 +744,193 @@ test('importance buttons use current revisions and retain their state on a faile
     current.props.disabled = true;
     current.state.toggle();
     assert.equal(requests.length, 2);
+});
+
+test('link row deletion requires confirmation, keeps other links and handles failed saves', t => {
+    const requests = [];
+    const retained = { id: 'keep', label: 'Docs', url: 'https://example.com/docs', category: 'Docs', description: 'Access notes', important: true };
+    const removed = { id: 'remove', label: 'Old link', url: 'https://example.com/old', important: false };
+    const current = harness(t, { router: { put: (...args) => requests.push(args) } })('components/ProjectLinkRow', {
+        project: { id: 'project-a', name: 'Sitepulse', description: 'Project notes', status: 'Live', revision: 7, links: [retained, removed] },
+        link: removed, native: false, disabled: false,
+    });
+
+    current.state.removeLink();
+    assert.equal(requests.length, 0);
+    current.state.removing.value = true;
+    current.props.disabled = true;
+    current.state.removeLink();
+    assert.equal(requests.length, 0);
+    current.props.disabled = false;
+    current.state.importanceButton.value = { saving: true };
+    current.state.removeLink();
+    assert.equal(requests.length, 0);
+    current.state.importanceButton.value = null;
+    current.state.removeLink();
+    current.state.removeLink();
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0][0], '/projects/project-a');
+    assert.deepEqual(JSON.parse(JSON.stringify(requests[0][1])), {
+        name: 'Sitepulse', description: 'Project notes', status: 'Live', revision: 7, return_back: true,
+        links: [{ id: 'keep', label: 'Docs', url: 'https://example.com/docs', category: 'Docs', description: 'Access notes' }],
+    });
+    assert.equal(requests[0][2].preserveScroll, true);
+    assert.deepEqual(Array.from(current.props.project.links, link => link.id), ['keep', 'remove']);
+    requests[0][2].onError({ revision: 'This project changed. Reload it before saving again.' });
+    requests[0][2].onFinish();
+    assert.equal(current.state.removeError.value, 'This project changed. Reload it before saving again.');
+    assert.equal(current.state.removing.value, true);
+    assert.equal(current.state.removeSaving.value, false);
+
+    current.props.project.revision = 8;
+    current.props.project.links[0].description = 'Updated access notes';
+    current.state.removeLink();
+    assert.equal(requests[1][1].revision, 8);
+    assert.equal(requests[1][1].links[0].description, 'Updated access notes');
+    requests[1][2].onNetworkError();
+    requests[1][2].onFinish();
+    assert.equal(current.state.removeError.value, 'Could not delete link. Try again.');
+    assert.equal(current.state.removing.value, true);
+    current.state.removeLink();
+    requests[2][2].onSuccess();
+    requests[2][2].onFinish();
+    assert.equal(current.state.removing.value, false);
+
+    current.state.removing.value = true;
+    current.props.project.links = [];
+    current.state.removeLink();
+    assert.equal(requests.length, 3);
+    assert.equal(current.state.removing.value, false);
+
+    current.props.project.links = [removed];
+    current.state.removing.value = true;
+    current.state.removeLink();
+    assert.equal(requests[3][1].links.length, 0);
+});
+
+test('link row editing stays in place and preserves drafts, other links and revision safety', t => {
+    const requests = [];
+    const retained = { id: 'keep', label: 'Docs', url: 'https://example.com/docs', category: 'Docs', description: 'Access notes', important: true };
+    const edited = { id: 'edit', label: 'App', url: 'https://example.com', category: null, description: null, important: true };
+    const current = harness(t, { router: { put: (...args) => requests.push(args) } })('components/ProjectLinkRow', {
+        project: { id: 'project-a', name: 'Sitepulse', description: 'Project notes', status: 'Live', revision: 7, links: [retained, edited] },
+        link: edited, native: false, disabled: true,
+    });
+
+    current.state.beginEdit();
+    assert.equal(current.state.editing.value, false);
+    current.props.disabled = false;
+    current.state.beginEdit();
+    assert.deepEqual({ ...current.state.editDraft.value }, { label: 'App', url: 'https://example.com', category: '', description: '' });
+    current.state.editDraft.value = { label: 'Dashboard', url: 'https://example.com/app', category: 'Product', description: 'Team access' };
+    assert.equal(current.props.link.label, 'App');
+    current.state.saveLink();
+    current.state.saveLink();
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0][0], '/projects/project-a');
+    assert.deepEqual(JSON.parse(JSON.stringify(requests[0][1])), {
+        name: 'Sitepulse', description: 'Project notes', status: 'Live', revision: 7, return_back: true,
+        links: [
+            { id: 'keep', label: 'Docs', url: 'https://example.com/docs', category: 'Docs', description: 'Access notes' },
+            { id: 'edit', label: 'Dashboard', url: 'https://example.com/app', category: 'Product', description: 'Team access' },
+        ],
+    });
+    assert.equal(requests[0][2].preserveScroll, true);
+    requests[0][2].onError({ 'links.1.url': 'Enter a valid URL.' });
+    requests[0][2].onFinish();
+    assert.equal(current.state.editErrors.value.url, 'Enter a valid URL.');
+    assert.equal(current.state.editing.value, true);
+    assert.equal(current.state.editDraft.value.label, 'Dashboard');
+    assert.equal(current.state.editSaving.value, false);
+    assert.equal(current.props.link.important, true);
+
+    current.props.project.revision = 8;
+    current.props.project.links[0].description = 'Updated access notes';
+    current.state.saveLink();
+    assert.equal(requests[1][1].revision, 7);
+    assert.equal(requests[1][1].links[0].description, 'Updated access notes');
+    requests[1][2].onError({ revision: 'This project changed. Reload it before saving again.' });
+    requests[1][2].onFinish();
+    assert.equal(current.state.editErrors.value.general, 'This project changed. Reload it before saving again.');
+    assert.equal(current.state.editDraft.value.description, 'Team access');
+
+    current.state.editing.value = false;
+    current.state.beginEdit();
+    assert.equal(current.state.editDraft.value.label, 'App');
+    assert.equal(Object.keys(current.state.editErrors.value).length, 0);
+    current.state.editDraft.value.label = 'New name';
+    current.state.saveLink();
+    assert.equal(requests[2][1].revision, 8);
+    requests[2][2].onNetworkError();
+    requests[2][2].onFinish();
+    assert.equal(current.state.editErrors.value.general, 'Could not save link. Try again.');
+    assert.equal(current.state.editDraft.value.label, 'New name');
+    assert.equal(current.state.editing.value, true);
+    current.state.saveLink();
+    requests[3][2].onSuccess();
+    requests[3][2].onFinish();
+    assert.equal(current.state.editing.value, false);
+
+    current.state.beginEdit();
+    current.props.project.links = [retained];
+    current.state.saveLink();
+    assert.equal(requests.length, 4);
+    assert.match(current.state.editErrors.value.general, /removed/);
+});
+
+test('link details show a clickable URL that uses the external browser in the desktop app', t => {
+    const link = { id: 'link-a', label: 'Dashboard', url: 'https://example.com/dashboard?view=metrics', category: 'Analytics' };
+    const current = harness(t)('components/ProjectLinkRow', {
+        project: { id: 'project-a', revision: 1, links: [link] }, link, native: false,
+    });
+    const source = readFileSync(new URL('../resources/js/components/ProjectLinkRow.vue', import.meta.url), 'utf8');
+    const template = compileTemplate({
+        source: source.match(/<DialogDescription class="break-all">([\s\S]*?)<\/DialogDescription>/)[1],
+        filename: 'ProjectLinkRow.vue', id: 'link-details-test',
+    });
+    assert.deepEqual(template.errors, []);
+    const { render } = script(template.code, { vue });
+    const anchor = () => render(vue.proxyRefs({ ...current.state, ...current.props }), []);
+    let opened = 0;
+    current.state.openTarget.value = { open() { opened++; } };
+
+    assert.equal(anchor().type, 'a');
+    assert.equal(anchor().props.href, link.url);
+    assert.equal(anchor().props.target, '_blank');
+    assert.equal(anchor().props.rel, 'noopener noreferrer');
+    assert.equal(anchor().children, link.url);
+    const browserClick = new Event('click', { cancelable: true });
+    anchor().props.onClick(browserClick);
+    assert.equal(browserClick.defaultPrevented, false);
+    assert.equal(opened, 0);
+
+    current.props.native = true;
+    const nativeClick = new Event('click', { cancelable: true });
+    anchor().props.onClick(nativeClick);
+    assert.equal(nativeClick.defaultPrevented, true);
+    assert.equal(opened, 1);
+});
+
+test('native open actions prevent duplicate requests and do not run from browser links', async t => {
+    const requests = [];
+    let finish;
+    const request = { processing: false, errors: {}, post(url) {
+        requests.push(url);
+        request.processing = true;
+        return new Promise(resolve => { finish = value => { request.processing = false; resolve(value); }; });
+    } };
+    const current = harness(t, { useHttp: () => request })('components/OpenTargetButton', {
+        projectId: 'project-a', kind: 'links', id: 'link-a', native: false, href: 'https://example.com',
+    });
+
+    await current.state.open();
+    assert.equal(requests.length, 0);
+    current.props.native = true;
+    const opening = current.state.open();
+    await current.state.open();
+    assert.deepEqual(requests, ['/projects/project-a/open/links/link-a']);
+    finish({ opened: true });
+    await opening;
 });
 
 test('scratchpad suggestions include project actions and saved notes clear without losing new drafts', async t => {
@@ -1093,17 +1397,22 @@ test('choosing an emoji preserves its skin tone and sequence, clears pending upl
     assert.equal(current.state.open.value, true);
 });
 
-test('icon choices commit on selection and cancelling an image leaves the current icon intact', t => {
+test('icon choices accept SVG uploads and cancelling an image leaves the current icon intact', t => {
     const current = harness(t)('components/ProjectIconPicker', { id: 'project-icon', name: 'Orbit', type: 'initials', emoji: '' });
+    const source = readFileSync(new URL('../resources/js/components/ProjectIconPicker.vue', import.meta.url), 'utf8');
+    const template = compileTemplate({ source: source.match(/<input[\s\S]*?>/)[0], filename: 'ProjectIconPicker.vue', id: 'icon-upload-test' });
+    assert.deepEqual(template.errors, []);
+    const input = script(template.code, { vue }).render(vue.proxyRefs(current.state), []);
+    assert.ok(input.props.accept.split(',').includes('image/svg+xml'));
     current.state.open.value = true;
     current.state.tab.value = 'image';
-    current.state.selectImage({ target: { files: [] } });
+    input.props.onChange({ target: { files: [] } });
 
     assert.deepEqual(current.emitted, []);
     assert.equal(current.state.open.value, true);
 
-    const file = new File(['image'], 'icon.png', { type: 'image/png' });
-    current.state.selectImage({ target: { files: [file] } });
+    const file = new File(['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="8" /></svg>'], 'icon.svg', { type: 'image/svg+xml' });
+    input.props.onChange({ target: { files: [file] } });
 
     assert.deepEqual(current.emitted, [['update:file', file], ['update:type', 'image']]);
     assert.equal(current.state.open.value, false);

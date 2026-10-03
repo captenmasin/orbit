@@ -9,14 +9,14 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
-type Method = 'touch_id' | 'recovery_code' | 'reset';
+type Method = 'touch_id' | 'windows_hello' | 'recovery_code' | 'reset';
 const emit = defineEmits<{ saved: [revision: number] }>();
 const props = defineProps<{ disabled?: boolean }>();
 const open = ref(false);
 const method = ref<Method | null>(null);
 const error = ref('');
 const recoveryCode = ref('');
-const status = useHttp<Record<string, never>, { touch_id_available: boolean; recovery_code_set: boolean }>({});
+const status = useHttp<Record<string, never>, { touch_id_available: boolean; windows_hello_available: boolean; recovery_code_set: boolean }>({});
 const form = useHttp<{ method: string; recovery_code: string; confirmation: string; pin: string; pin_confirmation: string }, { revision: number; recovery_code: string }>({ method: '', recovery_code: '', confirmation: '', pin: '', pin_confirmation: '' });
 const ready = computed(() => !!method.value && !form.processing && form.pin.length === 4 && form.pin_confirmation.length === 4
     && (method.value !== 'reset' || form.confirmation === 'DELETE ALL SECRETS')
@@ -88,13 +88,13 @@ onBeforeUnmount(() => { disposed = true; status.cancel(); form.cancel(); clearIn
             </Button>
         </DialogTrigger>
         <DialogContent
-            class="max-h-[calc(100dvh-2rem)] overflow-y-auto text-left sm:max-w-xl"
+            class="max-h-[calc(100dvh-2rem)] overflow-y-auto text-left sm:max-w-md"
             :show-close-button="!form.processing && !recoveryCode"
             @interact-outside="event => { if (form.processing || recoveryCode) event.preventDefault(); }"
             @escape-key-down="event => { if (form.processing || recoveryCode) event.preventDefault(); }">
             <DialogHeader>
                 <DialogTitle>{{ recoveryCode ? 'Your new PIN is ready' : method === 'reset' ? 'Reset all project secrets?' : 'Recover your PIN' }}</DialogTitle>
-                <DialogDescription>{{ recoveryCode ? 'Secrets are locked. Use your new PIN the next time you unlock them.' : method === 'reset' ? 'This deletes saved secrets from every project in this workspace. Projects, documents, tasks and connection credentials stay intact.' : 'Verify with Touch ID or your saved recovery code to choose a new PIN and keep your secrets.' }}</DialogDescription>
+                <DialogDescription>{{ recoveryCode ? 'Secrets are locked. Use your new PIN to unlock them.' : method === 'reset' ? 'Permanently delete saved secrets from every project and choose a new PIN. Projects, documents, tasks, and connection credentials are unaffected.' : 'Choose how to regain access to your project secrets.' }}</DialogDescription>
             </DialogHeader>
             <SecretRecoveryCode
                 v-if="recoveryCode"
@@ -110,39 +110,46 @@ onBeforeUnmount(() => { disposed = true; status.cancel(); form.cancel(); clearIn
                 <div
                     v-else-if="!method && status.response"
                     class="grid gap-3">
-                    <Button
-                        v-if="status.response.touch_id_available"
-                        type="button"
-                        @click="chooseMethod('touch_id')">
-                        Use Touch ID
-                    </Button>
-                    <Button
-                        v-if="status.response.recovery_code_set"
-                        type="button"
-                        variant="outline"
-                        @click="chooseMethod('recovery_code')">
-                        Use recovery code
-                    </Button>
-                    <p
-                        v-if="!status.response.touch_id_available"
-                        class="text-sm text-muted-foreground">
-                        Touch ID is unavailable on this device.
-                    </p>
+                    <div
+                        v-if="status.response.touch_id_available || status.response.windows_hello_available || status.response.recovery_code_set"
+                        class="flex flex-wrap gap-2">
+                        <Button
+                            v-if="status.response.touch_id_available"
+                            type="button"
+                            @click="chooseMethod('touch_id')">
+                            Use Touch ID
+                        </Button>
+                        <Button
+                            v-if="status.response.windows_hello_available"
+                            type="button"
+                            @click="chooseMethod('windows_hello')">
+                            Use Windows Hello
+                        </Button>
+                        <Button
+                            v-if="status.response.recovery_code_set"
+                            type="button"
+                            :variant="status.response.touch_id_available || status.response.windows_hello_available ? 'outline' : 'default'"
+                            @click="chooseMethod('recovery_code')">
+                            Use recovery code
+                        </Button>
+                    </div>
                     <p
                         v-if="!status.response.recovery_code_set"
-                        class="text-sm text-muted-foreground">
-                        No recovery code has been set up. If you remember your PIN, change it in Security settings to create one.
+                        class="text-xs leading-relaxed text-muted-foreground">
+                        No recovery code saved. If you remember your PIN, change it in Security settings to create one.
                     </p>
-                    <div class="grid gap-3 border-t pt-4">
-                        <p class="text-sm text-muted-foreground">
-                            Can't use either option? You can delete your saved project secrets and start again. Existing backups and exported files are unaffected.
-                        </p>
+                    <div class="grid gap-2 border-t pt-4">
                         <Button
                             type="button"
-                            variant="outline"
+                            variant="destructive"
+                            size="sm"
+                            class="justify-self-start"
                             @click="chooseMethod('reset')">
                             Reset secrets…
                         </Button>
+                        <p class="text-xs leading-relaxed text-muted-foreground">
+                            Deletes saved secrets from all projects.
+                        </p>
                     </div>
                 </div>
                 <form
@@ -193,30 +200,34 @@ onBeforeUnmount(() => { disposed = true; status.cancel(); form.cancel(); clearIn
                         <Field class="w-auto">
                             <FieldLabel for="recovery-new-pin">
                                 New PIN
-                            </FieldLabel><SecretPinInput
+                            </FieldLabel>
+                            <SecretPinInput
                                 id="recovery-new-pin"
                                 v-model="form.pin"
                                 :disabled="form.processing"
                                 :invalid="!!form.errors.pin"
-                                aria-describedby="recovery-new-pin-error" /><FieldError
-                                    v-if="form.errors.pin"
-                                    id="recovery-new-pin-error">
-                                    {{ form.errors.pin }}
-                                </FieldError>
+                                aria-describedby="recovery-new-pin-error" />
+                            <FieldError
+                                v-if="form.errors.pin"
+                                id="recovery-new-pin-error">
+                                {{ form.errors.pin }}
+                            </FieldError>
                         </Field>
                         <Field class="w-auto">
                             <FieldLabel for="recovery-confirm-pin">
                                 Confirm new PIN
-                            </FieldLabel><SecretPinInput
+                            </FieldLabel>
+                            <SecretPinInput
                                 id="recovery-confirm-pin"
                                 v-model="form.pin_confirmation"
                                 :disabled="form.processing"
                                 :invalid="!!form.errors.pin_confirmation"
-                                aria-describedby="recovery-confirm-pin-error" /><FieldError
-                                    v-if="form.errors.pin_confirmation"
-                                    id="recovery-confirm-pin-error">
-                                    {{ form.errors.pin_confirmation }}
-                                </FieldError>
+                                aria-describedby="recovery-confirm-pin-error" />
+                            <FieldError
+                                v-if="form.errors.pin_confirmation"
+                                id="recovery-confirm-pin-error">
+                                {{ form.errors.pin_confirmation }}
+                            </FieldError>
                         </Field>
                     </div>
                     <FieldError v-if="form.errors.method">
@@ -229,11 +240,12 @@ onBeforeUnmount(() => { disposed = true; status.cancel(); form.cancel(); clearIn
                             :disabled="form.processing"
                             @click="chooseMethod(null)">
                             Back
-                        </Button><Button
+                        </Button>
+                        <Button
                             type="submit"
                             :variant="method === 'reset' ? 'destructive' : 'default'"
                             :disabled="!ready">
-                            {{ form.processing ? (method === 'touch_id' ? 'Waiting for Touch ID…' : 'Resetting…') : method === 'reset' ? 'Delete all secrets and reset PIN' : method === 'touch_id' ? 'Verify with Touch ID' : 'Reset PIN' }}
+                            {{ form.processing ? (method === 'touch_id' ? 'Waiting for Touch ID…' : method === 'windows_hello' ? 'Waiting for Windows Hello…' : 'Resetting…') : method === 'reset' ? 'Delete all secrets' : method === 'touch_id' ? 'Verify with Touch ID' : method === 'windows_hello' ? 'Verify with Windows Hello' : 'Reset PIN' }}
                         </Button>
                     </DialogFooter>
                 </form>

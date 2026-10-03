@@ -25,7 +25,7 @@ watch(() => page.props.message, message => {
     router.replaceProp('message', null);
 }, { immediate: true, flush: 'sync' });
 const project = computed(() => page.props.selectedProject);
-const titles: Record<string, string> = { Dashboard: 'Dashboard', CreateProject: 'New project', EditProject: 'Edit project', Connections: 'Connections', Backups: 'Backups', Settings: 'Settings', Debug: 'Debug' };
+const titles: Record<string, string> = { Dashboard: 'Dashboard', CreateProject: 'New project', EditProject: 'Edit project', Connections: 'Connections', Settings: 'Settings', Debug: 'Debug' };
 const title = computed(() => titles[page.component] ?? project.value?.name ?? 'Orbit');
 const searchOpen = ref(false);
 const createProjectOpen = ref(false);
@@ -114,7 +114,7 @@ function handleNativeMenu(event: MessageEvent) {
         return;
     }
     const destinations: Record<string, string> = {
-        'new-project': '/projects/create', dashboard: '/', settings: '/settings', backups: '/settings/backups',
+        'new-project': '/projects/create', dashboard: '/', settings: '/settings',
         connections: '/settings/connections', tools: '/settings?section=tools', about: '/settings?section=about',
     };
     if (typeof id !== 'string' || !Object.hasOwn(destinations, id) || page.url === destinations[id] || (id === 'new-project' && page.component === 'CreateProject')) return;

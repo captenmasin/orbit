@@ -4,9 +4,7 @@ namespace Tests\Feature;
 
 use App\Actions\ProtectCredential;
 use App\Models\Project;
-use App\WorkspaceBackup;
 use App\WorkspacePreferences;
-use App\WorkspaceRestore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -346,15 +344,11 @@ class ProjectScratchpadTest extends TestCase
         $this->assertDatabaseCount('tasks', 0);
     }
 
-    public function test_scratchpad_survives_duplicate_and_restore(): void
+    public function test_scratchpad_survives_duplication(): void
     {
         $project = Project::factory()->create(['scratchpad' => 'Turn these notes into tasks']);
 
         $this->post('/projects/'.$project->id.'/duplicate')->assertRedirect();
-        $crypto = app(ProtectCredential::class);
-        $backup = app(WorkspaceBackup::class)->records(false, $crypto);
-        $staged = app(WorkspaceRestore::class)->stage($backup, $crypto);
-        app(WorkspaceRestore::class)->apply($staged);
 
         $this->assertSame('Turn these notes into tasks', $project->fresh()->scratchpad);
         $this->assertSame('Turn these notes into tasks', Project::whereKeyNot($project->id)->sole()->scratchpad);

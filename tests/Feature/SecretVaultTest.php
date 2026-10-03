@@ -189,10 +189,6 @@ class SecretVaultTest extends TestCase
         ] as [$method, $url]) {
             $this->{$method.'Json'}($url, [])->assertStatus(423);
         }
-        $this->postJson('/backups/export', [
-            'password' => 'correct horse battery staple', 'password_confirmation' => 'correct horse battery staple',
-            'include_secrets' => true, 'overwrite' => false,
-        ])->assertStatus(423);
 
         $this->assertDatabaseCount('project_secrets', 1);
         $this->assertSame('fixture-ciphertext', $secret->fresh()->ciphertext);
@@ -211,7 +207,7 @@ class SecretVaultTest extends TestCase
             ->component('Settings')->where('pinSet', true)->missing('pin_hash'));
     }
 
-    public function test_changing_the_shared_pin_revokes_previous_sessions_for_all_projects_and_backups(): void
+    public function test_changing_the_shared_pin_revokes_previous_sessions_for_all_projects(): void
     {
         $this->mockNativeSettings();
         config(['nativephp-internal.running' => true]);
@@ -241,10 +237,6 @@ class SecretVaultTest extends TestCase
         foreach ($projects as $project) {
             $this->getJson('/projects/'.$project->id.'/secrets/values')->assertStatus(423);
         }
-        $this->postJson('/backups/export', [
-            'password' => 'correct horse battery staple', 'password_confirmation' => 'correct horse battery staple',
-            'include_secrets' => true, 'overwrite' => false,
-        ])->assertStatus(423);
         $this->postJson('/secrets/unlock', ['pin' => '0123'])->assertUnprocessable()->assertJsonValidationErrors('pin');
         $this->postJson('/secrets/unlock', ['pin' => '4567'])->assertOk()->assertJsonPath('unlocked', true);
         foreach ($projects as $project) {

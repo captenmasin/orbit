@@ -12,6 +12,81 @@ use Tests\TestCase;
 
 class DependencyReaderTest extends TestCase
 {
+    public function test_composer_vcs_repositories_match_locked_sources_without_guessing_package_names(): void
+    {
+        Storage::fake('local');
+        Storage::put('composer.json', json_encode([
+            'require' => ['public/package' => '^1', 'custom/name' => '^1', 'owner/guessed' => '^1'],
+            'repositories' => [
+                ['type' => 'vcs', 'url' => 'https://github.com/owner/fork.git/'],
+                ['type' => 'vcs', 'url' => 'https://github.com/owner/guessed'],
+                ['type' => 'composer', 'url' => 'https://github.com/public/package'],
+            ],
+        ]));
+        Storage::put('composer.lock', json_encode([
+            'packages' => [
+                ['name' => 'public/package', 'version' => '1.0.0', 'source' => ['url' => 'https://github.com/public/package.git']],
+                ['name' => 'custom/name', 'version' => '1.0.0', 'source' => ['url' => 'https://github.com/owner/fork']],
+                ['name' => 'owner/guessed', 'version' => '1.0.0', 'source' => ['url' => 'https://github.com/another/guessed.git']],
+            ],
+            'packages-dev' => [['name' => 'custom/development', 'version' => '2.0.0', 'source' => ['url' => 'https://github.com/owner/fork.git']]],
+        ]));
+
+        $snapshot = app(ReadDependencies::class)->handle(Storage::path(''));
+
+        $this->assertSame('Current', $snapshot['files']['composer.json']['state']);
+        $this->assertSame('Current', $snapshot['files']['composer.lock']['state']);
+        $this->assertSame([null, 'https://github.com/owner/fork', null, 'https://github.com/owner/fork.git'], array_column($snapshot['files']['composer.lock']['entries'], 'link'));
+        $this->assertSame('Development', $snapshot['files']['composer.lock']['entries'][3]['scope']);
+    }
+
+    public function test_composer_repository_changes_invalidate_fingerprints_and_remove_obsolete_vcs_links(): void
+    {
+        Storage::fake('local');
+        $manifest = ['require' => ['custom/name' => '^1'], 'repositories' => ['fork' => ['type' => 'vcs', 'url' => 'https://github.com/owner/fork.git'], 'packagist.org' => false]];
+        Storage::put('composer.json', json_encode($manifest));
+        Storage::put('composer.lock', json_encode(['packages' => [['name' => 'custom/name', 'version' => '1.0.0', 'source' => ['url' => 'https://github.com/owner/fork.git']]]]));
+        $before = app(ReadDependencies::class)->handle(Storage::path(''));
+        $manifest['repositories']['fork']['url'] = 'https://github.com/owner/replacement.git';
+        Storage::put('composer.json', json_encode($manifest));
+
+        $after = app(ReadDependencies::class)->handle(Storage::path(''), $before);
+
+        $this->assertNotSame($before['fingerprint'], $after['fingerprint']);
+        $this->assertSame('https://github.com/owner/fork.git', $before['files']['composer.lock']['entries'][0]['link']);
+        $this->assertNull($after['files']['composer.lock']['entries'][0]['link']);
+    }
+
+    #[TestWith([42])]
+    #[TestWith([['unexpected' => 'array']])]
+    public function test_invalid_composer_vcs_urls_preserve_the_last_successful_snapshot(mixed $url): void
+    {
+        Storage::fake('local');
+        Storage::put('composer.json', json_encode(['repositories' => [['type' => 'vcs', 'url' => $url]]]));
+        $previous = ['files' => ['composer.json' => ['entries' => [['name' => 'previous']], 'scanned_at' => '2026-01-01T00:00:00Z']]];
+
+        $source = app(ReadDependencies::class)->handle(Storage::path(''), $previous)['files']['composer.json'];
+
+        $this->assertSame('Malformed file', $source['state']);
+        $this->assertSame([['name' => 'previous']], $source['entries']);
+        $this->assertSame('2026-01-01T00:00:00Z', $source['scanned_at']);
+    }
+
+    public function test_composer_vcs_urls_are_bounded_in_both_manifests_and_lock_sources(): void
+    {
+        Storage::fake('local');
+        $url = 'https://github.com/'.str_repeat('a', 2048);
+        Storage::put('composer.json', json_encode(['repositories' => [['type' => 'vcs', 'url' => $url]]]));
+        $manifest = app(ReadDependencies::class)->handle(Storage::path(''))['files']['composer.json'];
+        Storage::put('composer.json', '{"repositories":[{"type":"vcs","url":"https://github.com/owner/fork.git"}]}');
+        Storage::put('composer.lock', json_encode(['packages' => [['name' => 'custom/name', 'version' => '1.0.0', 'source' => ['url' => $url]]]]));
+
+        $lock = app(ReadDependencies::class)->handle(Storage::path(''))['files']['composer.lock'];
+
+        $this->assertSame('Malformed file', $manifest['state']);
+        $this->assertSame('Malformed file', $lock['state']);
+    }
+
     public function test_mixed_roots_preserve_constraints_scopes_engines_and_exact_lock_versions(): void
     {
         Storage::fake('local');

@@ -196,9 +196,6 @@ onBeforeUnmount(() => form.cancel());
                 Undo removal
             </Button>
         </div>
-        <p class="text-sm text-muted-foreground">
-            Archived is built in. Archiving and restoring projects remain available in project actions.
-        </p>
         <FieldError
             v-for="(value, key) in form.errors"
             :key="key">
@@ -228,5 +225,8 @@ onBeforeUnmount(() => form.cancel());
                 Reload settings
             </Button>
         </div>
+        <p class="text-sm text-muted-foreground">
+            Archived is built in. Archiving and restoring projects remain available in project actions.
+        </p>
     </form>
 </template>

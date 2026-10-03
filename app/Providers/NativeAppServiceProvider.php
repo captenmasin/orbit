@@ -41,7 +41,6 @@ class NativeAppServiceProvider implements ProvidesPhpIni
                 Menu::label('Search Workspace…', 'CmdOrCtrl+K')->id('search'),
                 Menu::separator(),
                 Menu::label('Settings…', 'CmdOrCtrl+,')->id('settings'),
-                Menu::label('Backups & Restore…')->id('backups'),
             )->label('Workspace'),
             Menu::make(
                 Menu::label('Connections…')->id('connections'),
@@ -56,7 +55,7 @@ class NativeAppServiceProvider implements ProvidesPhpIni
         $url = str_replace('://127.0.0.1', '://localhost', route('startup'));
         $window = Window::open()->url($url)->title('Orbit')->width(1180)->height(850)->minWidth(600)->minHeight(600);
         if (PHP_OS_FAMILY === 'Darwin') {
-            $window->titleBarHiddenInset();
+            $window->titleBarHiddenInset()->blendBackgroundBehindWindow();
         }
     }
 

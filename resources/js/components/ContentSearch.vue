@@ -28,7 +28,6 @@ const resultIcons: Record<string, typeof FolderIcon> = { project: FolderIcon, do
 const commands: (SearchResult & { keywords: string })[] = [
     { id: 'new-project', title: 'New project', keywords: 'create add project', url: '/projects/create', type: 'command', project: 'Workspace', excerpt: '' },
     { id: 'settings', title: 'Settings', keywords: 'preferences appearance tools', url: '/settings', type: 'command', project: 'Workspace', excerpt: '' },
-    { id: 'backups', title: 'Backups', keywords: 'backup restore export', url: '/settings/backups', type: 'command', project: 'Workspace', excerpt: '' },
     { id: 'dashboard', title: 'Go to dashboard', keywords: 'home workspace projects', url: '/', type: 'command', project: 'Workspace', excerpt: '' },
 ];
 const matchingCommands = computed(() => {
@@ -206,9 +205,6 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); request?.abort(); });
                         project:{{ filters.project }}
                     </Badge>
                 </div>
-                <p class="px-6 pb-3 text-xs text-muted-foreground">
-                    Search projects, documents, cards, links and secret metadata. Scratchpad notes, assets and source folders are not included.
-                </p>
                 <ComboboxViewport class="max-h-[min(55vh,28rem)] scroll-py-2 overflow-y-auto px-2 pb-2">
                     <template
                         v-for="group in resultGroups"

@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\DependencyVersions;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
@@ -13,7 +14,7 @@ use stdClass;
 
 class CheckDependencySecurity
 {
-    private const PACKAGE_LIMIT = 500;
+    private const BATCH_SIZE = 500;
 
     private const ADVISORY_LIMIT = 50;
 
@@ -29,24 +30,34 @@ class CheckDependencySecurity
             'fingerprint' => ReadDependencies::fingerprint($snapshot), 'checked_at' => now()->toIso8601String(),
             'checked' => 0, 'unavailable' => 0, 'skipped' => $skipped, 'packages' => [],
         ];
+        if (! empty($snapshot['additional_ecosystems'])) {
+            [, $result['incomplete']] = ReadDependencies::additionalPackages($snapshot);
+        }
         if (! $packages) {
             return $result;
         }
-        $responses = Http::pool(fn (Pool $pool): array => [
-            $this->request($pool->as('batch'))->post('https://api.osv.dev/v1/querybatch', ['queries' => array_map(fn (array $package): array => [
-                'package' => ['name' => $package['name'], 'ecosystem' => $package['ecosystem'] === 'composer' ? 'Packagist' : 'npm'],
-                'version' => ltrim($package['current'], 'v'),
-            ], $packages)]),
-        ], concurrency: 1);
-        $batch = $this->payload($responses['batch'] ?? null);
-        if (! is_array($batch?->results) || count($batch->results) !== count($packages)) {
-            return [...$result, 'unavailable' => count($packages)];
+        $batches = array_chunk($packages, self::BATCH_SIZE);
+        $responses = Http::pool(function (Pool $pool) use ($batches): array {
+            $requests = [];
+            foreach ($batches as $index => $batch) {
+                $requests[] = $this->request($pool->as('batch-'.$index))->post('https://api.osv.dev/v1/querybatch', ['queries' => array_map(fn (array $package): array => [
+                    'package' => ['name' => $package['name'], 'ecosystem' => DependencyVersions::OSV[$package['ecosystem']]],
+                    'version' => $package['ecosystem'] === 'go' ? $package['current'] : ltrim($package['current'], 'v'),
+                ], $batch)]);
+            }
+
+            return $requests;
+        }, concurrency: 3);
+        $queries = [];
+        foreach ($batches as $index => $batch) {
+            $payload = $this->payload($responses['batch-'.$index] ?? null);
+            array_push($queries, ...(is_array($payload?->results) && count($payload->results) === count($batch) ? $payload->results : array_fill(0, count($batch), null)));
         }
         $ids = [];
         $findings = [];
         $incomplete = [];
         foreach ($packages as $index => $package) {
-            $query = $batch->results[$index];
+            $query = $queries[$index];
             if (! $query instanceof stdClass || (property_exists($query, 'vulns') && ! is_array($query->vulns)) || (! property_exists($query, 'vulns') && array_diff(array_keys(get_object_vars($query)), ['next_page_token']))) {
                 $incomplete[$index] = true;
 
@@ -66,7 +77,7 @@ class CheckDependencySecurity
                 $ids[$id] = $id;
             }
         }
-        // ponytail: cap one check at 500 package versions and 50 advisory details; queue batches for larger roots.
+        // ponytail: cap one check at 50 advisory details; queue detail batches if larger reports become common.
         $responses = Http::pool(function (Pool $pool) use ($ids): array {
             $requests = [];
             foreach (array_slice($ids, 0, self::ADVISORY_LIMIT, true) as $id) {
@@ -101,9 +112,9 @@ class CheckDependencySecurity
         $skipped = count($snapshot['unsupported_lockfiles'] ?? []);
         $npmLockfile = array_key_exists('npm_lockfile', $snapshot) ? $snapshot['npm_lockfile'] : 'package-lock.json';
         foreach (['composer' => ['composer.json', 'composer.lock'], 'npm' => ['package.json', $npmLockfile]] as $ecosystem => [$manifest, $lockfile]) {
+            $versionPattern = $ecosystem === 'composer' ? '/\Av?\d+(?:\.\d+){0,3}(?:[-+][\w.+-]+)?\z/' : '/\Av?\d+\.\d+\.\d+(?:\.\d+)?(?:[-+][\w.+-]+)?\z/';
             if ($lockfile === null) {
-                $hasNpm = array_any(array_keys($snapshot['files'] ?? []), fn (string $file): bool => ! in_array($file, ['composer.json', 'composer.lock'], true)
-                    && ($snapshot['files'][$file]['state'] ?? 'Missing file') !== 'Missing file');
+                $hasNpm = array_any(['package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'], fn (string $file): bool => ($snapshot['files'][$file]['state'] ?? 'Missing file') !== 'Missing file');
                 if ($hasNpm) {
                     $skipped += max(1, count($snapshot['files'][$manifest]['entries'] ?? []));
                 }
@@ -124,7 +135,7 @@ class CheckDependencySecurity
                 $name = $entry['name'] ?? null;
                 $version = $entry['version'] ?? null;
                 $pattern = $ecosystem === 'composer' ? '/\A[a-z0-9_.-]+\/[a-z0-9_.-]+\z/i' : '/\A(?:@[a-z0-9_.-]+\/)?[a-z0-9_.-]+\z/i';
-                if (! is_string($name) || ! preg_match($pattern, $name) || ! is_string($version) || ! preg_match('/\Av?\d+\.\d+\.\d+(?:\.\d+)?(?:[-+][\w.+-]+)?\z/', $version) || ! empty($entry['link'])) {
+                if (! is_string($name) || ! preg_match($pattern, $name) || ! is_string($version) || ! preg_match($versionPattern, $version) || ! empty($entry['link'])) {
                     $skipped++;
 
                     continue;
@@ -132,9 +143,14 @@ class CheckDependencySecurity
                 $packages[$ecosystem.':'.$name.':'.$version] = ['name' => $name, 'ecosystem' => $ecosystem, 'current' => $version];
             }
         }
-        $skipped += max(0, count($packages) - self::PACKAGE_LIMIT);
 
-        return [array_values(array_slice($packages, 0, self::PACKAGE_LIMIT)), $skipped];
+        [$additional, $additionalSkipped] = ReadDependencies::additionalPackages($snapshot);
+        $skipped += $additionalSkipped;
+        foreach ($additional as $package) {
+            $packages[$package['ecosystem'].':'.$package['name'].':'.$package['current']] = $package;
+        }
+
+        return [array_values($packages), $skipped];
     }
 
     private function request(PendingRequest $request): PendingRequest
@@ -179,7 +195,7 @@ class CheckDependencySecurity
         $fixed = [];
         $matched = false;
         foreach ($details->affected as $affected) {
-            if (! $affected instanceof stdClass || ($affected->package->name ?? null) !== $package['name'] || ($affected->package->ecosystem ?? null) !== ($package['ecosystem'] === 'composer' ? 'Packagist' : 'npm')) {
+            if (! $affected instanceof stdClass || ! is_string($affected->package->name ?? null) || DependencyVersions::name($package['ecosystem'], $affected->package->name) !== $package['name'] || ($affected->package->ecosystem ?? null) !== DependencyVersions::OSV[$package['ecosystem']]) {
                 continue;
             }
             $matched = true;
@@ -191,7 +207,7 @@ class CheckDependencySecurity
                 }
                 foreach (is_array($range->events ?? null) ? $range->events : [] as $event) {
                     $version = $event instanceof stdClass ? ($event->fixed ?? null) : null;
-                    if (is_string($version) && preg_match('/\Av?\d+\.\d+\.\d+(?:\.\d+)?(?:[-+][\w.+-]+)?\z/', $version) && version_compare(ltrim($version, 'v'), ltrim($package['current'], 'v'), '>')) {
+                    if (DependencyVersions::comparable($package['ecosystem'], $version) && DependencyVersions::comparable($package['ecosystem'], $package['current']) && DependencyVersions::compare($package['ecosystem'], $version, $package['current']) > 0) {
                         $fixed[$version] = $version;
                     }
                 }
@@ -207,7 +223,7 @@ class CheckDependencySecurity
             }
         }
         $fixed = array_values($fixed);
-        usort($fixed, fn (string $first, string $second): int => version_compare(ltrim($first, 'v'), ltrim($second, 'v')));
+        usort($fixed, fn (string $first, string $second): int => DependencyVersions::compare($package['ecosystem'], $first, $second));
 
         return [
             'id' => $id, 'title' => is_string($details->summary ?? null) && trim($details->summary) !== '' ? mb_substr($details->summary, 0, 500) : $id,

@@ -34,6 +34,47 @@ function assertPinCleared(form) {
     assert.equal(form.pin_confirmation, '');
 }
 
+test('closing the PIN dialog clears cancelled digits, errors and defaults', t => {
+    const state = mount(t, { pinSet: true });
+    assert.equal(state.open.value, false);
+    state.changeOpen(true);
+    Object.assign(state.form, { current_pin: '0123', pin: '4567', pin_confirmation: '4567' });
+    state.form.setError('current_pin', 'Incorrect PIN.');
+    state.error.value = 'Try again.';
+
+    state.changeOpen(false);
+
+    assert.equal(state.open.value, false);
+    assert.equal(state.form.hasErrors, false);
+    assert.equal(state.error.value, '');
+    assertPinCleared(state.form);
+    state.changeOpen(true);
+    assert.equal(state.open.value, true);
+    assert.equal(state.form.pin, '');
+});
+
+test('the PIN dialog stays open during saving and until its recovery code is acknowledged', async t => {
+    const state = mount(t);
+    let finish;
+    t.mock.method(http.getClient(), 'request', () => new Promise(resolve => { finish = resolve; }));
+    state.changeOpen(true);
+    state.form.pin = state.form.pin_confirmation = '0123';
+
+    const pending = state.savePin();
+    state.changeOpen(false);
+    assert.equal(state.open.value, true);
+    finish({ status: 200, data: JSON.stringify({ recovery_code: 'new-private-code' }), headers: {} });
+    await pending;
+    state.changeOpen(false);
+
+    assert.equal(state.open.value, true);
+    assert.equal(state.recoveryCode.value, 'new-private-code');
+    state.finishRecovery();
+    assert.equal(state.open.value, false);
+    assert.equal(state.recoveryCode.value, '');
+    assertPinCleared(state.form);
+});
+
 test('setting a PIN waits for Save PIN and avoids duplicate requests', async t => {
     const state = mount(t);
     const requests = [];
@@ -166,6 +207,8 @@ test('network failures leave the PIN unset and show a retry error', async t => {
 
 test('browser settings cannot submit a PIN change', async t => {
     const state = mount(t, { native: false });
+    state.changeOpen(true);
+    assert.equal(state.open.value, false);
     let requests = 0;
     t.mock.method(http.getClient(), 'request', async () => { requests++; });
     state.form.pin = state.form.pin_confirmation = '0123';

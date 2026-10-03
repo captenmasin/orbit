@@ -7,9 +7,33 @@ import { Link } from '@inertiajs/vue3';
 import type { Project } from '@/types';
 import { PencilIcon } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
+import { useResizeObserver } from '@vueuse/core';
+import { nextTick, onMounted, ref, watch } from 'vue';
 
-defineProps<{ project: Project; statuses: string[]; statusDisabled: boolean; statusError: string; statusNeedsReload: boolean }>();
+const props = defineProps<{ project: Project; statuses: string[]; statusDisabled: boolean; statusError: string; statusNeedsReload: boolean }>();
 const emit = defineEmits<{ 'change-status': [status: string]; reload: [] }>();
+const descriptionElement = ref<HTMLElement | null>(null);
+const descriptionExpanded = ref(false);
+const descriptionOverflows = ref(false);
+
+function measureDescription() {
+    const element = descriptionElement.value;
+    if (!element) {
+        descriptionOverflows.value = false;
+        return;
+    }
+    if (descriptionExpanded.value) element.classList.add('line-clamp-2');
+    descriptionOverflows.value = element.scrollHeight > element.clientHeight;
+    if (descriptionExpanded.value) element.classList.remove('line-clamp-2');
+}
+
+onMounted(measureDescription);
+useResizeObserver(descriptionElement, measureDescription);
+watch(() => [props.project.id, props.project.description, props.project.description_html], async () => {
+    descriptionExpanded.value = false;
+    await nextTick();
+    measureDescription();
+}, { flush: 'post' });
 </script>
 
 <template>
@@ -20,10 +44,10 @@ const emit = defineEmits<{ 'change-status': [status: string]; reload: [] }>();
                 :type="project.icon_type"
                 :emoji="project.icon_emoji"
                 :image="project.icon_url"
-                size="lg" />
+                size="default" />
             <div class="min-w-0 space-y-2">
                 <div class="flex flex-wrap items-center gap-3">
-                    <h1 class="min-w-0 break-words text-[2rem] leading-tight font-semibold tracking-[-0.035em]">
+                    <h1 class="min-w-0 break-words text-[1.5rem] leading-tight font-semibold tracking-[-0.035em]">
                         {{ project.name }}
                     </h1>
                     <span class="flex items-center gap-1.5">
@@ -52,10 +76,33 @@ const emit = defineEmits<{ 'change-status': [status: string]; reload: [] }>();
                         Reload project
                     </Button>
                 </p>
-                <MarkdownContent
+                <div
                     v-if="project.description"
-                    :html="project.description_html"
-                    class="max-w-2xl text-sm leading-6 break-words text-muted-foreground" />
+                    class="relative max-w-2xl text-sm leading-6 break-words text-muted-foreground">
+                    <div
+                        :id="`project-description-${project.id}`"
+                        ref="descriptionElement"
+                        :class="{ 'line-clamp-2': !descriptionExpanded }">
+                        <MarkdownContent :html="project.description_html" />
+                    </div>
+                    <span
+                        v-if="descriptionOverflows"
+                        class="inline-flex items-baseline gap-1"
+                        :class="{ 'absolute right-0 bottom-0 bg-background pl-2': !descriptionExpanded }">
+                        <span
+                            v-if="!descriptionExpanded"
+                            aria-hidden="true">…</span>
+                        <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            :aria-expanded="descriptionExpanded"
+                            :aria-controls="`project-description-${project.id}`"
+                            @click="descriptionExpanded = !descriptionExpanded">
+                            {{ descriptionExpanded ? 'Show less' : 'Show more' }}
+                        </Button>
+                    </span>
+                </div>
                 <div
                     v-if="project.tags.length"
                     class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -64,7 +111,12 @@ const emit = defineEmits<{ 'change-status': [status: string]; reload: [] }>();
                         :key="tag.id">
                         <span
                             v-if="index"
-                            aria-hidden="true">·</span><span>{{ tag.name }}</span>
+                            aria-hidden="true">·</span><Link
+                                :href="`/?tag=${encodeURIComponent(tag.name)}`"
+                                :aria-label="`Filter projects by ${tag.name}`"
+                                class="rounded-sm hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                                {{ tag.name }}
+                            </Link>
                     </template>
                 </div>
                 <p

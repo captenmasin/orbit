@@ -230,7 +230,7 @@ function submit() {
         onError: errors => {
             if (moveControl) announcement.value = String(Object.values(errors)[0] ?? 'Order could not be saved. Try again.');
             if (!editor.value && !errors.revision) {
-                toast.error(String(Object.values(errors)[0] ?? 'The board could not be updated. Try again.'));
+                toast.error(String(Object.values(errors)[0] ?? 'The tasks could not be updated. Try again.'));
                 form.clearErrors();
             }
         },
@@ -277,7 +277,7 @@ watch(() => [props.targetTaskId, props.project.id], () => {
 
 function reload() {
     router.reload({
-        onNetworkError: () => { form.setError('revision', 'Could not reload the board. Your draft is kept. Try again.'); },
+        onNetworkError: () => { form.setError('revision', 'Could not reload the tasks. Your draft is kept. Try again.'); },
         only: ['selectedProject'], onSuccess: () => {
             form.revision = props.project.revision;
             form.clearErrors('revision', 'id', 'column_id');
@@ -304,7 +304,7 @@ function reload() {
                 <h2
                     id="board-title"
                     class="text-xl font-normal tracking-[-0.025em]">
-                    Board
+                    Tasks
                 </h2>
             </div>
             <div class="flex flex-wrap items-center justify-between gap-4">
@@ -343,7 +343,7 @@ function reload() {
                     type="button"
                     variant="outline"
                     @click="reload">
-                    Reload board
+                    Reload tasks
                 </Button>
             </AlertDescription>
         </Alert>
@@ -369,7 +369,7 @@ function reload() {
             v-else
             class="-mx-4 flex min-w-0 items-start gap-4 overflow-x-auto px-4 pb-4 lg:-mx-6 lg:px-6"
             role="region"
-            aria-label="Task board"
+            aria-label="Tasks"
             tabindex="0">
             <VueDraggable
                 v-model="columns"
@@ -556,7 +556,7 @@ function reload() {
                                 variant="outline"
                                 :disabled="busy"
                                 @click="reload">
-                                Reload board
+                                Reload tasks
                             </Button>
                         </div>
                         <div class="flex items-center gap-1">
@@ -642,7 +642,7 @@ function reload() {
                                 type="button"
                                 variant="outline"
                                 @click="reload">
-                                Reload board
+                                Reload tasks
                             </Button>
                         </AlertDescription>
                     </Alert>

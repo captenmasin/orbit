@@ -176,7 +176,7 @@ async function save() {
                                     </Field>
                                     <Field v-if="columns.length">
                                         <FieldLabel :for="`suggested-task-column-${index}`">
-                                            Board list
+                                            Task list
                                         </FieldLabel><ChoiceSelect
                                             :id="`suggested-task-column-${index}`"
                                             v-model="item.column_id"
@@ -187,7 +187,7 @@ async function save() {
                                     <p
                                         v-else
                                         class="text-sm text-destructive">
-                                        Add a board list or deselect this card.
+                                        Add a task list or deselect this card.
                                     </p>
                                 </template>
                                 <template v-else>

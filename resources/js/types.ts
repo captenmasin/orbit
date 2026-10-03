@@ -39,6 +39,8 @@ export interface DependencyEntry {
     version?: string | null;
     location?: string | null;
     link?: string | null;
+    identity?: 'Direct' | 'Transitive' | 'Lock only';
+    root?: boolean;
 }
 
 export interface DependencySource {
@@ -80,6 +82,7 @@ export interface PackageRoot {
         files: Record<string, DependencySource>;
         unsupported_lockfiles: string[];
         npm_lockfile?: string | null;
+        additional_ecosystems?: Record<string, { manifest: string | null; lockfile: string | null; lockfiles?: string[] }>;
         runtimes: Record<string, RuntimeResult>;
     } | null;
 }
@@ -148,8 +151,6 @@ export interface Project {
     folders: ProjectFolder[];
     links: ProjectLink[];
     secrets?: ProjectSecret[];
-    repositories_count?: number;
-    folders_count?: number;
     last_commit_at: string | null;
     board_columns?: BoardColumn[];
 }
@@ -173,6 +174,7 @@ export interface DependencyUpdates {
     fingerprint: string;
     checked: number;
     unavailable: number;
+    incomplete?: number;
     skipped: number;
     packages: { name: string; ecosystem: string; current: string; latest: string }[];
 }
@@ -190,6 +192,7 @@ export interface DependencySecurity {
     fingerprint: string;
     checked: number;
     unavailable: number;
+    incomplete?: number;
     skipped: number;
     packages: { name: string; ecosystem: string; current: string; advisories: DependencyAdvisory[] }[];
 }
@@ -222,6 +225,7 @@ export interface BoardColumn {
     color: string | null;
     position: number;
     tasks: BoardTask[];
+    tasks_count?: number;
 }
 
 export interface ProjectPage {

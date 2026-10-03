@@ -3,16 +3,20 @@ import ProjectIcon from '@/components/ProjectIcon.vue';
 import MarkdownContent from '@/components/MarkdownContent.vue';
 import ProjectStatusDot from '@/components/ProjectStatusDot.vue';
 import ProjectContextMenu from '@/components/ProjectContextMenu.vue';
+import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import type { Project } from '@/types';
 import { DropdownMenuTrigger } from 'reka-ui';
 import { Button } from '@/components/ui/button';
-import { EllipsisVerticalIcon } from '@lucide/vue';
+import { dependencyHealth } from '@/lib/dependencies';
+import { EllipsisVerticalIcon, ListTodoIcon, PackageIcon } from '@lucide/vue';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 
-defineProps<{ project: Project; selectedTags: string[] }>();
+const props = defineProps<{ project: Project; selectedTags: string[] }>();
 const emit = defineEmits<{ toggleTag: [tag: string] }>();
-const date = (value: string) => new Date(value).toLocaleDateString();
+// ponytail: completion uses the Done list name; add a completion flag if custom lists need separate semantics.
+const todoCount = computed(() => (props.project.board_columns ?? []).reduce((count, column) => count + (column.name.trim().toLowerCase() === 'done' ? 0 : column.tasks_count ?? 0), 0));
+const dependencies = computed(() => dependencyHealth(props.project.folders ?? []));
 </script>
 
 <template>
@@ -24,7 +28,7 @@ const date = (value: string) => new Date(value).toLocaleDateString();
             <CardHeader class="flex min-w-0 items-center px-3 pt-2 sm:px-3 gap-3">
                 <Link
                     :href="`/projects/${project.id}`"
-                    class="flex min-w-0 cursor-pointer flex-1 items-center gap-3 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                    class="flex min-w-0 cursor-pointer! flex-1 items-center gap-3 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
                     <ProjectIcon
                         :name="project.name"
                         :type="project.icon_type"
@@ -72,25 +76,35 @@ const date = (value: string) => new Date(value).toLocaleDateString();
                     </template>
                 </div>
                 <CardFooter class="flex-wrap justify-between gap-x-4 gap-y-1 text-muted-foreground">
-                    <span class="text-xs">{{ project.repositories_count ?? 0 }} repos <span
-                        class="px-1"
-                        aria-hidden="true">·</span> {{ project.folders_count ?? 0 }} folders</span>
-                    <div class="flex items-center gap-4">
-                        <time
-                            v-if="project.last_commit_at"
-                            :datetime="project.last_commit_at"
-                            class="text-xs">Last commit {{ date(project.last_commit_at) }}</time><span
-                                v-else
-                                class="text-xs">No commit data</span>
-                        <DropdownMenuTrigger as-child>
-                            <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                :aria-label="`Actions for ${project.name}`">
-                                <EllipsisVerticalIcon aria-hidden="true" />
-                            </Button>
-                        </DropdownMenuTrigger>
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                        <Link
+                            :href="`/projects/${project.id}?tab=board`"
+                            class="flex items-center gap-1.5 rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                            <ListTodoIcon
+                                class="size-3.5"
+                                aria-hidden="true" />{{ todoCount }} to do
+                        </Link>
+                        <Link
+                            v-if="dependencies.issueCount || dependencies.complete"
+                            :href="`/projects/${project.id}?tab=dependencies`"
+                            class="flex items-center gap-1.5 rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                            :class="{ 'text-amber-600 dark:text-amber-400': dependencies.issueCount }">
+                            <PackageIcon
+                                class="size-3.5"
+                                aria-hidden="true" />
+                            {{ dependencies.issueCount }} dependency {{ dependencies.issueCount === 1 ? 'issue' : 'issues' }}
+                        </Link>
                     </div>
+                    <DropdownMenuTrigger
+                        class="-mr-2"
+                        as-child>
+                        <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            :aria-label="`Actions for ${project.name}`">
+                            <EllipsisVerticalIcon aria-hidden="true" />
+                        </Button>
+                    </DropdownMenuTrigger>
                 </CardFooter>
             </CardContent>
         </Card>

@@ -106,7 +106,7 @@ test('native workspace menu opens existing pages and search without resetting th
     assert.equal(layout.createProjectOpen.value, true);
     assert.deepEqual(visits, []);
     for (const [id, destination] of [
-        ['settings', '/settings'], ['backups', '/settings/backups'],
+        ['settings', '/settings'],
         ['connections', '/settings/connections'], ['tools', '/settings?section=tools'], ['about', '/settings?section=about'],
     ]) {
         layout.searchOpen.value = true;
@@ -139,7 +139,7 @@ test('native menu ignores unrelated, foreign, and unknown messages and stays dis
         { data: { type: 'native-event', event: 'OtherEvent' } },
         { data: { type: 'native-event', event: 'Native\\Desktop\\Events\\Menu\\MenuItemClicked' } },
     ]) menu('search', overrides);
-    for (const id of ['unknown', '__proto__', 'constructor', '/settings', 'https://example.com', null, {}]) menu(id);
+    for (const id of ['unknown', 'backups', '__proto__', 'constructor', '/settings', 'https://example.com', null, {}]) menu(id);
     assert.equal(layout.searchOpen.value, false);
     assert.deepEqual(visits, []);
     const browser = workspace({ props: { native: false } });

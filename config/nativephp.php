@@ -71,7 +71,7 @@ return [
         'ORBIT_MCP_TOKEN',
         'DB_*',
         'AZURE_*',
-        'GITHUB_*',
+        'GITHUB_*TOKEN*',
         'DO_SPACES_*',
         '*_SECRET',
         'BIFROST_*',
@@ -123,13 +123,13 @@ return [
          * Supported: "github", "s3", "spaces"
          * Note: The "s3" provider is compatible with S3-compatible services like Cloudflare R2.
          */
-        'default' => env('NATIVEPHP_UPDATER_PROVIDER', 'spaces'),
+        'default' => env('NATIVEPHP_UPDATER_PROVIDER', 'github'),
 
         'providers' => [
             'github' => [
                 'driver' => 'github',
-                'repo' => env('GITHUB_REPO'),
-                'owner' => env('GITHUB_OWNER'),
+                'repo' => env('GITHUB_REPO', 'orbit'),
+                'owner' => env('GITHUB_OWNER', 'captenmasin'),
                 'token' => env('GITHUB_TOKEN'),
                 'vPrefixedTagName' => env('GITHUB_V_PREFIXED_TAG_NAME', true),
                 'private' => env('GITHUB_PRIVATE', false),

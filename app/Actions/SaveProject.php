@@ -33,7 +33,7 @@ class SaveProject
             'revision' => [$id ? 'required' : 'prohibited', 'integer', 'min:1'],
             'icon_type' => ['sometimes', Rule::in(['initials', 'emoji', 'image'])],
             'icon_emoji' => $emoji,
-            'icon_file' => ['nullable', 'image', 'mimes:png,jpg,jpeg,gif,webp', 'max:5120', 'dimensions:max_width=2048,max_height=2048'],
+            'icon_file' => ['nullable', 'image:allow_svg', 'mimes:png,jpg,jpeg,gif,webp,svg', 'max:5120', 'dimensions:max_width=2048,max_height=2048'],
             'tags' => ['sometimes', 'array', 'max:100'],
             'tags.*' => ['required', 'string', 'max:50', 'regex:/\S/u'],
             'repositories' => ['sometimes', 'array', 'max:100'],
@@ -71,7 +71,7 @@ class SaveProject
             throw ValidationException::withMessages(['icon_emoji' => 'Choose an emoji.']);
         }
         if ($type === 'image' && empty($data['icon_file']) && ! $current?->icon_path) {
-            throw ValidationException::withMessages(['icon_file' => 'Choose a PNG, JPEG, GIF or WebP image.']);
+            throw ValidationException::withMessages(['icon_file' => 'Choose a PNG, JPEG, GIF, WebP or SVG image.']);
         }
         foreach (['repositories' => Repository::class, 'folders' => ProjectFolder::class, 'links' => ProjectLink::class] as $key => $model) {
             if (isset($data[$key]) && $model::whereIn('id', array_column($data[$key], 'id'))

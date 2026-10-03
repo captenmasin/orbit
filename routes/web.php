@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\AppUpdateController;
-use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BoardController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\DebugController;
@@ -105,6 +104,7 @@ Route::prefix('projects')->name('projects.')->group(function (): void {
 
         Route::get('/tasks/{task}/attachments/{attachment}', [BoardController::class, 'download'])->name('tasks.attachments.download');
         Route::get('/icon', [CatalogController::class, 'icon'])->name('icon');
+        Route::post('/open-url', [CatalogController::class, 'openUrl'])->name('url.open');
         Route::post('/open/{kind}/{id}', [CatalogController::class, 'open'])
             ->whereIn('kind', ['folders', 'repositories', 'links', 'secrets'])->name('open');
     });
@@ -131,14 +131,6 @@ Route::prefix('secrets')->name('secrets.')->controller(SecretVaultController::cl
 Route::prefix('settings')->controller(SettingsController::class)->group(function (): void {
     Route::get('/', 'index')->name('settings.index');
     Route::get('/connections', 'index')->defaults('section', 'connections')->name('connections.index');
-    Route::get('/backups', 'index')->defaults('section', 'backups')->name('backups.index');
-});
-
-Route::prefix('backups')->name('backups.')->controller(BackupController::class)->group(function (): void {
-    Route::post('/export/preview', 'previewExport')->name('export.preview');
-    Route::post('/export', 'export')->name('export');
-    Route::post('/restore/preview', 'previewRestore')->name('restore.preview');
-    Route::post('/restore', 'applyRestore')->name('restore');
 });
 
 Route::prefix('connections')->name('connections.')->controller(ProviderController::class)->group(function (): void {
@@ -158,7 +150,5 @@ Route::put('/settings/connections/ai', [ScratchpadAiController::class, 'update']
 Route::delete('/settings/connections/ai', [ScratchpadAiController::class, 'destroy'])->name('settings.ai.destroy');
 Route::post('/settings/tools/probe', [ToolsController::class, 'probe'])->name('settings.tools.probe');
 Route::post('/settings/tools/pick', [ToolsController::class, 'pick'])->name('settings.tools.pick');
-Route::get('/backups/preferences', [BackupController::class, 'preferences'])->name('backups.preferences');
-Route::post('/backups/folder', [BackupController::class, 'chooseFolder'])->name('backups.folder');
 Route::get('/settings/updates', [AppUpdateController::class, 'show'])->name('settings.updates.show');
 Route::post('/settings/updates/{action}', [AppUpdateController::class, 'update'])->name('settings.updates.update');

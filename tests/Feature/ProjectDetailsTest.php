@@ -2,10 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Actions\ProtectCredential;
 use App\Models\Project;
-use App\WorkspaceBackup;
-use App\WorkspaceRestore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -29,7 +26,6 @@ class ProjectDetailsTest extends TestCase
         $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page) => $page->component('ShowProject')->where('selectedProject.id', $project->id));
         $this->get('/projects/'.$project->id.'/edit')->assertInertia(fn (Assert $page) => $page->component('EditProject'));
         $this->get('/settings/connections')->assertInertia(fn (Assert $page) => $page->component('Settings')->where('section', 'connections'));
-        $this->get('/settings/backups')->assertInertia(fn (Assert $page) => $page->component('Settings')->where('section', 'backups'));
     }
 
     public function test_repository_clone_route_is_unavailable(): void
@@ -440,30 +436,5 @@ class ProjectDetailsTest extends TestCase
         $this->get('/projects/'.$project->id)->assertInertia(fn (Assert $page) => $page->where('selectedProject.assets.0.mime_type', 'image/svg+xml'));
         $this->get($project->assets[0]['preview_url'])->assertOk()->assertHeader('Content-Type', 'image/svg+xml')
             ->assertHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
-    }
-
-    public function test_backups_restore_notes_order_and_asset_contents(): void
-    {
-        Storage::fake('local');
-        $project = Project::factory()->create(['notes' => 'Project notes']);
-        $folders = [['id' => (string) Str::uuid(), 'name' => 'logo'], ['id' => (string) Str::uuid(), 'name' => 'Empty']];
-        $project->forceFill(['position' => 7, 'asset_folders' => $folders])->save();
-        $this->post('/projects/'.$project->id.'/assets', ['revision' => 1, 'folder_id' => $folders[0]['id'], 'files' => [UploadedFile::fake()->createWithContent('notes.txt', 'Stored file')]])->assertRedirect();
-        $oldPath = $project->fresh()->asset_files[0]['path'];
-        $crypto = app(ProtectCredential::class);
-        $staged = app(WorkspaceRestore::class)->stage(app(WorkspaceBackup::class)->records(false, $crypto), $crypto);
-        app(WorkspaceRestore::class)->apply($staged);
-
-        $restored = $project->fresh();
-        $this->assertSame('Project notes', $restored->documents()->sole()->body);
-        $this->assertNull($restored->notes);
-        $this->assertSame(7, $restored->position);
-        $this->assertSame($folders, $restored->asset_folders);
-        $this->assertSame($folders[0]['id'], $restored->asset_files[0]['folder_id']);
-        $this->assertSame('Stored file', Storage::disk('local')->get($restored->asset_files[0]['path']));
-        Storage::disk('local')->assertMissing($oldPath);
-        $path = $restored->asset_files[0]['path'];
-        $this->delete('/projects/'.$project->id, ['revision' => $restored->revision])->assertRedirect('/');
-        Storage::disk('local')->assertMissing($path);
     }
 }

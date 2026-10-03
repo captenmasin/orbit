@@ -6,9 +6,12 @@ use App\Models\Project;
 use App\Models\ProjectSecret;
 use App\Models\ProviderConnection;
 use App\WorkspacePreferences;
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 use Native\Desktop\Facades\Settings;
 use Native\Desktop\Facades\System;
@@ -45,7 +48,7 @@ class SecretRecoveryTest extends TestCase
         $this->assertMatchesRegularExpression('/\A[A-F0-9]{8}(?:-[A-F0-9]{8}){7}\z/', $code);
         $this->assertStringNotContainsString($code, json_encode($this->nativeSettings));
         $this->getJson('/secrets/recovery/status')
-            ->assertExactJson(['touch_id_available' => PHP_OS_FAMILY === 'Darwin', 'recovery_code_set' => true])
+            ->assertExactJson(['touch_id_available' => PHP_OS_FAMILY === 'Darwin', 'windows_hello_available' => false, 'recovery_code_set' => true])
             ->assertHeader('Cache-Control', 'no-store, private');
         $oldSession = session()->all();
         RateLimiter::hit('secret-vault-pin', 300);
@@ -87,7 +90,7 @@ class SecretRecoveryTest extends TestCase
         $secret = ProjectSecret::factory()->create();
         System::shouldReceive('canPromptTouchID')->twice()->andReturn(true);
         System::shouldReceive('promptTouchID')->once()->with('Reset your Orbit secrets PIN')->andReturn(true);
-        $this->getJson('/secrets/recovery/status')->assertExactJson(['touch_id_available' => true, 'recovery_code_set' => false]);
+        $this->getJson('/secrets/recovery/status')->assertExactJson(['touch_id_available' => true, 'windows_hello_available' => false, 'recovery_code_set' => false]);
 
         $this->postJson('/secrets/recover', ['method' => 'touch_id', 'pin' => '4567', 'pin_confirmation' => '4567'])
             ->assertOk()->assertJsonPath('unlocked', false)->assertJsonStructure(['recovery_code']);
@@ -129,7 +132,7 @@ class SecretRecoveryTest extends TestCase
         $this->postJson('/secrets/pin', ['pin' => '1234', 'pin_confirmation' => '1234'])->assertOk();
         System::shouldReceive('canPromptTouchID')->once()->andThrow(new RuntimeException);
 
-        $this->getJson('/secrets/recovery/status')->assertExactJson(['touch_id_available' => false, 'recovery_code_set' => true]);
+        $this->getJson('/secrets/recovery/status')->assertExactJson(['touch_id_available' => false, 'windows_hello_available' => false, 'recovery_code_set' => true]);
     }
 
     public function test_non_macos_recovery_keeps_recovery_codes_without_calling_touch_id(): void
@@ -142,7 +145,7 @@ class SecretRecoveryTest extends TestCase
         System::shouldReceive('canPromptTouchID')->never();
         System::shouldReceive('promptTouchID')->never();
 
-        $this->getJson('/secrets/recovery/status')->assertExactJson(['touch_id_available' => false, 'recovery_code_set' => true]);
+        $this->getJson('/secrets/recovery/status')->assertExactJson(['touch_id_available' => false, 'windows_hello_available' => false, 'recovery_code_set' => true]);
         $this->postJson('/secrets/recover', ['method' => 'touch_id', 'pin' => '4567', 'pin_confirmation' => '4567'])
             ->assertInvalid(['method' => 'Touch ID was cancelled or is unavailable. Try again or use your recovery code.']);
         $this->assertTrue(Hash::check('1234', $this->nativeSettings['secrets.pin_hash']));
@@ -162,6 +165,98 @@ class SecretRecoveryTest extends TestCase
         });
 
         $this->postJson('/secrets/recover', ['method' => 'touch_id', 'pin' => '4567', 'pin_confirmation' => '4567'])
+            ->assertUnprocessable()->assertJsonPath('errors.pin.0', 'The PIN changed. Try again.');
+
+        $this->assertSame(['secrets.pin_hash' => $changedHash], $this->nativeSettings);
+    }
+
+    public function test_windows_hello_recovers_an_existing_pin_without_changing_secrets(): void
+    {
+        $this->mockNativeSettings();
+        $this->nativeSettings['secrets.pin_hash'] = Hash::make('1234');
+        $secret = ProjectSecret::factory()->create();
+        System::shouldReceive('canPromptTouchID')->andReturn(false);
+        System::shouldReceive('promptTouchID')->never();
+        Http::fake(['http://native.test/api/system/windows-hello' => fn (ClientRequest $request): PromiseInterface => Http::response($request->method() === 'GET' ? ['available' => true] : ['verified' => true])]);
+
+        $this->getJson('/secrets/recovery/status')->assertExactJson(['touch_id_available' => false, 'windows_hello_available' => true, 'recovery_code_set' => false]);
+        $this->postJson('/secrets/recover', ['method' => 'windows_hello', 'pin' => '4567', 'pin_confirmation' => '4567'])
+            ->assertOk()->assertJsonPath('unlocked', false)->assertJsonStructure(['recovery_code']);
+
+        $this->assertTrue(Hash::check('4567', $this->nativeSettings['secrets.pin_hash']));
+        $this->assertSame('fixture-ciphertext', $secret->fresh()->ciphertext);
+        Http::assertSent(fn (ClientRequest $request): bool => $request->method() === 'POST' && $request->url() === 'http://native.test/api/system/windows-hello'
+            && $request->hasHeader('X-NativePHP-Secret', 'fixture-native-secret') && $request->data() === []);
+    }
+
+    #[TestWith(['unavailable'])]
+    #[TestWith(['cancelled'])]
+    #[TestWith(['invalid-result'])]
+    #[TestWith(['missing-result'])]
+    #[TestWith(['native-error'])]
+    #[TestWith(['transport'])]
+    public function test_windows_hello_failures_cannot_change_the_pin_or_secrets(string $failure): void
+    {
+        $this->mockNativeSettings();
+        $this->nativeSettings['secrets.pin_hash'] = Hash::make('1234');
+        $original = $this->nativeSettings;
+        $secret = ProjectSecret::factory()->create();
+        Http::fake(['http://native.test/api/system/windows-hello' => function (ClientRequest $request) use ($failure): PromiseInterface|\Closure {
+            if ($request->method() === 'GET') {
+                return Http::response(['available' => $failure !== 'unavailable']);
+            }
+
+            return match ($failure) {
+                'transport' => Http::failedConnection(),
+                'native-error' => Http::response(['verified' => true], 500),
+                'invalid-result' => Http::response(['verified' => 'true']),
+                'missing-result' => Http::response([]),
+                default => Http::response(['verified' => false]),
+            };
+        }]);
+
+        $this->postJson('/secrets/recover', ['method' => 'windows_hello', 'verified' => true, 'pin' => '4567', 'pin_confirmation' => '4567'])
+            ->assertUnprocessable()->assertJsonPath('errors.method.0', 'Windows Hello was cancelled or is unavailable. Try again or use your recovery code.');
+
+        $this->assertSame($original, $this->nativeSettings);
+        $this->assertSame('fixture-ciphertext', $secret->fresh()->ciphertext);
+        if ($failure === 'unavailable') {
+            Http::assertNotSent(fn (ClientRequest $request): bool => $request->method() === 'POST');
+        }
+    }
+
+    #[TestWith(['native-error'])]
+    #[TestWith(['invalid-result'])]
+    #[TestWith(['transport'])]
+    public function test_windows_hello_capability_failures_leave_recovery_codes_available(string $failure): void
+    {
+        $this->mockNativeSettings();
+        $this->postJson('/secrets/pin', ['pin' => '1234', 'pin_confirmation' => '1234'])->assertOk();
+        System::shouldReceive('canPromptTouchID')->andReturn(false);
+        Http::fake(['http://native.test/api/system/windows-hello' => match ($failure) {
+            'transport' => Http::failedConnection(),
+            'invalid-result' => Http::response(['available' => 'true']),
+            default => Http::response(['available' => true], 500),
+        }]);
+
+        $this->getJson('/secrets/recovery/status')->assertExactJson(['touch_id_available' => false, 'windows_hello_available' => false, 'recovery_code_set' => true]);
+    }
+
+    public function test_windows_hello_cannot_overwrite_a_pin_changed_during_verification(): void
+    {
+        $this->mockNativeSettings();
+        $this->nativeSettings['secrets.pin_hash'] = Hash::make('1234');
+        $changedHash = Hash::make('9876');
+        Http::fake(['http://native.test/api/system/windows-hello' => function (ClientRequest $request) use ($changedHash): PromiseInterface {
+            if ($request->method() === 'GET') {
+                return Http::response(['available' => true]);
+            }
+            $this->nativeSettings['secrets.pin_hash'] = $changedHash;
+
+            return Http::response(['verified' => true]);
+        }]);
+
+        $this->postJson('/secrets/recover', ['method' => 'windows_hello', 'pin' => '4567', 'pin_confirmation' => '4567'])
             ->assertUnprocessable()->assertJsonPath('errors.pin.0', 'The PIN changed. Try again.');
 
         $this->assertSame(['secrets.pin_hash' => $changedHash], $this->nativeSettings);
@@ -207,10 +302,9 @@ class SecretRecoveryTest extends TestCase
         $this->withSession([
             'secret-import:'.$projects[0]->id => ['path' => 'fixture.env'],
             'secret-export:'.$projects[0]->id => ['path' => 'fixture.env'],
-            'backup-restore' => ['path' => 'fixture.orbit'], 'backup-export' => ['path' => 'fixture.orbit'],
         ])->postJson('/secrets/reset', $data)->assertOk()->assertJsonPath('unlocked', false)
             ->assertJsonStructure(['recovery_code'])->assertSessionMissing('secret-import:'.$projects[0]->id)
-            ->assertSessionMissing('secret-export:'.$projects[0]->id)->assertSessionMissing('backup-restore')->assertSessionMissing('backup-export');
+            ->assertSessionMissing('secret-export:'.$projects[0]->id);
 
         $this->assertDatabaseCount('project_secrets', 0);
         $this->assertDatabaseCount('projects', 2);
@@ -276,7 +370,8 @@ class SecretRecoveryTest extends TestCase
 
     private function mockNativeSettings(): void
     {
-        config(['nativephp-internal.running' => true]);
+        config(['nativephp-internal.running' => true, 'nativephp-internal.api_url' => 'http://native.test/api/', 'nativephp-internal.secret' => 'fixture-native-secret']);
+        Http::preventStrayRequests();
         Settings::shouldReceive('get')->andReturnUsing(fn (string $key): mixed => $this->nativeSettings[$key] ?? null);
         Settings::shouldReceive('set')->andReturnUsing(function (string $key, mixed $value): void {
             if ($key === $this->failedWrite) {

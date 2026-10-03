@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Project;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Native\Desktop\Builder\Builder;
 use Native\Desktop\Events\AutoUpdater\DownloadProgress;
 use Native\Desktop\Events\AutoUpdater\Error;
 use Native\Desktop\Events\AutoUpdater\UpdateAvailable;
@@ -44,6 +45,37 @@ class AppUpdateTest extends TestCase
         $this->travel(61)->seconds();
         $this->getJson('/settings/updates')->assertOk()->assertJsonPath('status', 'error')->assertJsonPath('message', 'The update service did not respond. Check your connection and retry.');
         $this->get('/')->assertOk();
+    }
+
+    public function test_packaging_preserves_the_public_github_feed_and_removes_credentials(): void
+    {
+        $envPath = tempnam(sys_get_temp_dir(), 'orbit-release-env-');
+        file_put_contents($envPath, <<<'ENV'
+NATIVEPHP_UPDATER_ENABLED=true
+NATIVEPHP_UPDATER_PROVIDER=github
+GITHUB_OWNER=captenmasin
+GITHUB_REPO=orbit
+GITHUB_PRIVATE=false
+GITHUB_CHANNEL=latest
+GITHUB_TOKEN=publish-secret
+GITHUB_AUTOUPDATE_TOKEN=download-secret
+ENV);
+        $builder = app(Builder::class);
+
+        try {
+            $builder->cleanEnvFile($envPath);
+
+            $this->assertSame('true', $builder->getEnvValue('NATIVEPHP_UPDATER_ENABLED', $envPath));
+            $this->assertSame('github', $builder->getEnvValue('NATIVEPHP_UPDATER_PROVIDER', $envPath));
+            $this->assertSame('captenmasin', $builder->getEnvValue('GITHUB_OWNER', $envPath));
+            $this->assertSame('orbit', $builder->getEnvValue('GITHUB_REPO', $envPath));
+            $this->assertSame('false', $builder->getEnvValue('GITHUB_PRIVATE', $envPath));
+            $this->assertSame('latest', $builder->getEnvValue('GITHUB_CHANNEL', $envPath));
+            $this->assertNull($builder->getEnvValue('GITHUB_TOKEN', $envPath));
+            $this->assertNull($builder->getEnvValue('GITHUB_AUTOUPDATE_TOKEN', $envPath));
+        } finally {
+            unlink($envPath);
+        }
     }
 
     public function test_native_update_events_report_available_download_progress_and_downloaded_state(): void

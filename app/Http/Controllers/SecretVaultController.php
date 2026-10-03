@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Native\Desktop\Client\Client;
 use Native\Desktop\Facades\System;
 use RuntimeException;
 use SensitiveParameter;
@@ -20,7 +21,7 @@ use Throwable;
 
 class SecretVaultController extends Controller
 {
-    public function __construct(private SecretVault $vault, private WorkspacePreferences $preferences) {}
+    public function __construct(private SecretVault $vault, private WorkspacePreferences $preferences, private Client $nativeClient) {}
 
     public function status(Request $request): JsonResponse
     {
@@ -112,6 +113,7 @@ class SecretVaultController extends Controller
 
         return response()->json([
             'touch_id_available' => $hash !== null && $this->touchIdAvailable(),
+            'windows_hello_available' => $hash !== null && $this->windowsHelloAvailable(),
             'recovery_code_set' => $hash !== null && $this->vault->recoveryHash($hash) !== null,
         ])->header('Cache-Control', 'private, no-store');
     }
@@ -120,7 +122,7 @@ class SecretVaultController extends Controller
     {
         abort_unless(config('nativephp-internal.running'), 403);
         $data = $this->validatedPins($request, true, extraRules: [
-            'method' => ['required', 'in:touch_id,recovery_code'],
+            'method' => ['required', 'in:touch_id,windows_hello,recovery_code'],
             'recovery_code' => ['required_if:method,recovery_code', 'nullable', 'string', 'max:200'],
         ]);
         $this->limitRecovery('secret-vault-recovery');
@@ -128,14 +130,17 @@ class SecretVaultController extends Controller
         if ($hash === null) {
             throw ValidationException::withMessages(['pin' => 'Set up a PIN first.']);
         }
-        if ($data['method'] === 'touch_id') {
+        if ($data['method'] !== 'recovery_code') {
             try {
-                $verified = $this->touchIdAvailable() && System::promptTouchID('Reset your Orbit secrets PIN');
+                $verified = $data['method'] === 'windows_hello'
+                    ? $this->windowsHelloAvailable() && $this->nativeClient->post('system/windows-hello')->throw()->json('verified') === true
+                    : $this->touchIdAvailable() && System::promptTouchID('Reset your Orbit secrets PIN');
             } catch (Throwable) {
                 $verified = false;
             }
             if (! $verified) {
-                throw ValidationException::withMessages(['method' => 'Touch ID was cancelled or is unavailable. Try again or use your recovery code.']);
+                $name = $data['method'] === 'windows_hello' ? 'Windows Hello' : 'Touch ID';
+                throw ValidationException::withMessages(['method' => $name.' was cancelled or is unavailable. Try again or use your recovery code.']);
             }
         } else {
             $recoveryHash = $this->vault->recoveryHash($hash);
@@ -185,6 +190,15 @@ class SecretVaultController extends Controller
         }
     }
 
+    private function windowsHelloAvailable(): bool
+    {
+        try {
+            return $this->nativeClient->get('system/windows-hello')->throw()->json('available') === true;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
     private function recoveryCode(): string
     {
         return implode('-', str_split(strtoupper(bin2hex(random_bytes(32))), 8));
@@ -205,7 +219,7 @@ class SecretVaultController extends Controller
     {
         $this->vault->lock($request);
         foreach (array_keys($request->session()->all()) as $key) {
-            if (str_starts_with($key, 'secret-import:') || str_starts_with($key, 'secret-export:') || in_array($key, ['backup-export', 'backup-restore'], true)) {
+            if (str_starts_with($key, 'secret-import:') || str_starts_with($key, 'secret-export:')) {
                 $request->session()->forget($key);
             }
         }

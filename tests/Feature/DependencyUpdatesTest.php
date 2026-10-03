@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Actions\CheckDependencyUpdates;
 use App\Actions\ReadDependencies;
 use App\Models\ProjectFolder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -14,6 +15,27 @@ use Tests\TestCase;
 class DependencyUpdatesTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_composer_updates_accept_installed_and_latest_versions_with_fewer_segments(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake(['https://repo.packagist.org/p2/psr/http-message.json' => Http::response(['packages' => ['psr/http-message' => [['version' => '2.1'], ['version' => '3.0-beta1']]]])]);
+        $folder = ProjectFolder::factory()->create();
+        $root = $folder->packageRoots()->sole();
+        $root->forceFill(['scan_state' => 'Current', 'snapshot' => ['version' => 1, 'files' => [
+            'composer.json' => ['state' => 'Current', 'entries' => [['name' => 'psr/http-message', 'required' => '^2']]],
+            'composer.lock' => ['state' => 'Current', 'entries' => [['name' => 'psr/http-message', 'version' => '2.0']]],
+        ]]])->save();
+
+        $this->postJson('/projects/'.$folder->project_id.'/roots/'.$root->id.'/outdated')->assertOk();
+
+        $result = $root->fresh()->outdated;
+        $this->assertSame(1, $result['checked']);
+        $this->assertSame(0, $result['skipped']);
+        $this->assertSame(0, $result['unavailable']);
+        $this->assertSame([['name' => 'psr/http-message', 'ecosystem' => 'composer', 'current' => '2.0', 'latest' => '2.1']], $result['packages']);
+        Http::assertSentCount(1);
+    }
 
     public function test_checks_locked_direct_packages_and_keeps_ecosystems_separate(): void
     {
@@ -59,6 +81,41 @@ class DependencyUpdatesTest extends TestCase
         $this->assertSame(3, $root->fresh()->outdated['unavailable']);
         $this->assertSame(0, $root->fresh()->outdated['checked']);
         $this->assertSame([], $root->fresh()->outdated['packages']);
+    }
+
+    public function test_custom_composer_sources_are_skipped_without_registry_requests(): void
+    {
+        Http::preventStrayRequests();
+        $folder = ProjectFolder::factory()->create();
+        $root = $folder->packageRoots()->sole();
+        $root->forceFill(['scan_state' => 'Current', 'snapshot' => ['files' => [
+            'composer.json' => ['state' => 'Current', 'entries' => [['name' => 'custom/fork', 'required' => '^1.0']]],
+            'composer.lock' => ['state' => 'Current', 'entries' => [['name' => 'custom/fork', 'version' => '1.0.0', 'link' => 'https://github.com/custom/fork.git']]],
+        ]]])->save();
+
+        $this->postJson('/projects/'.$folder->project_id.'/roots/'.$root->id.'/outdated')->assertOk();
+
+        $result = $root->fresh()->outdated;
+        $this->assertSame([0, 1, 0, []], [$result['checked'], $result['skipped'], $result['unavailable'], $result['packages']]);
+        Http::assertNothingSent();
+    }
+
+    #[TestWith([156, 156, 0])]
+    #[TestWith([502, 500, 2])]
+    public function test_large_npm_roots_check_past_one_hundred_packages_and_report_any_cutoff(int $count, int $checked, int $incomplete): void
+    {
+        Http::preventStrayRequests();
+        Http::fake(['https://registry.npmjs.org/package*/latest' => Http::response(['version' => '1.0.0'])]);
+        $numbers = range(1, $count);
+        $snapshot = ['files' => [
+            'package.json' => ['state' => 'Current', 'entries' => array_map(fn (int $number): array => ['name' => 'package'.$number, 'required' => '^1.0'], $numbers)],
+            'package-lock.json' => ['state' => 'Current', 'entries' => array_map(fn (int $number): array => ['name' => 'package'.$number, 'version' => '1.0.0', 'location' => 'node_modules/package'.$number], $numbers)],
+        ]];
+
+        $result = app(CheckDependencyUpdates::class)->handle($snapshot);
+
+        $this->assertSame([$checked, $incomplete, $incomplete, 0], [$result['checked'], $result['skipped'], $result['incomplete'] ?? 0, $result['unavailable']]);
+        Http::assertSentCount($checked);
     }
 
     public function test_rejects_foreign_and_unscanned_roots_without_registry_requests(): void

@@ -2,18 +2,13 @@
 
 namespace Tests\Feature;
 
-use App\Actions\ProtectCredential;
 use App\Mcp\Servers\OrbitServer;
 use App\Mcp\Tools\ManageProjectTool;
 use App\Models\Project;
-use App\WorkspaceBackup;
 use App\WorkspacePreferences;
-use App\WorkspaceRestore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
-use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class ProjectStatusesTest extends TestCase
@@ -179,71 +174,5 @@ class ProjectStatusesTest extends TestCase
         Project::factory()->create(['status' => '1']);
 
         $this->get('/?status=0')->assertInertia(fn (Assert $page): Assert => $page->has('projects.data', 1)->where('projects.data.0.id', $project->id));
-    }
-
-    public function test_backups_restore_custom_statuses_and_archive_targets(): void
-    {
-        $preferences = app(WorkspacePreferences::class);
-        $preferences->merge(['project_statuses' => ['names' => ['Planning', 'Shipped'], 'colors' => ['Planning' => 'blue', 'Shipped' => 'green']]]);
-        $project = Project::factory()->create(['status' => 'Archived', 'previous_status' => 'Shipped', 'archived_at' => now()]);
-        $crypto = app(ProtectCredential::class);
-        $records = app(WorkspaceBackup::class)->records(false, $crypto);
-        $preferences->merge(['project_statuses' => ['names' => ['Local']]]);
-        $restore = app(WorkspaceRestore::class);
-
-        $restore->apply($restore->stage($records, $crypto));
-
-        $this->assertSame(['Planning', 'Shipped', 'Archived'], Project::statuses());
-        $this->assertSame(['Planning' => 'blue', 'Shipped' => 'green'], $preferences->get('project_statuses.colors'));
-        $this->assertDatabaseHas('projects', ['id' => $project->id, 'status' => 'Archived', 'previous_status' => 'Shipped']);
-    }
-
-    #[TestWith([4])]
-    #[TestWith([5])]
-    public function test_backups_without_colors_restore_the_builtin_colors(int $schema): void
-    {
-        $project = Project::factory()->create();
-        $crypto = app(ProtectCredential::class);
-        $records = app(WorkspaceBackup::class)->records(false, $crypto);
-        $records[0]['data']['schema'] = $schema;
-        if ($schema === 4) {
-            unset($records[1]['data']['project_statuses']);
-        } else {
-            unset($records[1]['data']['project_statuses']['colors']);
-        }
-        app(WorkspacePreferences::class)->merge(['project_statuses' => ['names' => ['Idea'], 'colors' => ['Idea' => 'red']]]);
-        $restore = app(WorkspaceRestore::class);
-
-        $restore->apply($restore->stage($records, $crypto));
-
-        $this->assertSame(['Idea', 'In Progress', 'Live', 'Paused', 'Maintenance', 'Archived'], Project::statuses());
-        $this->assertSame('purple', app(WorkspacePreferences::class)->get('project_statuses.colors.Idea'));
-        $this->assertDatabaseHas('projects', ['id' => $project->id, 'status' => 'Idea']);
-    }
-
-    public function test_backups_reject_statuses_missing_from_their_status_list(): void
-    {
-        $project = Project::factory()->create();
-        $crypto = app(ProtectCredential::class);
-        $records = app(WorkspaceBackup::class)->records(false, $crypto);
-        $records[1]['data']['project_statuses']['names'] = ['Planning'];
-
-        try {
-            app(WorkspaceRestore::class)->stage($records, $crypto);
-            $this->fail('Unknown project status accepted.');
-        } catch (InvalidArgumentException) {
-            $this->assertDatabaseHas('projects', ['id' => $project->id, 'status' => 'Idea']);
-            $this->assertSame(1, app(WorkspacePreferences::class)->snapshot()['revision']);
-        }
-    }
-
-    public function test_backups_reject_invalid_status_colors(): void
-    {
-        $crypto = app(ProtectCredential::class);
-        $records = app(WorkspaceBackup::class)->records(false, $crypto);
-        $records[1]['data']['project_statuses']['colors']['Idea'] = 'invalid';
-
-        $this->expectException(InvalidArgumentException::class);
-        app(WorkspaceRestore::class)->stage($records, $crypto);
     }
 }

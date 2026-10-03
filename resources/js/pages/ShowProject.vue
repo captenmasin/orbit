@@ -1,34 +1,31 @@
 <script setup lang="ts">
-import LinkIcon from '@/components/LinkIcon.vue';
 import ProjectBoard from '@/components/ProjectBoard.vue';
-import FilterSelect from '@/components/FilterSelect.vue';
-import BoardCardMenu from '@/components/BoardCardMenu.vue';
 import ProjectHeader from '@/components/ProjectHeader.vue';
 import ContentSearch from '@/components/ContentSearch.vue';
 import ProjectAssets from '@/components/ProjectAssets.vue';
+import ProjectLinkRow from '@/components/ProjectLinkRow.vue';
 import ProjectSecrets from '@/components/ProjectSecrets.vue';
-import MarkdownContent from '@/components/MarkdownContent.vue';
 import OpenTargetButton from '@/components/OpenTargetButton.vue';
 import ProjectDocuments from '@/components/ProjectDocuments.vue';
+import CreateProjectLink from '@/components/CreateProjectLink.vue';
 import ProjectScratchpad from '@/components/ProjectScratchpad.vue';
 import ProjectDependencies from '@/components/ProjectDependencies.vue';
 import ProjectImportanceButton from '@/components/ProjectImportanceButton.vue';
 import ProjectProviderActivity from '@/components/ProjectProviderActivity.vue';
 import { toast } from 'vue-sonner';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { computed, nextTick, ref, watch } from 'vue';
+import { linkCategoryIcon } from '@/lib/link-categories';
 import { dependencyHealth, folderName } from '@/lib/dependencies';
 import { boardColumnColor, boardColumnColors } from '@/lib/project';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Head, Link, router, useHttp, usePage } from '@inertiajs/vue3';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { BoardColumn, BoardTask, Project, ProjectFolder, ProviderConnection, Repository } from '@/types';
-import { useDocumentVisibility, useIntervalFn, useSessionStorage, useTimeAgo, useWindowFocus } from '@vueuse/core';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { AlignLeftIcon, ArrowRightIcon, ChevronDownIcon, CircleAlertIcon, CircleCheckIcon, FileTextIcon, FolderOpenIcon, GitBranchIcon, InfoIcon, LineSquiggleIcon, PackageIcon, PaperclipIcon, ShieldAlertIcon, Trash2Icon } from '@lucide/vue';
+import type { Project, ProjectFolder, ProviderConnection, Repository } from '@/types';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useDocumentVisibility, useIntervalFn, useLocalStorage, useSessionStorage, useTimeAgo, useWindowFocus } from '@vueuse/core';
+import { ArrowRightIcon, ChevronDownIcon, CircleAlertIcon, CircleCheckIcon, FileTextIcon, FolderOpenIcon, GitBranchIcon, InfoIcon, LineSquiggleIcon, PackageIcon, ShieldAlertIcon, Trash2Icon } from '@lucide/vue';
 
 const props = defineProps<{ selectedProject: Project; statuses: string[]; inspection: ProjectFolder[]; activity: Repository[]; connections: ProviderConnection[]; native: boolean }>();
 const project = computed(() => props.selectedProject);
@@ -59,55 +56,35 @@ function changeStatus(status: string) {
         onFinish: () => { statusSaving.value = false; },
     });
 }
-const previewTasks = computed(() => (project.value.board_columns ?? [])
-    .flatMap(column => column.tasks.map(task => ({ ...task, column })))
-    .slice(0, 3));
-const previewBusy = ref(false);
-const deletingPreviewTask = ref<BoardTask | null>(null);
-const previewError = ref('');
-function updatePreviewTask(action: 'task.move' | 'task.delete', task: BoardTask, column?: BoardColumn, position?: number) {
-    if (previewBusy.value) return;
-    previewError.value = '';
-    router.put(`/projects/${project.value.id}/board`, {
-        action, revision: project.value.revision, id: task.id, ...(column ? { column_id: column.id, position } : {}),
-    }, {
-        preserveScroll: true, errorBag: 'board',
-        onStart: () => { previewBusy.value = true; },
-        onSuccess: () => { deletingPreviewTask.value = null; },
-        onError: errors => {
-            const message = String(Object.values(errors)[0] ?? 'The card could not be updated. Try again.');
-            if (action === 'task.delete') previewError.value = message;
-            else toast.error(message);
-        },
-        onNetworkError: () => {
-            if (action === 'task.delete') previewError.value = 'The card could not be deleted. Try again.';
-            else toast.error('The card could not be moved. Try again.');
-        },
-        onFinish: () => { previewBusy.value = false; },
-    });
-}
-function reorderPreviewTask(column: BoardColumn, task: BoardTask, direction: number) {
-    updatePreviewTask('task.move', task, column, column.tasks.findIndex(item => item.id === task.id) + direction);
-}
-function movePreviewTask(task: BoardTask, destination: BoardColumn) {
-    updatePreviewTask('task.move', task, destination, destination.tasks.length);
+const taskColumns = computed(() => (project.value.board_columns ?? []).filter(column => column.tasks.length));
+const importantDocuments = computed(() => (project.value.documents ?? []).filter(document => document.important));
+function groupLinks(links: Project['links']) {
+    const groups = new Map<string, Project['links']>();
+    for (const link of links) {
+        const category = link.category?.trim() ?? '';
+        if (!groups.has(category)) groups.set(category, []);
+        groups.get(category)!.push(link);
+    }
+    return [...groups].sort(([a], [b]) => Number(!a) - Number(!b));
 }
 const importantLinks = computed(() => (project.value.links ?? []).filter(link => link.important));
-const importantDocuments = computed(() => (project.value.documents ?? []).filter(document => document.important));
-const previewLinks = computed(() => importantLinks.value.length ? importantLinks.value : (project.value.links ?? []).slice(0, 3));
-const linkSearch = ref('');
-const linkCategory = ref('');
-const linkCategories = computed(() => [...new Set((project.value.links ?? []).map(link => link.category?.trim()).filter((category): category is string => !!category))].sort((a, b) => a.localeCompare(b)));
-const visibleLinks = computed(() => {
-    const search = linkSearch.value.trim().toLocaleLowerCase();
-    return (search || linkCategory.value ? project.value.links ?? [] : previewLinks.value).filter(link =>
-        (!linkCategory.value || link.category?.trim() === linkCategory.value)
-        && (!search || [link.label, link.url, link.category, link.description].some(value => value?.toLocaleLowerCase().includes(search))));
+const overviewLinkGroups = computed(() => groupLinks((project.value.links ?? []).filter(link => !link.important)));
+const overviewLinkColumns = computed(() => {
+    const groups = overviewLinkGroups.value.map(([category, links], index) => ({ category, links, index }));
+    const middle = Math.ceil(groups.length / 2);
+    return [groups.slice(0, middle), groups.slice(middle)];
 });
+const linkGroupOpen = useLocalStorage<Record<string, boolean>>(() => `project:${project.value.id}:link-groups`, {}, { flush: 'sync' });
+function isLinkGroupOpen(category: string, index: number): boolean {
+    return Object.hasOwn(linkGroupOpen.value, category) ? linkGroupOpen.value[category] : index === 0;
+}
+function setLinkGroupOpen(category: string, event: Event) {
+    linkGroupOpen.value = { ...linkGroupOpen.value, [category]: (event.currentTarget as HTMLDetailsElement).open };
+}
 const previewDocuments = computed(() => importantDocuments.value.length ? importantDocuments.value : [...(project.value.documents ?? [])].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 3));
 const hasSources = computed(() => !!(project.value.repositories?.length || props.inspection.length));
-const hasProjectDetails = computed(() => !!(hasSources.value || previewDocuments.value.length || latestCommit.value));
-const showGettingStarted = computed(() => !hasSources.value && !previewLinks.value.length && !previewDocuments.value.length && !previewTasks.value.length && !project.value.scratchpad?.trim() && !project.value.secrets?.length && !project.value.assets?.length);
+const hasProjectDetails = computed(() => !!(taskColumns.value.length || hasSources.value || previewDocuments.value.length || latestCommit.value));
+const showGettingStarted = computed(() => !hasSources.value && !project.value.links.length && !previewDocuments.value.length && !taskColumns.value.length && !project.value.scratchpad?.trim() && !project.value.secrets?.length && !project.value.assets?.length);
 async function createDocument() {
     await changeTab('documents');
     if (!documentsPage.value?.dirty) documentsPage.value?.edit();
@@ -134,7 +111,6 @@ async function connectProvider(repository: Repository) {
 async function refreshActivity(repository: Repository) {
     providerActivityOpen.value = true; await nextTick(); await providerActivity.value?.refresh(repositoryActivity(repository));
 }
-const linksOpen = ref(false);
 const sourcesOpen = ref(false);
 const removingSource = ref<{ kind: 'folders' | 'repositories'; id: string; label: string } | null>(null);
 const sourceRemoving = ref(false);
@@ -184,38 +160,26 @@ const targetLinkId = computed(() => query.value.get('link'));
 const missingLink = computed(() => !!targetLinkId.value && !(project.value.links ?? []).some(link => link.id === targetLinkId.value));
 const visibleRepositories = computed(() => sourcesOpen.value ? project.value.repositories : project.value.repositories.slice(0, 2));
 const visibleFolders = computed(() => sourcesOpen.value ? props.inspection : props.inspection.slice(0, 2));
-async function copyLink(url: string) {
-    try { await navigator.clipboard.writeText(url); toast.success('URL copied.'); }
-    catch { toast.error('Could not copy URL.'); }
-}
 watch(() => project.value.id, () => {
-    linksOpen.value = false;
-    linkSearch.value = '';
-    linkCategory.value = '';
     sourcesOpen.value = false;
     removingSource.value = null;
-    deletingPreviewTask.value = null;
-    previewError.value = '';
     statusError.value = '';
     statusNeedsReload.value = false;
-});
-watch(linkCategories, categories => {
-    if (linkCategory.value && !categories.includes(linkCategory.value)) linkCategory.value = '';
 });
 watch(query, value => {
     const requested = value.get('tab');
     if (requested && ['overview', 'sources', 'documents', 'board', 'assets', 'dependencies', 'secrets'].includes(requested)) tab.value = requested;
 }, { immediate: true });
-function focusTargetLink(event?: Event) {
+function focusTargetLink() {
     const target = typeof document === 'undefined' ? null : document.getElementById(`link-${targetLinkId.value}`);
     if (!target) return;
-    event?.preventDefault();
     target.querySelector<HTMLElement>('a, button')?.focus({ preventScroll: true });
     target.scrollIntoView({ block: 'center' });
 }
 watch([targetLinkId, tab, () => project.value.links], async () => {
-    if (!targetLinkId.value || missingLink.value || tab.value !== 'overview') return;
-    linksOpen.value = true;
+    const link = (project.value.links ?? []).find(link => link.id === targetLinkId.value);
+    if (!link || tab.value !== 'overview') return;
+    if (!link.important) linkGroupOpen.value = { ...linkGroupOpen.value, [link.category?.trim() ?? '']: true };
     await nextTick();
     focusTargetLink();
 }, { immediate: true });
@@ -225,8 +189,16 @@ const visible = useDocumentVisibility();
 const focused = useWindowFocus();
 const active = computed(() => visible.value === 'visible' && focused.value);
 const pending = computed(() => props.inspection.some(folder => [folder, ...(folder.package_roots ?? [])].some(target => ['Queued', 'Scanning'].includes(target.scan_state ?? ''))));
+function localCommitUrl(folder: ProjectFolder): string | undefined {
+    if (!folder.git_remote || !folder.last_commit_hash) return;
+    try {
+        const url = new URL(folder.git_remote.replace(/^[\w.-]+@([^:]+):/, 'https://$1/').replace(/^ssh:\/\/(?:[^@/]+@)?/, 'https://'));
+        if (!['github.com', 'gitlab.com'].includes(url.host)) return;
+        return `https://${url.host}${url.pathname.replace(/\/+$/, '').replace(/\.git$/, '')}/${url.host === 'gitlab.com' ? '-/commit' : 'commit'}/${folder.last_commit_hash}`;
+    } catch { return; }
+}
 const latestCommit = computed(() => [
-    ...props.inspection.filter(folder => folder.last_commit_at).map(folder => ({ ...folder, source: folderName(folder) })),
+    ...props.inspection.filter(folder => folder.last_commit_at).map(folder => ({ ...folder, source: folderName(folder), url: localCommitUrl(folder) })),
     ...props.activity.filter(repo => repo.remote_commit_at).map(repo => ({
         last_commit_at: repo.remote_commit_at,
         branch: repo.default_branch,
@@ -234,9 +206,20 @@ const latestCommit = computed(() => [
         source: repo.name,
         path: `${repo.provider_name} · remote · ${repo.provider_snapshots?.find(snapshot => snapshot.resource === 'overview')?.state ?? 'Not scanned'}`,
         commit_subject: repo.provider_snapshots?.find(snapshot => snapshot.resource === 'overview')?.payload?.commit?.title,
+        url: repo.provider_snapshots?.find(snapshot => snapshot.resource === 'overview')?.payload?.commit?.url,
     })),
 ].sort((a, b) => b.last_commit_at!.localeCompare(a.last_commit_at!))[0]);
 const latestCommitAge = useTimeAgo(() => latestCommit.value?.last_commit_at ?? Date.now());
+const commitOpen = useHttp({ url: '' });
+async function openCommit(event: Event) {
+    if (!props.native) return;
+    event.preventDefault();
+    if (commitOpen.processing || !latestCommit.value?.url) return;
+    commitOpen.url = latestCommit.value.url;
+    try {
+        if (!await commitOpen.post(`/projects/${project.value.id}/open-url`)) throw new Error('Commit could not be opened');
+    } catch { toast.error('The commit could not be opened. Try again.'); }
+}
 const dependencies = computed(() => dependencyHealth(props.inspection));
 const folderIssueCount = computed(() => props.inspection.filter(folder => (folder.availability && folder.availability !== 'Available') || folder.scan_error).length);
 const needsAttention = computed(() => !!(dependencies.value.issueCount || folderIssueCount.value));
@@ -325,7 +308,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                     <TabsTrigger
                         value="board"
                         class="h-8 flex-none rounded-none px-3 text-[13px]">
-                        Board
+                        Tasks
                     </TabsTrigger>
                     <TabsTrigger
                         value="assets"
@@ -401,7 +384,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                             </div>
                         </section>
                         <Card
-                            v-if="hasSources"
+                            v-if="needsAttention"
                             as="section"
                             size="sm"
                             aria-labelledby="attention-title">
@@ -439,7 +422,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                         <Button
                                             type="button"
                                             variant="link"
-                                            size="sm"
+                                            size="xs"
                                             aria-label="Review security issues"
                                             @click="changeTab('dependencies')">
                                             Review security <ArrowRightIcon aria-hidden="true" />
@@ -457,7 +440,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                         <Button
                                             type="button"
                                             variant="link"
-                                            size="sm"
+                                            size="xs"
                                             aria-label="Review outdated packages"
                                             @click="changeTab('dependencies')">
                                             Review updates <ArrowRightIcon aria-hidden="true" />
@@ -480,7 +463,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                         <Button
                                             type="button"
                                             variant="link"
-                                            size="sm"
+                                            size="xs"
                                             aria-label="Review local folders"
                                             @click="sourcesOpen = true; changeTab('sources')">
                                             Review folders <ArrowRightIcon aria-hidden="true" />
@@ -490,291 +473,91 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                             </CardContent>
                         </Card>
 
-                        <section
-                            v-if="previewTasks.length"
-                            aria-label="Board cards"
-                            class="space-y-3 xl:col-start-1">
-                            <div class="flex justify-end">
-                                <Button
-                                    type="button"
-                                    variant="link"
-                                    size="sm"
-                                    @click="changeTab('board')">
-                                    View board <ArrowRightIcon aria-hidden="true" />
-                                </Button>
-                            </div>
-                            <ul
-                                aria-label="Board cards"
-                                class="grid gap-3 md:grid-cols-3">
-                                <li
-                                    v-for="task in previewTasks"
-                                    :key="task.id">
-                                    <BoardCardMenu
-                                        :column="task.column"
-                                        :task="task"
-                                        :columns="project.board_columns ?? []"
-                                        :disabled="previewBusy"
-                                        :preserve-focus="!!deletingPreviewTask"
-                                        @open-details="router.visit(`/projects/${project.id}?tab=board&task=${task.id}`)"
-                                        @reorder="reorderPreviewTask(task.column, task, $event)"
-                                        @move="movePreviewTask(task, $event)"
-                                        @delete="previewError = ''; deletingPreviewTask = task">
-                                        <Link
-                                            :href="`/projects/${project.id}?tab=board&task=${task.id}`"
-                                            class="flex h-full flex-col gap-5 rounded-2xl bg-background p-4 shadow-sm ring-1 retina:ring-[0.5px] ring-black/5 dark:ring-white/10 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-                                            <span class="flex items-center gap-2 text-xs text-muted-foreground">
-                                                <span
-                                                    class="size-2 shrink-0 rounded-full"
-                                                    :class="boardColumnColors[boardColumnColor(task.column)]?.dotClass ?? boardColumnColors.gray.dotClass"
-                                                    aria-hidden="true" />
-                                                {{ task.column.name }}
-                                            </span>
-                                            <span class="min-w-0 break-words text-sm font-medium leading-5">{{ task.title }}</span>
-                                            <span
-                                                v-if="task.description || task.attachments.length"
-                                                class="mt-auto flex items-center gap-3 text-xs text-muted-foreground">
-                                                <AlignLeftIcon
-                                                    v-if="task.description"
-                                                    class="size-4"
-                                                    role="img"
-                                                    aria-label="Has description" />
-                                                <span
-                                                    v-if="task.attachments.length"
-                                                    class="flex items-center gap-1"
-                                                    :aria-label="`${task.attachments.length} attachments`"><PaperclipIcon
-                                                        class="size-4"
-                                                        aria-hidden="true" />{{ task.attachments.length }}</span>
-                                            </span>
-                                        </Link>
-                                    </BoardCardMenu>
-                                </li>
-                            </ul>
-                        </section>
-                        <Dialog
-                            :open="!!deletingPreviewTask"
-                            @update:open="value => { if (!value && !previewBusy) deletingPreviewTask = null; }">
-                            <DialogContent>
-                                <DialogHeader>
-                                    <DialogTitle>Delete card?</DialogTitle>
-                                    <DialogDescription>“{{ deletingPreviewTask?.title }}” will be permanently deleted.</DialogDescription>
-                                </DialogHeader>
+                        <Card
+                            as="section"
+                            size="sm"
+                            class="xl:col-start-1"
+                            aria-labelledby="links-title">
+                            <CardHeader class="flex flex-row items-center justify-between gap-2">
+                                <h2
+                                    id="links-title"
+                                    class="text-sm font-normal">
+                                    Links <span class="ml-1 text-xs text-muted-foreground">{{ project.links.length }}</span>
+                                </h2>
+                                <CreateProjectLink
+                                    :key="project.id"
+                                    :project="project"
+                                    :disabled="!!scratchpad?.saving" />
+                            </CardHeader>
+                            <CardContent class="@container">
                                 <p
-                                    v-if="previewError"
-                                    role="alert"
-                                    class="text-sm text-destructive">
-                                    {{ previewError }}
+                                    v-if="!project.links.length"
+                                    class="text-sm text-muted-foreground">
+                                    Add a link to keep a useful URL with this project.
                                 </p>
-                                <DialogFooter>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        :disabled="previewBusy"
-                                        @click="deletingPreviewTask = null">
-                                        Cancel
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="destructive"
-                                        :disabled="previewBusy"
-                                        @click="deletingPreviewTask && updatePreviewTask('task.delete', deletingPreviewTask)">
-                                        {{ previewBusy ? 'Deleting…' : 'Delete card' }}
-                                    </Button>
-                                </DialogFooter>
-                            </DialogContent>
-                        </Dialog>
-
-                        <Dialog v-model:open="linksOpen">
-                            <Card
-                                v-if="project.links.length"
-                                as="section"
-                                size="sm"
-                                class="xl:col-start-1"
-                                aria-labelledby="links-title">
-                                <CardHeader class="flex flex-row items-center justify-between gap-2">
-                                    <h2
-                                        id="links-title"
-                                        class="text-sm font-normal">
-                                        Links
-                                    </h2>
-                                    <DialogTrigger as-child>
-                                        <Button
-                                            type="button"
-                                            variant="link"
-                                            size="sm">
-                                            View links <ArrowRightIcon aria-hidden="true" />
-                                        </Button>
-                                    </DialogTrigger>
-                                </CardHeader>
-                                <CardContent class="gap-3">
-                                    <div
-                                        role="search"
-                                        aria-label="Filter project links"
-                                        class="flex flex-wrap gap-2">
-                                        <label
-                                            for="overview-link-search"
-                                            class="sr-only">Search links</label>
-                                        <Input
-                                            id="overview-link-search"
-                                            v-model="linkSearch"
-                                            type="search"
-                                            variant="filled"
-                                            class="min-w-48 flex-1"
-                                            placeholder="Search links" />
-                                        <div class="w-full sm:w-52">
-                                            <label
-                                                for="overview-link-category"
-                                                class="sr-only">Category</label>
-                                            <FilterSelect
-                                                id="overview-link-category"
-                                                label="Category"
-                                                :model-value="linkCategory"
-                                                :options="linkCategories"
-                                                all-label="All categories"
-                                                @update:model-value="linkCategory = $event" />
-                                        </div>
-                                    </div>
-                                    <ul
-                                        v-if="visibleLinks.length"
-                                        class="max-h-80 divide-y divide-border/70 overflow-y-auto">
-                                        <li
-                                            v-for="link in visibleLinks"
+                                <section
+                                    v-if="importantLinks.length"
+                                    aria-labelledby="favourite-links-title"
+                                    class="mb-3">
+                                    <h3
+                                        id="favourite-links-title"
+                                        class="mb-1 px-2 text-sm text-muted-foreground">
+                                        Favourites
+                                    </h3>
+                                    <ul class="grid grid-cols-1 gap-x-6 gap-y-0.5 @sm:grid-cols-2">
+                                        <ProjectLinkRow
+                                            v-for="link in importantLinks"
                                             :key="link.id"
-                                            class="flex min-w-0 items-center gap-3 py-2 first:pt-0 last:pb-0">
-                                            <LinkIcon :url="link.url" />
-                                            <OpenTargetButton
-                                                :id="link.id"
-                                                :project-id="project.id"
-                                                kind="links"
-                                                :native="native"
-                                                :href="link.url"
-                                                :label="`Open ${link.label}`"
-                                                text
-                                                class="min-w-0 flex-1">
-                                                <span class="min-w-0 flex-1">
-                                                    <span class="block truncate text-sm underline-offset-2 group-hover/button:underline">{{ link.label }}</span>
-                                                    <span class="block truncate text-xs text-muted-foreground">{{ link.url }}</span>
-                                                    <span
-                                                        v-if="link.category"
-                                                        class="block truncate text-xs text-muted-foreground">{{ link.category }}</span>
-                                                </span>
-                                            </OpenTargetButton>
-                                            <ProjectImportanceButton
-                                                :project="project"
-                                                kind="links"
-                                                :item="link"
-                                                :label="link.label"
-                                                :disabled="!!scratchpad?.saving" />
-                                        </li>
+                                            :project="project"
+                                            :link="link"
+                                            :native="native"
+                                            :highlighted="link.id === targetLinkId"
+                                            :disabled="!!scratchpad?.saving" />
                                     </ul>
-                                    <p
-                                        v-else
-                                        role="status"
-                                        class="text-sm text-muted-foreground">
-                                        No links match these filters.
-                                    </p>
-                                </CardContent>
-                            </Card>
-                            <DialogContent
-                                class="max-h-[85vh] overflow-y-auto"
-                                @open-auto-focus="focusTargetLink">
-                                <DialogHeader>
-                                    <DialogTitle>Links</DialogTitle>
-                                    <DialogDescription>Star links to prioritise them on the project overview.</DialogDescription>
-                                </DialogHeader>
+                                </section>
                                 <div
-                                    id="project-links"
-                                    class="grid gap-2">
-                                    <ul class="grid gap-1">
-                                        <ContextMenu
-                                            v-for="link in project.links"
-                                            :key="link.id">
-                                            <ContextMenuTrigger as-child>
-                                                <li
-                                                    :id="'link-' + link.id"
-                                                    class="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                                                    :class="link.id === targetLinkId ? 'ring-2 ring-ring' : ''">
-                                                    <LinkIcon :url="link.url" />
-                                                    <OpenTargetButton
-                                                        :id="link.id"
-                                                        :project-id="project.id"
-                                                        kind="links"
-                                                        :native="native"
-                                                        :href="link.url"
-                                                        :label="`Open ${link.label}`"
-                                                        text
-                                                        class="min-w-0 flex-1">
-                                                        <span class="min-w-0 flex-1">
-                                                            <span
-                                                                class="block truncate text-sm underline-offset-2 group-hover/button:underline"
-                                                                :title="link.label">{{ link.label }}</span>
-                                                            <span
-                                                                class="block truncate text-xs text-muted-foreground"
-                                                                :title="link.url">{{ link.url }}</span>
-                                                            <span
-                                                                v-if="link.category"
-                                                                class="block truncate text-xs text-muted-foreground">{{ link.category }}</span>
-                                                        </span>
-                                                    </OpenTargetButton>
-                                                    <ProjectImportanceButton
-                                                        :project="project"
-                                                        kind="links"
-                                                        :item="link"
-                                                        :label="link.label"
-                                                        :disabled="!!scratchpad?.saving" />
-                                                    <Dialog v-if="link.category || link.description_html">
-                                                        <DialogTrigger as-child>
-                                                            <Button
-                                                                type="button"
-                                                                variant="ghost"
-                                                                size="icon-sm"
-                                                                :aria-label="`Details for ${link.label}`">
-                                                                <InfoIcon aria-hidden="true" />
-                                                            </Button>
-                                                        </DialogTrigger>
-                                                        <DialogContent class="max-h-[85vh] overflow-y-auto">
-                                                            <DialogHeader>
-                                                                <DialogTitle>{{ link.label }}</DialogTitle><DialogDescription class="break-all">
-                                                                    {{ link.url }}
-                                                                </DialogDescription>
-                                                            </DialogHeader>
-                                                            <p
-                                                                v-if="link.category"
-                                                                class="text-sm text-muted-foreground">
-                                                                {{ link.category }}
-                                                            </p>
-                                                            <MarkdownContent
-                                                                v-if="link.description_html"
-                                                                :html="link.description_html" />
-                                                        </DialogContent>
-                                                    </Dialog>
-                                                </li>
-                                            </ContextMenuTrigger>
-                                            <ContextMenuContent>
-                                                <ContextMenuItem as-child>
-                                                    <a
-                                                        :href="link.url"
-                                                        target="_blank"
-                                                        rel="noopener noreferrer">Open link</a>
-                                                </ContextMenuItem>
-                                                <ContextMenuItem @select="copyLink(link.url)">
-                                                    Copy URL
-                                                </ContextMenuItem>
-                                            </ContextMenuContent>
-                                        </ContextMenu>
-                                    </ul>
+                                    v-if="overviewLinkGroups.length"
+                                    class="grid grid-cols-1 items-start gap-x-6 @sm:grid-cols-2">
+                                    <div
+                                        v-for="(groups, columnIndex) in overviewLinkColumns"
+                                        :key="columnIndex"
+                                        class="min-w-0">
+                                        <details
+                                            v-for="{ category, links, index } in groups"
+                                            :key="`${project.id}:${category}`"
+                                            :open="isLinkGroupOpen(category, index)"
+                                            :aria-labelledby="`overview-link-group-${index}`"
+                                            class="group/link mb-1"
+                                            @toggle="setLinkGroupOpen(category, $event)">
+                                            <summary
+                                                :id="`overview-link-group-${index}`"
+                                                class="flex h-9 cursor-pointer list-none items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+                                                <ChevronDownIcon
+                                                    class="size-3.5 shrink-0 -rotate-90 group-open/link:rotate-0"
+                                                    aria-hidden="true" />
+                                                <component
+                                                    :is="linkCategoryIcon(category)"
+                                                    v-if="linkCategoryIcon(category)"
+                                                    class="size-4 shrink-0"
+                                                    aria-hidden="true" />
+                                                <span class="min-w-0 flex-1 truncate">{{ category || 'Other links' }}</span>
+                                                <span class="text-xs tabular-nums">{{ links.length }}</span>
+                                            </summary>
+                                            <ul class="grid gap-0.5 pb-2">
+                                                <ProjectLinkRow
+                                                    v-for="link in links"
+                                                    :key="link.id"
+                                                    :project="project"
+                                                    :link="link"
+                                                    :native="native"
+                                                    :highlighted="link.id === targetLinkId"
+                                                    :disabled="!!scratchpad?.saving" />
+                                            </ul>
+                                        </details>
+                                    </div>
                                 </div>
-                                <DialogFooter>
-                                    <Button
-                                        as-child
-                                        variant="outline"
-                                        size="sm">
-                                        <Link :href="`/projects/${project.id}/edit?tab=links`">
-                                            Edit links
-                                        </Link>
-                                    </Button>
-                                </DialogFooter>
-                            </DialogContent>
-                        </Dialog>
+                            </CardContent>
+                        </Card>
 
                         <ProjectScratchpad
                             ref="scratchpad"
@@ -808,7 +591,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                 <Button
                                     type="button"
                                     variant="link"
-                                    size="sm"
+                                    size="xs"
                                     @click="changeTab('documents')">
                                     View documents <ArrowRightIcon aria-hidden="true" />
                                 </Button>
@@ -840,6 +623,41 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                         </Card>
 
                         <Card
+                            v-if="taskColumns.length"
+                            as="section"
+                            size="sm"
+                            aria-labelledby="tasks-summary-title">
+                            <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
+                                <h2
+                                    id="tasks-summary-title"
+                                    class="text-sm font-medium">
+                                    Tasks
+                                </h2>
+                                <Button
+                                    type="button"
+                                    variant="link"
+                                    size="xs"
+                                    @click="changeTab('board')">
+                                    View tasks <ArrowRightIcon aria-hidden="true" />
+                                </Button>
+                            </CardHeader>
+                            <CardContent>
+                                <ul class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                                    <li
+                                        v-for="column in taskColumns"
+                                        :key="column.id"
+                                        class="flex items-center gap-2">
+                                        <span
+                                            class="size-2 shrink-0 rounded-full"
+                                            :class="boardColumnColors[boardColumnColor(column)]?.dotClass ?? boardColumnColors.gray.dotClass"
+                                            aria-hidden="true" />
+                                        {{ column.tasks.length }} {{ column.name }}
+                                    </li>
+                                </ul>
+                            </CardContent>
+                        </Card>
+
+                        <Card
                             v-if="project.repositories.length || inspection.length"
                             as="section"
                             size="sm"
@@ -853,7 +671,7 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                 <Button
                                     type="button"
                                     variant="link"
-                                    size="sm"
+                                    size="xs"
                                     @click="sourcesOpen = true; changeTab('sources')">
                                     View sources <ArrowRightIcon aria-hidden="true" />
                                 </Button>
@@ -927,8 +745,17 @@ watch([active, () => project.value.id], () => { lastAutomaticCheck = 0; checkIns
                                 Latest update
                             </CardHeader>
                             <CardContent class="gap-1">
-                                <p class="break-words text-sm leading-5 text-muted-foreground">
-                                    {{ latestCommit.commit_subject ?? 'Commit found' }}
+                                <p class="break-words text-[13px] leading-5 text-muted-foreground">
+                                    <a
+                                        v-if="latestCommit.url"
+                                        :href="latestCommit.url"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="underline underline-offset-4 hover:text-foreground"
+                                        @click="openCommit">{{ latestCommit.commit_subject ?? 'Commit found' }}</a>
+                                    <template v-else>
+                                        {{ latestCommit.commit_subject ?? 'Commit found' }}
+                                    </template>
                                 </p>
                                 <p class="text-xs leading-5 text-muted-foreground">
                                     {{ latestCommit.branch ?? latestCommit.git_state }} · <time :datetime="latestCommit.last_commit_at ?? undefined">{{ latestCommitAge }}</time>

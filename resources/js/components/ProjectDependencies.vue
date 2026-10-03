@@ -8,57 +8,65 @@ import { Input } from '@/components/ui/input';
 import { Link, useHttp } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { FolderSearchIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue';
 import type { FolderPreview, PackageRoot, Project, ProjectFolder } from '@/types';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ArrowRightIcon, ArrowUpRightIcon, FolderSearchIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue';
+import { dependencyHealth, dependencyReleaseUrl, folderName, type DependencyIssue } from '@/lib/dependencies';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { dependencyHealth, dependencyReleaseUrl, dependencySeverities, folderName, type DependencyIssue } from '@/lib/dependencies';
 
 const props = defineProps<{ project: Project; folders: ProjectFolder[]; native: boolean; busy: boolean }>();
 const emit = defineEmits<{ refresh: [kind: 'all' | 'folder' | 'root', id?: string | null]; changed: [] }>();
 const folderId = ref('');
-watch(() => props.folders, folders => { if (!folders.some(folder => folder.id === folderId.value)) folderId.value = ''; });
 const scopedFolders = computed(() => props.folders.filter(folder => !folderId.value || folder.id === folderId.value));
 const health = computed(() => dependencyHealth(scopedFolders.value));
 const allHealth = computed(() => dependencyHealth(props.folders));
+const packageFolders = computed(() => props.folders.filter(folder => allHealth.value.locations.some(location => location.folder.id === folder.id)));
+watch(packageFolders, folders => { if (!folders.some(folder => folder.id === folderId.value)) folderId.value = ''; });
 const filter = ref('attention');
 const showAll = ref(false);
 watch([folderId, filter], () => { showAll.value = false; });
 const issues = computed(() => health.value.issues.filter(issue => filter.value === 'security' ? !!issue.advisories.length : filter.value === 'outdated' ? !!issue.latest : true));
-const visibleIssues = computed(() => showAll.value ? issues.value : issues.value.slice(0, 4));
-const securitySummary = computed(() => dependencySeverities.map(severity => ({ severity, count: health.value.issues.filter(issue => issue.severity === severity).length })).filter(item => item.count).map(item => `${item.count} ${item.severity.toLowerCase()}`).join(' · '));
-const unchecked = computed(() => health.value.locations.filter(location => !location.complete));
+const visibleIssues = computed(() => showAll.value ? issues.value : issues.value.slice(0, 10));
 const hasSecurityResults = computed(() => health.value.locations.some(location => location.securityCurrent));
 const hasUpdateResults = computed(() => health.value.locations.some(location => location.outdatedCurrent));
 const checkedAt = computed(() => health.value.locations.flatMap(location => [location.securityCurrent ? location.root.security?.checked_at : null, location.outdatedCurrent ? location.root.outdated?.checked_at : null]).filter((value): value is string => !!value).sort().at(-1));
 const date = (value?: string | null) => value ? new Date(value).toLocaleString() : 'Not checked';
 const folderLabel = (folder: ProjectFolder) => props.folders.filter(item => folderName(item) === folderName(folder)).length > 1 ? folder.path : folderName(folder);
-const locationLabel = (root: PackageRoot, folder: ProjectFolder) => `${folderLabel(folder)} / ${root.relative_path === '.' ? 'root' : root.relative_path}`;
+const locationLabel = (root: PackageRoot, folder: ProjectFolder) => root.relative_path === '.' ? folderLabel(folder) : `${folderLabel(folder)} / ${root.relative_path}`;
 const updateLabel = (issue: DependencyIssue) => {
     const current = issue.current.replace(/^v/, '').split('.');
     const latest = issue.latest?.replace(/^v/, '').split('.');
     return !latest ? 'Update available' : current[0] !== latest[0] ? 'Major update' : current[1] !== latest[1] ? 'Minor update' : 'Patch update';
 };
 const review = ref<DependencyIssue | null>(null);
+const releaseOpen = useHttp({ url: '' });
+async function openRelease(event: MouseEvent, issue: DependencyIssue) {
+    if (!props.native) return;
+    event.preventDefault();
+    const url = dependencyReleaseUrl(issue);
+    if (releaseOpen.processing || !url) return;
+    releaseOpen.url = url;
+    try {
+        if (!await releaseOpen.post(`/projects/${props.project.id}/open-url`)) throw new Error('Package page could not be opened');
+    } catch { toast.error('The package page could not be opened. Try again.'); }
+}
 const managementOpen = ref(false);
 const checking = ref(false);
 const checkingRoot = ref('');
 const checkingLocation = computed(() => health.value.locations.find(location => location.root.id === checkingRoot.value));
-const checkErrors = ref<Record<string, string>>({});
 const check = useHttp({});
-async function checkLocations(rootId?: string) {
+async function checkLocations() {
     if (checking.value) return;
-    const locations = health.value.locations.filter(location => !rootId || location.root.id === rootId);
     checking.value = true;
-    for (const { root } of locations) {
+    for (const { root, folder } of health.value.locations) {
         checkingRoot.value = root.id;
-        delete checkErrors.value[root.id];
         check.clearErrors();
         try {
             const result = await check.post(`/projects/${props.project.id}/roots/${root.id}/check`);
-            if (!result) checkErrors.value[root.id] = String(Object.values(check.errors)[0] ?? 'This location could not be checked. Try again.');
-        } catch { checkErrors.value[root.id] = String(Object.values(check.errors)[0] ?? 'This location could not be checked. Try again.'); }
+            if (!result) throw new Error('Dependency check failed');
+        } catch { toast.error(`${locationLabel(root, folder)}: ${String(Object.values(check.errors)[0] ?? 'This location could not be checked. Try again.')}`); }
         finally { emit('changed'); }
     }
     checkingRoot.value = '';
@@ -105,248 +113,215 @@ async function saveRoot(action = 'save') {
                 <div class="space-y-1">
                     <h2 class="text-xl font-normal tracking-[-0.025em]">
                         Dependencies
-                    </h2><p class="text-sm text-muted-foreground">
-                        Security issues and outdated packages across every linked folder.
-                    </p>
+                    </h2>
                 </div>
-                <Button
-                    :disabled="busy || checking || !health.locations.length"
-                    @click="checkLocations()">
-                    <RefreshCwIcon
-                        v-if="checking"
-                        class="animate-spin motion-reduce:animate-none"
-                        aria-hidden="true" /><TextTransition :text="checking ? 'Checking folders…' : folderId ? 'Check this folder' : 'Check all folders'" />
-                </Button>
-            </div>
-            <div
-                v-if="!allHealth.total"
-                class="flex flex-col items-center rounded-[1.25rem] border border-dashed border-black/10 px-6 py-16 text-center dark:border-white/10">
-                <span class="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground"><FolderSearchIcon
-                    class="size-5"
-                    aria-hidden="true" /></span>
-                <h3 class="mt-4 text-sm font-normal">
-                    No package locations yet
-                </h3>
-                <p class="mt-1 max-w-sm text-sm text-muted-foreground">
-                    {{ folders.length ? 'Add the package locations inside your linked folders to check their dependencies.' : 'Link a local folder to check its dependencies.' }}
-                </p>
-                <div class="mt-5 flex flex-wrap gap-2">
+                <div class="flex flex-wrap gap-2">
                     <Button
-                        v-if="folders.length"
+                        v-if="allHealth.total"
                         variant="outline"
-                        @click="editRoot()">
-                        Add package location
-                    </Button><Button
-                        v-else
-                        as-child
-                        variant="outline">
-                        <Link :href="`/projects/${project.id}/edit?tab=repositories`">
-                            Link a folder
-                        </Link>
+                        @click="managementOpen = true">
+                        Manage locations
+                    </Button>
+                    <Button
+                        :disabled="busy || checking || !health.locations.length"
+                        @click="checkLocations()">
+                        <RefreshCwIcon
+                            :class="{ 'animate-spin motion-reduce:animate-none': checking }"
+                            aria-hidden="true" />
+                        <TextTransition :text="checking ? 'Checking…' : folderId ? 'Check this folder' : 'Check dependencies'" />
                     </Button>
                 </div>
             </div>
-            <template v-else>
-                <div
-                    class="grid gap-4 sm:grid-cols-2"
-                    aria-label="Dependency summary">
-                    <section class="space-y-1.5 rounded-[1.25rem] border border-black/8 bg-background p-5 dark:border-white/10">
-                        <h3
-                            class="text-2xl font-normal tracking-[-0.025em]"
-                            :class="health.security ? 'text-destructive' : ''">
-                            {{ hasSecurityResults ? `${health.security} security ${health.security === 1 ? 'issue' : 'issues'}` : 'Security not checked' }}
-                        </h3><p class="text-[13px] text-muted-foreground">
-                            {{ securitySummary || (health.complete ? 'No known issues in checked packages' : 'Check coverage is incomplete') }}
-                        </p>
-                    </section>
-                    <section class="space-y-1.5 rounded-[1.25rem] border border-black/8 bg-background p-5 dark:border-white/10">
-                        <h3 class="text-2xl font-normal tracking-[-0.025em]">
-                            {{ hasUpdateResults ? `${health.outdated} outdated ${health.outdated === 1 ? 'package' : 'packages'}` : 'Updates not checked' }}
-                        </h3><p class="text-[13px] text-muted-foreground">
-                            Counts each package location separately{{ health.complete ? '' : ' · coverage incomplete' }}
-                        </p>
-                    </section>
-                </div>
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                    <div
-                        class="flex flex-wrap gap-2"
-                        role="group"
-                        aria-label="Filter dependency findings">
+            <Card
+                v-if="!allHealth.total"
+                as="section">
+                <CardContent class="items-center px-6 py-12 text-center">
+                    <FolderSearchIcon
+                        class="size-5 text-muted-foreground"
+                        aria-hidden="true" />
+                    <h3 class="mt-4 text-sm font-medium">
+                        No packages to check yet
+                    </h3>
+                    <p class="mt-1 max-w-sm text-sm text-muted-foreground">
+                        {{ folders.length ? 'Add a location containing package manifests or lockfiles inside a linked folder.' : 'Link a local folder to check its dependencies.' }}
+                    </p>
+                    <div class="mt-5 flex flex-wrap gap-2">
                         <Button
-                            size="input"
-                            :variant="filter === 'attention' ? 'default' : 'outline'"
-                            :aria-pressed="filter === 'attention'"
-                            @click="filter = 'attention'">
-                            Needs attention
-                        </Button><Button
-                            size="input"
-                            :variant="filter === 'security' ? 'default' : 'outline'"
-                            :aria-pressed="filter === 'security'"
-                            @click="filter = 'security'">
-                            Security {{ health.security }}
-                        </Button><Button
-                            size="input"
-                            :variant="filter === 'outdated' ? 'default' : 'outline'"
-                            :aria-pressed="filter === 'outdated'"
-                            @click="filter = 'outdated'">
-                            Outdated {{ health.outdated }}
+                            v-if="folders.length"
+                            variant="outline"
+                            @click="editRoot()">
+                            Add package location
+                        </Button>
+                        <Button
+                            v-else
+                            as-child
+                            variant="outline">
+                            <Link :href="`/projects/${project.id}/edit?tab=repositories`">
+                                Link a folder
+                            </Link>
                         </Button>
                     </div>
-                    <ChoiceSelect
-                        id="dependency-folder"
-                        v-model="folderId"
-                        class="w-auto min-w-40"
-                        aria-label="Filter by linked folder"
-                        :disabled="checking"
-                        :options="[{ value: '', label: `All folders (${folders.length})` }, ...folders.map(folder => ({ value: folder.id, label: folderLabel(folder) }))]" />
-                </div>
-                <section
-                    class="overflow-hidden rounded-[1.25rem] border border-black/8 bg-background dark:border-white/10"
-                    aria-label="Dependency findings">
-                    <div
-                        v-if="issues.length"
-                        class="overflow-x-auto">
-                        <table class="w-full min-w-[40rem] text-left text-sm">
-                            <thead class="bg-muted/70 text-xs font-normal text-muted-foreground">
-                                <tr>
-                                    <th
-                                        scope="col"
-                                        class="px-5 py-3 font-normal">
-                                        Package
-                                    </th><th
-                                        scope="col"
-                                        class="px-4 py-3 font-normal">
-                                        Issue
-                                    </th><th
-                                        scope="col"
-                                        class="px-4 py-3 font-normal">
-                                        Versions
-                                    </th><th
-                                        scope="col"
-                                        class="px-5 py-3">
-                                        <span class="sr-only">Action</span>
-                                    </th>
-                                </tr>
-                            </thead><tbody class="divide-y divide-black/8 dark:divide-white/10">
-                                <tr
-                                    v-for="issue in visibleIssues"
-                                    :key="issue.key">
-                                    <td class="px-5 py-3">
-                                        <p class="break-all font-medium">
+                </CardContent>
+            </Card>
+            <template v-else>
+                <ChoiceSelect
+                    v-if="packageFolders.length > 1"
+                    id="dependency-folder"
+                    v-model="folderId"
+                    variant="filled"
+                    class="w-full sm:w-auto sm:min-w-40"
+                    aria-label="Filter by linked folder"
+                    :disabled="checking"
+                    :options="[{ value: '', label: `All folders (${packageFolders.length})` }, ...packageFolders.map(folder => ({ value: folder.id, label: folderLabel(folder) }))]" />
+                <Card
+                    as="section"
+                    aria-labelledby="dependency-findings-title">
+                    <CardHeader class="flex flex-wrap items-center justify-between gap-3">
+                        <div class="space-y-1">
+                            <h3
+                                id="dependency-findings-title"
+                                class="text-sm font-normal">
+                                Packages needing attention
+                            </h3>
+                            <p
+                                role="status"
+                                class="text-xs text-muted-foreground">
+                                <TextTransition
+                                    :text="checking ? `Checking ${checkingLocation ? locationLabel(checkingLocation.root, checkingLocation.folder) : 'package locations'}…` : checkedAt ? `Last checked ${date(checkedAt)}` : 'Not checked yet'"
+                                    :shimmer="checking" />
+                            </p>
+                        </div>
+                        <div
+                            class="flex flex-wrap gap-1"
+                            role="group"
+                            aria-label="Filter dependency findings">
+                            <Button
+                                size="sm"
+                                :variant="filter === 'attention' ? 'secondary' : 'ghost'"
+                                :aria-pressed="filter === 'attention'"
+                                @click="filter = 'attention'">
+                                All findings <span class="tabular-nums text-muted-foreground">{{ health.issueCount }}</span>
+                            </Button>
+                            <Button
+                                size="sm"
+                                :variant="filter === 'security' ? 'secondary' : 'ghost'"
+                                :aria-pressed="filter === 'security'"
+                                @click="filter = 'security'">
+                                Security <span
+                                    class="tabular-nums"
+                                    :class="health.security ? 'text-destructive' : 'text-muted-foreground'">{{ hasSecurityResults ? health.security : '—' }}</span>
+                            </Button>
+                            <Button
+                                size="sm"
+                                :variant="filter === 'outdated' ? 'secondary' : 'ghost'"
+                                :aria-pressed="filter === 'outdated'"
+                                @click="filter = 'outdated'">
+                                Updates <span class="tabular-nums text-muted-foreground">{{ hasUpdateResults ? health.outdated : '—' }}</span>
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent class="p-0">
+                        <ul
+                            v-if="issues.length"
+                            id="dependency-findings"
+                            class="divide-y divide-border/70"
+                            aria-label="Dependency findings">
+                            <li
+                                v-for="issue in visibleIssues"
+                                :key="issue.key"
+                                class="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-7 lg:grid-cols-[minmax(0,1fr)_12rem_8rem] lg:items-center lg:gap-6">
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="break-all text-sm font-medium">
                                             {{ issue.name }}
-                                        </p><p
-                                            class="mt-1 text-xs text-muted-foreground"
-                                            :title="`${issue.folder.path} / ${issue.root.relative_path}`">
-                                            {{ locationLabel(issue.root, issue.folder) }} · {{ issue.manager }} · {{ issue.identity }} · {{ issue.scope }}
                                         </p>
-                                    </td><td class="px-4 py-3">
-                                        <Badge
-                                            variant="outline"
-                                            :class="issue.advisories.length ? 'text-destructive' : 'text-muted-foreground'">
+                                        <Badge :variant="issue.advisories.length ? 'destructive' : 'outline'">
                                             {{ issue.severity ? `${issue.severity} severity` : updateLabel(issue) }}
                                         </Badge>
-                                    </td><td class="whitespace-nowrap px-4 py-3">
-                                        <span class="block">Installed: {{ issue.current }}</span><span class="block text-muted-foreground">Latest available: {{ issue.latest ?? 'Not reported' }}</span>
-                                    </td><td class="px-5 py-3 text-right">
-                                        <Button
-                                            v-if="issue.advisories.length"
-                                            size="sm"
-                                            variant="outline"
-                                            @click="review = issue">
-                                            Review issue
-                                        </Button><Button
-                                            v-else-if="dependencyReleaseUrl(issue)"
-                                            as-child
-                                            size="sm"
-                                            variant="outline">
-                                            <a
-                                                :href="dependencyReleaseUrl(issue)"
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                :aria-label="issue.manager === 'composer' ? `View ${issue.name} package` : `View ${issue.name} ${issue.latest} release`">{{ issue.manager === 'composer' ? 'View package' : 'View release' }}</a>
-                                        </Button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div
-                        v-else
-                        class="space-y-1 px-6 py-12 text-center">
-                        <h3 class="text-sm font-normal">
-                            {{ health.complete ? (filter === 'attention' ? 'All checked dependencies are healthy' : filter === 'security' ? 'No known security issues' : 'All checked direct packages are up to date') : 'No confirmed findings in current results' }}
-                        </h3><p class="text-sm text-muted-foreground">
-                            {{ health.complete ? 'Check again when your package files change.' : 'Check the locations below before treating this project as healthy.' }}
-                        </p>
-                    </div>
-                    <div
-                        v-if="issues.length > 4"
-                        class="border-t border-black/8 p-1 text-center dark:border-white/10">
-                        <Button
-                            size="sm"
-                            variant="ghost"
-                            :aria-expanded="showAll"
-                            @click="showAll = !showAll">
-                            <TextTransition :text="showAll ? 'Show fewer findings' : `View all ${issues.length} ${filter === 'outdated' ? 'outdated packages' : 'findings'}`" />
-                        </Button>
-                    </div>
-                </section>
-                <div
-                    v-if="checking"
-                    class="rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground"
-                    role="status">
-                    <TextTransition
-                        :text="`Checking ${checkingLocation ? locationLabel(checkingLocation.root, checkingLocation.folder) : 'package locations'}…`"
-                        shimmer />
-                </div>
-                <ul
-                    v-if="unchecked.length || health.unconfigured.length || Object.keys(checkErrors).length"
-                    class="space-y-2"
-                    aria-label="Incomplete dependency checks">
-                    <li
-                        v-for="location in health.locations.filter(item => !item.complete || checkErrors[item.root.id])"
-                        :key="location.root.id"
-                        class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted px-4 py-3">
-                        <div class="min-w-0 flex-1 text-[13px]">
-                            <p class="font-medium">
-                                {{ locationLabel(location.root, location.folder) }} · {{ checkErrors[location.root.id] ? 'Check failed' : location.state }}
-                            </p><p class="mt-1 text-muted-foreground">
-                                {{ checkErrors[location.root.id] || location.reason }} Totals include current results only.
+                                    </div>
+                                    <p
+                                        class="mt-1 break-words text-xs text-muted-foreground"
+                                        :title="`${issue.folder.path} / ${issue.root.relative_path}`">
+                                        {{ locationLabel(issue.root, issue.folder) }} · {{ issue.manager }} · {{ issue.identity }} · {{ issue.scope }}
+                                    </p>
+                                </div>
+                                <dl class="flex items-center gap-3 text-sm sm:row-start-2 lg:row-start-auto">
+                                    <div class="grid gap-1">
+                                        <dt class="text-xs text-muted-foreground">
+                                            Installed
+                                        </dt>
+                                        <dd class="font-mono text-xs">
+                                            {{ issue.current }}
+                                        </dd>
+                                    </div>
+                                    <ArrowRightIcon
+                                        v-if="issue.latest"
+                                        class="size-3.5 shrink-0 text-muted-foreground"
+                                        aria-hidden="true" />
+                                    <div
+                                        v-if="issue.latest"
+                                        class="grid gap-1">
+                                        <dt class="text-xs text-muted-foreground">
+                                            Latest
+                                        </dt>
+                                        <dd class="font-mono text-xs">
+                                            {{ issue.latest }}
+                                        </dd>
+                                    </div>
+                                </dl>
+                                <div class="flex items-center sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:justify-end lg:col-start-3 lg:row-span-1">
+                                    <Button
+                                        v-if="issue.advisories.length"
+                                        size="sm"
+                                        variant="outline"
+                                        :aria-label="`Review security issues for ${issue.name}`"
+                                        @click="review = issue">
+                                        Review issue
+                                    </Button>
+                                    <Button
+                                        v-else-if="dependencyReleaseUrl(issue)"
+                                        as-child
+                                        size="sm"
+                                        variant="ghost">
+                                        <a
+                                            :href="dependencyReleaseUrl(issue)"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            :aria-label="issue.ecosystem === 'composer' ? `View ${issue.name} package` : `View ${issue.name} ${issue.latest} release`"
+                                            @click="openRelease($event, issue)">
+                                            {{ issue.ecosystem === 'composer' ? 'View package' : 'View release' }}<ArrowUpRightIcon aria-hidden="true" />
+                                        </a>
+                                    </Button>
+                                </div>
+                            </li>
+                        </ul>
+                        <div
+                            v-else
+                            class="space-y-1 px-6 py-12 text-center">
+                            <h3 class="text-sm font-medium">
+                                {{ health.complete ? (filter === 'attention' ? 'No packages need attention' : filter === 'security' ? 'No known security issues' : 'All checked packages are up to date') : 'No findings in current results' }}
+                            </h3>
+                            <p class="text-sm text-muted-foreground">
+                                {{ health.complete ? 'Check again when your package files change.' : 'Check dependencies to refresh the results.' }}
                             </p>
-                        </div><Button
-                            size="sm"
-                            variant="ghost"
-                            :disabled="checking || busy"
-                            @click="checkLocations(location.root.id)">
-                            Check again
-                        </Button><Button
-                            size="sm"
-                            variant="ghost"
-                            @click="editRoot(location.root)">
-                            Settings
-                        </Button>
-                    </li><li
-                        v-for="folder in health.unconfigured"
-                        :key="folder.id"
-                        class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted px-4 py-3">
-                        <p class="text-[13px] text-muted-foreground">
-                            {{ folderLabel(folder) }} has no configured package locations and has not been checked.
-                        </p><Button
-                            size="sm"
-                            variant="ghost"
-                            @click="editRoot(undefined, folder)">
-                            Add location
-                        </Button>
-                    </li>
-                </ul>
-                <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-                    <p>{{ health.checked }} of {{ health.total }} package locations fully checked<span v-if="checkedAt"> · Last check {{ date(checkedAt) }}</span></p><Button
-                        size="sm"
-                        variant="ghost"
-                        @click="managementOpen = true">
-                        Manage package locations
-                    </Button>
-                </div>
+                        </div>
+                        <div
+                            v-if="issues.length > 4"
+                            class="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 px-5 py-2 sm:px-7">
+                            <p class="text-xs text-muted-foreground">
+                                Showing {{ visibleIssues.length }} of {{ issues.length }} findings
+                            </p>
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                :aria-expanded="showAll"
+                                aria-controls="dependency-findings"
+                                @click="showAll = !showAll">
+                                <TextTransition :text="showAll ? 'Show fewer' : `View all ${issues.length}`" />
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
             </template>
         </div>
         <Dialog v-model:open="managementOpen">
@@ -429,7 +404,8 @@ async function saveRoot(action = 'save') {
                             :href="dependencyReleaseUrl(review)"
                             target="_blank"
                             rel="noopener noreferrer"
-                            :aria-label="review.manager === 'composer' ? `View ${review.name} package` : `View ${review.name} ${review.latest} release`">{{ review.manager === 'composer' ? 'View package' : `View ${review.latest} release` }}</a>
+                            :aria-label="review.ecosystem === 'composer' ? `View ${review.name} package` : `View ${review.name} ${review.latest} release`"
+                            @click="openRelease($event, review)">{{ review.ecosystem === 'composer' ? 'View package' : `View ${review.latest} release` }}</a>
                     </Button><Button @click="review = null">
                         Done
                     </Button>
@@ -438,7 +414,7 @@ async function saveRoot(action = 'save') {
         </Dialog>
         <Dialog v-model:open="editorOpen">
             <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-xl">
-                <DialogHeader><DialogTitle>{{ edit.id ? 'Location settings' : 'Add package location' }}</DialogTitle><DialogDescription>Choose the linked folder itself or a directory inside it containing composer.json or package.json. Optional executable overrides apply to this location.</DialogDescription></DialogHeader>
+                <DialogHeader><DialogTitle>{{ edit.id ? 'Location settings' : 'Add package location' }}</DialogTitle><DialogDescription>Choose the linked folder itself or a directory inside it containing Composer or JavaScript package files, Python requirements or lockfiles, Cargo files, go.mod, Gemfile.lock, packages.lock.json, pubspec.lock, pom.xml, or Gradle lockfiles. Optional executable overrides apply to this location.</DialogDescription></DialogHeader>
                 <form
                     class="space-y-4"
                     @submit.prevent="saveRoot()">

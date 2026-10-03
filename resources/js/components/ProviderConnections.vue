@@ -10,7 +10,7 @@ import { router, useHttp } from '@inertiajs/vue3';
 import type { ProviderConnection } from '@/types';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { CircleCheckIcon, PencilIcon, RefreshCwIcon, Trash2Icon } from '@lucide/vue';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const props = defineProps<{ connections: ProviderConnection[]; native: boolean }>();
@@ -91,24 +91,22 @@ async function remove() {
 </script>
 
 <template>
-    <Card
-        as="section"
+    <section
+        class="grid gap-5"
         aria-labelledby="connections-title">
-        <CardHeader>
-            <div class="flex items-center justify-between gap-4">
-                <h2
-                    id="connections-title"
-                    class="text-sm font-normal">
-                    Connections
-                </h2><Button
-                    size="sm"
-                    :disabled="!native"
-                    @click="edit(null)">
-                    Add connection
-                </Button>
-            </div>
-        </CardHeader>
-        <CardContent class="grid gap-6">
+        <div class="flex items-center justify-between gap-4">
+            <h2
+                id="connections-title"
+                class="text-lg font-semibold">
+                Connections
+            </h2><Button
+                size="sm"
+                :disabled="!native"
+                @click="edit(null)">
+                Add connection
+            </Button>
+        </div>
+        <div class="grid gap-5">
             <p
                 v-if="!native"
                 class="text-sm text-muted-foreground">
@@ -122,20 +120,31 @@ async function remove() {
             <ul
                 v-if="connections.length"
                 aria-label="Provider connections"
-                class="divide-y">
+                class="divide-y overflow-hidden rounded-xl border">
                 <li
                     v-for="connection in connections"
                     :key="connection.id"
-                    class="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
-                    <div class="min-w-0 space-y-1">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <span class="min-w-0 break-words text-sm font-medium">{{ connection.label }}</span><Badge variant="outline">
-                                {{ connection.state === 'Current' ? 'Account verified' : connection.state }}
+                    class="flex items-center gap-3 px-4 py-3">
+                    <div class="min-w-0 flex-1 space-y-1">
+                        <p class="break-words text-sm font-medium">
+                            {{ connection.label }}
+                        </p>
+                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span class="break-all">{{ connection.provider === 'github' ? 'GitHub' : 'GitLab' }} · {{ connection.login }}</span>
+                            <span
+                                v-if="connection.state === 'Current'"
+                                class="inline-flex items-center gap-1">
+                                <CircleCheckIcon
+                                    class="size-3.5 text-emerald-600 dark:text-emerald-400"
+                                    aria-hidden="true" />
+                                Account verified
+                            </span>
+                            <Badge
+                                v-else
+                                variant="outline">
+                                {{ connection.state }}
                             </Badge>
                         </div>
-                        <p class="break-words text-sm text-muted-foreground">
-                            {{ connection.provider === 'github' ? 'GitHub' : 'GitLab' }} · {{ connection.login }}
-                        </p>
                         <p
                             v-if="connection.state === 'Token required'"
                             class="text-xs text-muted-foreground">
@@ -147,28 +156,31 @@ async function remove() {
                             Wait, then retry after {{ new Date(connection.retry_at).toLocaleString() }}
                         </p>
                     </div>
-                    <div class="flex shrink-0 flex-wrap gap-2">
+                    <div class="flex shrink-0 gap-0.5 text-muted-foreground">
                         <Button
-                            size="sm"
-                            variant="outline"
+                            size="icon-sm"
+                            variant="ghost"
+                            title="Edit label"
                             :aria-label="`Edit label for ${connection.label}`"
                             @click="editLabel(connection)">
-                            Edit label
+                            <PencilIcon aria-hidden="true" />
                         </Button>
                         <Button
-                            size="sm"
-                            variant="outline"
+                            size="icon-sm"
+                            variant="ghost"
+                            title="Replace token"
                             :disabled="!native"
                             :aria-label="`Replace token for ${connection.label}`"
                             @click="edit(connection)">
-                            Replace token
+                            <RefreshCwIcon aria-hidden="true" />
                         </Button>
                         <Button
-                            size="sm"
+                            size="icon-sm"
                             variant="ghost"
+                            title="Remove connection"
                             :aria-label="`Remove ${connection.label}`"
                             @click="removing = connection">
-                            Remove
+                            <Trash2Icon aria-hidden="true" />
                         </Button>
                     </div>
                 </li>
@@ -342,6 +354,6 @@ async function remove() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </CardContent>
-    </Card>
+        </div>
+    </section>
 </template>

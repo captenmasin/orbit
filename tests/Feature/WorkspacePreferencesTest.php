@@ -23,6 +23,30 @@ class WorkspacePreferencesTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_backup_endpoints_and_saved_preferences_are_no_longer_available(): void
+    {
+        DB::table('workspace_preferences')->insert(['id' => 1, 'revision' => 7, 'values' => json_encode(['backups' => ['folder' => '/old-backup-folder']], JSON_THROW_ON_ERROR)]);
+
+        $this->get('/settings')->assertInertia(fn (Assert $page): Assert => $page
+            ->component('Settings')->missing('preferences.values.backups'));
+        $this->get('/settings/backups')->assertStatus(405);
+
+        foreach ([
+            ['get', '/backups'],
+            ['get', '/backups/preferences'],
+            ['post', '/backups/folder'],
+            ['post', '/backups/export/preview'],
+            ['post', '/backups/export'],
+            ['post', '/backups/restore/preview'],
+            ['post', '/backups/restore'],
+            ['put', '/settings/backups'],
+        ] as [$method, $url]) {
+            $this->{$method.'Json'}($url, ['revision' => 7, 'folder' => '/old-backup-folder'])->assertNotFound();
+        }
+
+        $this->assertSame(7, app(WorkspacePreferences::class)->snapshot()['revision']);
+    }
+
     public function test_section_saves_persist_and_stale_saves_cannot_overwrite_other_sections(): void
     {
         $this->assertSame('system', app(WorkspacePreferences::class)->get('appearance.theme'));
@@ -118,7 +142,6 @@ class WorkspacePreferencesTest extends TestCase
             'invalid lock duration' => ['security', ['lock_minutes' => 7, 'clipboard_seconds' => 30], 'lock_minutes'],
             'invalid clipboard duration' => ['security', ['lock_minutes' => 15, 'clipboard_seconds' => 20], 'clipboard_seconds'],
             'empty columns' => ['project_defaults', ['columns' => []], 'columns'],
-            'invalid folder' => ['backups', ['folder' => '/unavailable-orbit-backup-folder'], 'folder'],
         ];
     }
 
@@ -255,7 +278,6 @@ class WorkspacePreferencesTest extends TestCase
 
         $this->get('/settings')->assertInertia(fn (Assert $page): Assert => $page
             ->where('statuses', ['Idea', 'In Progress', 'Live', 'Paused', 'Maintenance', 'Archived']));
-        $this->get('/settings/backups')->assertOk();
         $this->get('/settings/connections')->assertOk();
         $this->get('/startup')->assertRedirect('/projects/'.$project->id);
 

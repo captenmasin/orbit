@@ -2,16 +2,12 @@
 
 namespace Tests\Feature;
 
-use App\Actions\ProtectCredential;
 use App\Models\Project;
 use App\Models\ProjectDocument;
 use App\Models\ProjectLink;
-use App\WorkspaceBackup;
-use App\WorkspaceRestore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Arr;
 use Inertia\Testing\AssertableInertia as Assert;
-use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
@@ -98,50 +94,5 @@ class ProjectImportanceTest extends TestCase
         $copy = Project::whereKeyNot($project->id)->sole();
         $this->assertTrue($copy->links()->sole()->important);
         $this->assertTrue($copy->documents()->sole()->important);
-    }
-
-    public function test_backup_restore_preserves_stars_and_accepts_older_backups_without_them(): void
-    {
-        $project = Project::factory()->create();
-        $link = ProjectLink::factory()->for($project)->create(['important' => true]);
-        $document = ProjectDocument::factory()->for($project)->create(['important' => true]);
-        $crypto = app(ProtectCredential::class);
-        $records = app(WorkspaceBackup::class)->records(false, $crypto);
-        $restore = app(WorkspaceRestore::class);
-
-        $restore->apply($restore->stage($records, $crypto));
-
-        $this->assertTrue($link->fresh()->important);
-        $this->assertTrue($document->fresh()->important);
-
-        foreach ($records as &$record) {
-            if (in_array($record['type'], ['project_links', 'project_documents'], true)) {
-                unset($record['data']['important']);
-            }
-        }
-        unset($record);
-        $restore->apply($restore->stage($records, $crypto));
-
-        $this->assertFalse($link->fresh()->important);
-        $this->assertFalse($document->fresh()->important);
-    }
-
-    #[TestWith(['project_links'])]
-    #[TestWith(['project_documents'])]
-    public function test_backups_reject_invalid_importance_values(string $type): void
-    {
-        ProjectLink::factory()->create();
-        ProjectDocument::factory()->create();
-        $crypto = app(ProtectCredential::class);
-        $records = app(WorkspaceBackup::class)->records(false, $crypto);
-        foreach ($records as &$record) {
-            if ($record['type'] === $type) {
-                $record['data']['important'] = 'yes';
-            }
-        }
-        unset($record);
-        $this->expectException(InvalidArgumentException::class);
-
-        app(WorkspaceRestore::class)->stage($records, $crypto);
     }
 }

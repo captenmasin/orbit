@@ -18,6 +18,7 @@ const { toggleSidebar } = useSidebar()
         data-slot="sidebar-trigger"
         variant="ghost"
         size="icon-sm"
+        aria-label="Toggle sidebar"
         :class="cn('', props.class)"
         @click="toggleSidebar"
     >

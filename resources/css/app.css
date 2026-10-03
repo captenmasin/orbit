@@ -88,6 +88,32 @@
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+:root[data-native-glass],
+:root[data-native-glass] body {
+    background-color: transparent;
+}
+
+:root[data-native-glass] [data-slot="sidebar-wrapper"] {
+    background-color: color-mix(in srgb, var(--sidebar) var(--sidebar-tint-opacity, 55%), transparent);
+    transition: background-color var(--modal-close-dur) var(--modal-ease);
+}
+
+:root[data-native-glass]:has([data-slot="dialog-overlay"], [data-slot="sheet-overlay"]) [data-slot="sidebar-wrapper"] {
+    background-color: var(--sidebar);
+    transition-duration: var(--modal-open-dur);
+}
+
+:root[data-native-glass] [data-slot="sidebar-inner"] {
+    --sidebar-accent: color-mix(in srgb, var(--sidebar-foreground) 8%, transparent);
+    background-color: transparent;
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    :root[data-native-glass] [data-slot="sidebar-wrapper"] {
+        background-color: var(--sidebar);
+    }
+}
+
 .dark {
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
@@ -108,6 +134,7 @@
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
     --sidebar: oklch(0.20 0.004 255);
+    --sidebar-tint-opacity: 85%;
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.91 0.003 255);
     --sidebar-primary-foreground: oklch(0.20 0.004 255);
@@ -159,6 +186,10 @@ html.reduce-motion *::after {
   body {
     @apply bg-background text-foreground;
     @apply font-sans;
+    }
+  ::selection {
+    background-color: var(--primary);
+    color: var(--primary-foreground);
     }
   button,
   summary,

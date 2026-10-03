@@ -170,12 +170,12 @@ function selectImage(event: Event) {
                         <input
                             ref="imageInput"
                             type="file"
-                            accept="image/png,image/jpeg,image/gif,image/webp"
+                            accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
                             class="hidden"
                             aria-label="Project icon image"
                             @change="selectImage">
                         <FieldDescription class="text-center text-xs">
-                            PNG, JPEG, GIF or WebP. Up to 5 MB and 2048 × 2048 pixels.
+                            PNG, JPEG, GIF, WebP or SVG. Up to 5 MB; raster images up to 2048 × 2048 pixels.
                         </FieldDescription>
                         <Button
                             v-if="image"

@@ -127,7 +127,7 @@ function removeProject() {
             </ContextMenuContent>
             <Dialog v-model:open="duplicating">
                 <DialogContent>
-                    <DialogHeader><DialogTitle>Duplicate {{ project.name }}?</DialogTitle><DialogDescription>Copies documents, board cards, assets and secrets. Repository links and local source folder paths are retained; source files are not cloned.</DialogDescription></DialogHeader><DialogFooter>
+                    <DialogHeader><DialogTitle>Duplicate {{ project.name }}?</DialogTitle><DialogDescription>Copies documents, tasks, assets and secrets. Repository links and local source folder paths are retained; source files are not cloned.</DialogDescription></DialogHeader><DialogFooter>
                         <Button
                             variant="outline"
                             :disabled="duplicateBusy"

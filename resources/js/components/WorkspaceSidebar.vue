@@ -108,7 +108,7 @@ function setGroupOpen(status: string, event: Event) {
                 class="text-sidebar-foreground/60"
                 aria-label="Search workspace"
                 @click="setOpenMobile(false); emit('searchWorkspace')">
-                <SearchIcon aria-hidden="true"/>
+                <SearchIcon aria-hidden="true" />
             </Button>
         </SidebarHeader>
         <SidebarContent class="gap-0">
@@ -124,7 +124,7 @@ function setGroupOpen(status: string, event: Event) {
                                 href="/"
                                 :aria-current="page === 'Dashboard' ? 'page' : undefined"
                                 @click="setOpenMobile(false)">
-                                <LayoutGridIcon aria-hidden="true"/>
+                                <LayoutGridIcon aria-hidden="true" />
                                 <span>Projects</span>
                             </Link>
                         </SidebarMenuButton>
@@ -132,12 +132,12 @@ function setGroupOpen(status: string, event: Event) {
                             as-child
                             variant="ghost"
                             size="icon-sm"
+                            title="New project"
                             class="text-sidebar-foreground/60">
                             <Link
                                 as="button"
                                 href="/projects/create"
                                 aria-label="New project"
-                                title="New project"
                                 :aria-current="page === 'CreateProject' ? 'page' : undefined"
                                 @click="setOpenMobile(false)">
                                 <PlusIcon aria-hidden="true" />
@@ -152,7 +152,7 @@ function setGroupOpen(status: string, event: Event) {
                     class="relative">
                     <SearchIcon
                         class="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-sidebar-foreground/60"
-                        aria-hidden="true"/>
+                        aria-hidden="true" />
                     <input
                         v-model="projectQuery"
                         type="search"
@@ -173,14 +173,14 @@ function setGroupOpen(status: string, event: Event) {
                     :open="groupOpen[group.status] ?? true"
                     class="t-disclosure group/status"
                     @toggle="setGroupOpen(group.status, $event)">
-                    <summary class="flex h-9 cursor-default list-none items-center gap-2 rounded-lg px-3 text-sm font-medium text-sidebar-foreground/65 hover:text-sidebar-foreground focus-visible:outline-2 focus-visible:outline-sidebar-ring [&::-webkit-details-marker]:hidden">
+                    <summary class="flex h-9 cursor-default list-none items-center gap-2 rounded-lg px-3 text-[13px] text-sidebar-foreground/65 hover:text-sidebar-foreground focus-visible:outline-2 focus-visible:outline-sidebar-ring [&::-webkit-details-marker]:hidden">
                         <ProjectStatusDot
                             :status="group.status"
-                            class="size-1.5"/>
+                            class="size-1.5" />
                         <span class="truncate">{{ group.status }}</span>
                         <ChevronRightIcon
                             class="size-3.5 shrink-0 transition-transform group-open/status:rotate-90"
-                            aria-hidden="true"/>
+                            aria-hidden="true" />
                     </summary>
                     <VueDraggable
                         :model-value="group.projects"
@@ -213,14 +213,16 @@ function setGroupOpen(status: string, event: Event) {
                                             :emoji="project.icon_emoji"
                                             :image="project.icon_url"
                                             size="sm"
-                                            class="size-5!"/>
+                                            class="size-5!" />
                                         <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
                                     </Link>
                                 </SidebarMenuButton>
-                                <button
+                                <Button
                                     v-if="!projectQuery.trim()"
                                     type="button"
-                                    class="project-handle absolute top-1.5 right-1 cursor-grab rounded p-1 text-sidebar-foreground/50 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-foreground focus:opacity-100 focus-visible:outline-2 focus-visible:outline-sidebar-ring group-hover/project:opacity-100 disabled:opacity-30"
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    class="project-handle absolute top-1.5 right-1 cursor-grab text-sidebar-foreground/50 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-foreground focus:opacity-100 group-hover/project:opacity-100"
                                     :aria-label="`Reorder ${project.name}`"
                                     aria-describedby="project-order-help"
                                     :disabled="order.processing"
@@ -228,8 +230,8 @@ function setGroupOpen(status: string, event: Event) {
                                     @keydown.down.prevent="move(group.status, index, 1)">
                                     <GripVerticalIcon
                                         class="size-3.5"
-                                        aria-hidden="true"/>
-                                </button>
+                                        aria-hidden="true" />
+                                </Button>
                             </SidebarMenuItem>
                         </ProjectContextMenu>
                     </VueDraggable>
@@ -264,7 +266,7 @@ function setGroupOpen(status: string, event: Event) {
                             href="/debug"
                             :aria-current="page === 'Debug' ? 'page' : undefined"
                             @click="setOpenMobile(false)">
-                            <BugIcon aria-hidden="true"/>
+                            <BugIcon aria-hidden="true" />
                             <span>Debug</span>
                         </Link>
                     </SidebarMenuButton>
@@ -279,13 +281,13 @@ function setGroupOpen(status: string, event: Event) {
                             href="/settings"
                             :aria-current="page === 'Settings' ? 'page' : undefined"
                             @click="setOpenMobile(false)">
-                            <SettingsIcon aria-hidden="true"/>
+                            <SettingsIcon aria-hidden="true" />
                             <span>Settings</span>
                         </Link>
                     </SidebarMenuButton>
                 </SidebarMenuItem>
             </SidebarMenu>
         </SidebarFooter>
-        <SidebarRail/>
+        <SidebarRail />
     </Sidebar>
 </template>

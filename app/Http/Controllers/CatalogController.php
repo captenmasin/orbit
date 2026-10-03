@@ -23,7 +23,7 @@ class CatalogController extends Controller
 
         return response()->file(Storage::disk('local')->path($project->icon_path), [
             'Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff',
-            'Content-Security-Policy' => "default-src 'none'; sandbox",
+            'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; sandbox",
         ]);
     }
 
@@ -43,6 +43,20 @@ class CatalogController extends Controller
         }
 
         return response()->json(['folder' => $path ? $inspect->handle($path) : null]);
+    }
+
+    public function openUrl(Request $request, Project $project): JsonResponse
+    {
+        abort_unless(config('nativephp-internal.running'), 403);
+        $data = $request->validate(['url' => ['required', 'string', 'max:2048', 'url:https', new ProjectUrl]]);
+
+        try {
+            Shell::openExternal($data['url']);
+        } catch (Throwable) {
+            return response()->json(['message' => 'The URL could not be opened. Try again.'], 503);
+        }
+
+        return response()->json(['opened' => true]);
     }
 
     public function open(Project $project, string $kind, string $id): JsonResponse

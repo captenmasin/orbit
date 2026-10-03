@@ -28,6 +28,7 @@ function toggle() {
         onFinish: () => { saving.value = false; },
     });
 }
+defineExpose({ toggle, saving });
 </script>
 
 <template>

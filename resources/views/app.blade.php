@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-orbit-theme="{{ $page['props']['appearance'] }}" data-orbit-motion="{{ $page['props']['reduceMotion'] }}" data-orbit-pointer-cursors="{{ $page['props']['pointerCursors'] ? 'true' : 'false' }}">
+<html lang="en" data-orbit-theme="{{ $page['props']['appearance'] }}" data-orbit-motion="{{ $page['props']['reduceMotion'] }}" data-orbit-pointer-cursors="{{ $page['props']['pointerCursors'] ? 'true' : 'false' }}" @if(config('nativephp-internal.running') && PHP_OS_FAMILY === 'Darwin') data-native-glass @endif>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">

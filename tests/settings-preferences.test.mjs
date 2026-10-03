@@ -51,6 +51,103 @@ function response(data, status = 200) {
     return { status, data: JSON.stringify(data), headers: {} };
 }
 
+test('preference controls save changed values immediately with quiet feedback and the latest revision', async t => {
+    const state = mount(t);
+    const requests = [];
+    t.mock.method(http.getClient(), 'request', async request => {
+        requests.push(request);
+        return response({ preferences: { revision: 7 + requests.length, values: {
+            ...values, general: { startup_destination: 'last_project' }, appearance: { ...values.appearance, pointer_cursors: true },
+        } } });
+    });
+
+    await state.savePreference('general', { startup_destination: 'dashboard' });
+    assert.equal(requests.length, 0);
+    await state.savePreference('general', { startup_destination: 'last_project' });
+    assert.deepEqual(JSON.parse(requests[0].data), { revision: 7, startup_destination: 'last_project' });
+    assert.equal(state.general.isDirty, false);
+    assert.equal(state.preferenceStatus.value, 'Saved');
+
+    state.activeSection.value = 'appearance';
+    await state.savePreference('appearance', { pointer_cursors: true });
+    assert.deepEqual(JSON.parse(requests[1].data), { revision: 8, ...values.appearance, pointer_cursors: true });
+    assert.equal(state.savedPointerCursors.value, true);
+    assert.equal(state.appearance.isDirty, false);
+    assert.deepEqual(state.successes, []);
+});
+
+test('automatic preference changes wait for an in-flight save before changing another control', async t => {
+    const state = mount(t);
+    const requests = [];
+    let finish;
+    t.mock.method(http.getClient(), 'request', request => {
+        requests.push(request);
+        return new Promise(resolve => { finish = resolve; });
+    });
+    const pending = state.savePreference('general', { startup_destination: 'last_project' });
+    assert.equal(state.preferenceStatus.value, 'Saving…');
+
+    await state.savePreference('appearance', { theme: 'dark' });
+    assert.equal(requests.length, 1);
+    assert.equal(state.appearance.theme, 'system');
+    finish(response({ preferences: { revision: 8, values: { ...values, general: { startup_destination: 'last_project' } } } }));
+    await pending;
+    assert.equal(state.general.isDirty, false);
+});
+
+test('failed automatic saves keep a recoverable draft and a quiet retry saves it', async t => {
+    const state = mount(t);
+    t.mock.method(http.getClient(), 'request', async () => { throw new Error('Offline'); });
+
+    await state.savePreference('general', { startup_destination: 'last_project' });
+    assert.match(state.error.value, /could not be saved/);
+    assert.equal(state.preferenceStatus.value, 'Changes haven’t been saved');
+    assert.equal(state.general.startup_destination, 'last_project');
+    assert.equal(state.general.isDirty, true);
+    t.mock.method(http.getClient(), 'request', async () => response({ preferences: { revision: 8, values: { ...values, general: { startup_destination: 'last_project' } } } }));
+
+    await state.save('general', true);
+    assert.equal(state.general.isDirty, false);
+    assert.equal(state.error.value, '');
+    assert.deepEqual(state.successes, []);
+});
+
+test('automatic controls preserve the conflicted draft until saved settings are reviewed', async t => {
+    const state = mount(t, { section: 'appearance' });
+    const requests = [];
+    t.mock.method(http.getClient(), 'request', async request => {
+        requests.push(request);
+        return response({ message: 'Settings changed in another window.' }, 409);
+    });
+
+    await state.savePreference('appearance', { theme: 'dark' });
+    await state.savePreference('appearance', { theme: 'light' });
+
+    assert.equal(requests.length, 1);
+    assert.equal(state.appearance.theme, 'dark');
+    assert.equal(state.savedTheme.value, 'system');
+    assert.match(state.appearance.errors.revision, /another window/);
+});
+
+test('launch-at-login toggles save quietly after confirmation and cannot submit in the browser', async t => {
+    const state = mount(t, { native: true, launchAtLogin: false });
+    const requests = [];
+    t.mock.method(http.getClient(), 'request', async request => {
+        requests.push(request);
+        return response({ enabled: true });
+    });
+
+    await state.saveLogin(true, true);
+    assert.deepEqual(JSON.parse(requests[0].data), { enabled: true });
+    assert.equal(state.login.isDirty, false);
+    assert.equal(state.preferenceStatus.value, 'Saved');
+    assert.deepEqual(state.successes, []);
+    state.props.native = false;
+    await state.saveLogin(false, true);
+    assert.equal(requests.length, 1);
+    assert.equal(state.login.enabled, true);
+});
+
 test('saving one section preserves other drafts and does not dirty untouched sections through the revision', async t => {
     const state = mount(t);
     const requests = [];
@@ -289,6 +386,28 @@ test('runtime probes report the submitted draft paths without saving preferences
     assert.equal(state.revision.value, 7);
 });
 
+test('runtime validation expands affected tools and preserves independent disclosure choices', async t => {
+    const state = mount(t, { section: 'tools' });
+    state.expandedTools.value.composer = true;
+    state.tools.setError('paths.php', 'Choose a valid executable.');
+    state.runtimeProbe.setError('paths.node', 'Choose a valid executable.');
+    await vue.nextTick();
+
+    assert.equal(state.expandedTools.value.php, true);
+    assert.equal(state.expandedTools.value.node, true);
+    assert.equal(state.expandedTools.value.composer, true);
+    assert.equal(state.expandedTools.value.npm, undefined);
+
+    state.expandedTools.value.php = false;
+    state.tools.clearErrors();
+    state.runtimeProbe.clearErrors();
+    await vue.nextTick();
+
+    assert.equal(state.expandedTools.value.php, false);
+    assert.equal(state.expandedTools.value.node, true);
+    assert.equal(state.expandedTools.value.composer, true);
+});
+
 test('a probe started before a path edit cannot display its obsolete results', async t => {
     const state = mount(t, { section: 'tools' });
     let finish;
@@ -356,42 +475,6 @@ test('successful saves use normalized server values and preserve edits made afte
     assert.equal(state.general.isDirty, true);
 });
 
-test('confirmed restore replaces only board defaults and resets their saved baseline', async t => {
-    const state = mount(t);
-    state.board.columns[0].name = 'Old draft';
-    state.tools.paths.php = '/draft/php';
-    state.props.preferences = { revision: 9, values: { ...structuredClone(values), project_defaults: { columns: [{ name: 'Restored', color: 'Green' }] } } };
-    await vue.nextTick();
-    assert.equal(state.board.columns[0].name, 'Old draft', 'Ordinary props keep drafts');
-
-    state.restoredDefaults();
-    await vue.nextTick();
-    assert.equal(state.board.columns[0].name, 'Restored');
-    assert.equal(state.board.isDirty, false);
-    assert.equal(state.tools.paths.php, '/draft/php');
-    assert.equal(state.tools.isDirty, true);
-    state.board.columns[0].name = 'New draft';
-    state.discardSection('project_defaults');
-    await vue.nextTick();
-    assert.equal(state.board.columns[0].name, 'Restored');
-});
-
-test('restore staging waits for an explicit board draft decision', async t => {
-    const state = mount(t);
-    state.board.columns[0].name = 'Draft';
-    await vue.nextTick();
-    const cancelled = state.prepareRestore();
-    assert.equal(state.departureOpen.value, true);
-    state.finishDeparture(false);
-    assert.equal(await cancelled, false);
-    assert.equal(state.board.columns[0].name, 'Draft');
-    const approved = state.prepareRestore();
-    state.discardDeparture();
-    assert.equal(await approved, true);
-    await vue.nextTick();
-    assert.equal(state.board.isDirty, false);
-});
-
 test('discarded settings allow the resumed visit immediately', async t => {
     let before;
     const accepted = [];
@@ -435,7 +518,9 @@ test('Settings sections follow server navigation and preserve appearance drafts'
     await vue.nextTick();
     assert.equal(state.appearance.theme, 'dark');
     assert.equal(state.activeSection.value, 'tools');
-    state.props.section = 'unsupported';
-    await vue.nextTick();
-    assert.equal(state.activeSection.value, 'general');
+    for (const section of ['backups', 'unsupported']) {
+        state.props.section = section;
+        await vue.nextTick();
+        assert.equal(state.activeSection.value, 'general');
+    }
 });

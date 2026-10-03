@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Actions\CheckDependencySecurity;
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\TestWith;
@@ -275,17 +276,57 @@ class DependencySecurityTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_package_limit_is_reported_as_incomplete(): void
+    public function test_large_roots_check_every_package_in_bounded_batches(): void
     {
         Http::preventStrayRequests();
-        Http::fake(['https://api.osv.dev/v1/querybatch' => Http::response(['results' => array_fill(0, 500, (object) [])])]);
+        Http::fake(['https://api.osv.dev/v1/querybatch' => fn (Request $request): PromiseInterface => Http::response(['results' => array_fill(0, count($request['queries']), (object) [])])]);
+        $entries = array_map(fn (int $index): array => ['name' => 'example/package-'.$index, 'version' => '1.0.0'], range(1, 501));
+
+        $result = app(CheckDependencySecurity::class)->handle($this->snapshot($entries));
+
+        $this->assertSame(501, $result['checked']);
+        $this->assertSame(0, $result['skipped']);
+        $this->assertSame(0, $result['unavailable']);
+        Http::assertSent(fn (Request $request): bool => count($request['queries']) === 500);
+        Http::assertSent(fn (Request $request): bool => count($request['queries']) === 1 && $request['queries'][0]['package']['name'] === 'example/package-501');
+        Http::assertSentCount(2);
+    }
+
+    public function test_one_failed_batch_does_not_discard_successful_batches(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake(['https://api.osv.dev/v1/querybatch' => fn (Request $request): PromiseInterface => count($request['queries']) === 500
+            ? Http::response(['results' => array_fill(0, 500, (object) [])])
+            : Http::response([], 503)]);
         $entries = array_map(fn (int $index): array => ['name' => 'example/package-'.$index, 'version' => '1.0.0'], range(1, 501));
 
         $result = app(CheckDependencySecurity::class)->handle($this->snapshot($entries));
 
         $this->assertSame(500, $result['checked']);
-        $this->assertSame(1, $result['skipped']);
-        Http::assertSentCount(1);
+        $this->assertSame(1, $result['unavailable']);
+        $this->assertSame(0, $result['skipped']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_composer_versions_with_fewer_segments_are_checked_and_keep_fixed_versions(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://api.osv.dev/v1/querybatch' => Http::response(['results' => [['vulns' => [['id' => 'GHSA-short-version']]]]]),
+            'https://api.osv.dev/v1/vulns/GHSA-short-version' => Http::response([
+                'id' => 'GHSA-short-version', 'modified' => '2026-10-02T12:00:00Z',
+                'affected' => [['package' => ['name' => 'psr/http-message', 'ecosystem' => 'Packagist'],
+                    'ranges' => [['type' => 'ECOSYSTEM', 'events' => [['fixed' => '2.1']]]]]],
+            ]),
+        ]);
+
+        $result = app(CheckDependencySecurity::class)->handle($this->snapshot([['name' => 'psr/http-message', 'version' => '2.0']]));
+
+        $this->assertSame(1, $result['checked']);
+        $this->assertSame(0, $result['skipped']);
+        $this->assertSame(['2.1'], $result['packages'][0]['advisories'][0]['fixed_versions']);
+        Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.osv.dev/v1/querybatch' && $request['queries'][0]['version'] === '2.0');
+        Http::assertSentCount(2);
     }
 
     public function test_advisory_limit_retains_unfetched_findings_and_marks_the_package_unavailable(): void

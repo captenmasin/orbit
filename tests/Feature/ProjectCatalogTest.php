@@ -10,6 +10,7 @@ use App\Models\ProjectLink;
 use App\Models\ProviderConnection;
 use App\Models\Repository;
 use App\Models\Tag;
+use App\Models\Task;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
@@ -21,6 +22,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 use Native\Desktop\Dialog;
 use Native\Desktop\Facades\Shell;
 use PHPUnit\Framework\Attributes\TestWith;
+use RuntimeException;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
@@ -341,6 +343,52 @@ class ProjectCatalogTest extends TestCase
             ->where('projects.next_page_url', '/?status=Maintenance&sort=name&page=2'));
     }
 
+    public function test_project_cards_include_board_counts_and_saved_dependency_findings_for_each_project(): void
+    {
+        Storage::fake('local');
+        $project = Project::factory()->create(['name' => 'Alpha']);
+        $other = Project::factory()->create(['name' => 'Beta']);
+        $columns = $project->boardColumns()->get();
+        Task::factory()->for($columns[0], 'column')->create();
+        Task::factory()->for($columns[1], 'column')->count(2)->create();
+        Task::factory()->for($columns[3], 'column')->create();
+        Task::factory()->for($other->boardColumns()->where('name', 'To Do')->first(), 'column')->count(3)->create();
+        $folder = ProjectFolder::factory()->for($project)->create(['path' => $this->folder('card-findings')]);
+        $root = $folder->packageRoots()->first();
+        $snapshot = ['fingerprint' => 'current', 'unsupported_lockfiles' => [], 'files' => [
+            'package.json' => ['state' => 'Current', 'entries' => [['name' => 'vue', 'required' => '^3', 'scope' => 'Production']]],
+            'package-lock.json' => ['state' => 'Current', 'entries' => [['name' => 'vue', 'version' => '3.5.0', 'location' => 'node_modules/vue', 'scope' => 'Production']]],
+        ]];
+        $outdated = ['fingerprint' => 'current', 'checked' => 1, 'unavailable' => 0, 'skipped' => 0,
+            'packages' => [['name' => 'vue', 'ecosystem' => 'npm', 'current' => '3.5.0', 'latest' => '3.5.1']]];
+        $security = [...$outdated, 'packages' => [['name' => 'vue', 'ecosystem' => 'npm', 'current' => '3.5.0',
+            'advisories' => [['id' => 'GHSA-example', 'severity' => 'High']]]]];
+        $root->forceFill(['scan_state' => 'Current', 'snapshot' => $snapshot, 'outdated' => $outdated, 'security' => $security])->save();
+
+        $this->get('/')->assertInertia(fn (Assert $page) => $page
+            ->where('projects.data.0.id', $project->id)
+            ->has('projects.data.0.board_columns', 4)
+            ->where('projects.data.0.board_columns.0.tasks_count', 1)
+            ->where('projects.data.0.board_columns.1.name', 'To Do')
+            ->where('projects.data.0.board_columns.1.tasks_count', 2)
+            ->where('projects.data.0.board_columns.2.tasks_count', 0)
+            ->where('projects.data.0.board_columns.3.name', 'Done')
+            ->where('projects.data.0.board_columns.3.tasks_count', 1)
+            ->missing('projects.data.0.board_columns.0.tasks')
+            ->has('projects.data.0.folders', 1)
+            ->where('projects.data.0.folders.0.id', $folder->id)
+            ->where('projects.data.0.folders.0.availability', 'Available')
+            ->has('projects.data.0.folders.0.package_roots', 1)
+            ->where('projects.data.0.folders.0.package_roots.0.scan_state', 'Current')
+            ->where('projects.data.0.folders.0.package_roots.0.snapshot', $snapshot)
+            ->where('projects.data.0.folders.0.package_roots.0.outdated', $outdated)
+            ->where('projects.data.0.folders.0.package_roots.0.security', $security)
+            ->where('projects.data.1.id', $other->id)
+            ->where('projects.data.1.board_columns.0.tasks_count', 0)
+            ->where('projects.data.1.board_columns.1.tasks_count', 3)
+            ->has('projects.data.1.folders', 0));
+    }
+
     public function test_tag_filter_matches_every_selected_tag_and_accepts_single_tag_links(): void
     {
         $php = Tag::factory()->create(['name' => 'php']);
@@ -498,12 +546,95 @@ class ProjectCatalogTest extends TestCase
         $this->assertSame(1, $project->fresh()->revision);
         $this->assertSame([$path], Storage::disk('local')->allFiles('project-icons'));
         $this->post('/projects/'.$project->id, ['_method' => 'PUT', 'name' => 'Picture', 'status' => 'Idea', 'revision' => 1,
-            'icon_type' => 'image', 'icon_file' => UploadedFile::fake()->createWithContent('bad.svg', '<svg/>')])
+            'icon_type' => 'image', 'icon_file' => UploadedFile::fake()->createWithContent('bad.svg', 'not an image')->mimeType('text/plain')])
             ->assertSessionHasErrors('icon_file');
         $this->assertSame($path, $project->fresh()->icon_path);
         $this->put('/projects/'.$project->id, ['name' => 'Picture', 'status' => 'Idea', 'revision' => 1, 'icon_type' => 'initials'])->assertRedirect();
         Storage::disk('local')->assertMissing($path);
         $this->get('/projects/'.$project->id.'/icon')->assertNotFound();
+    }
+
+    public function test_svg_icons_can_be_created_and_replaced_with_sandboxed_previews(): void
+    {
+        Storage::fake('local');
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4096 4096"><rect width="4096" height="4096" fill="red"/></svg>';
+        $this->post('/projects', ['name' => 'Vector', 'status' => 'Idea', 'icon_type' => 'image',
+            'icon_file' => UploadedFile::fake()->createWithContent('icon.svg', $svg)->size(5120)])->assertRedirect()->assertSessionHasNoErrors();
+        $project = Project::sole();
+        $oldPath = $project->icon_path;
+        $this->assertSame($svg, Storage::disk('local')->get($oldPath));
+
+        $replacement = '<svg xmlns="http://www.w3.org/2000/svg" width="4096" height="4096"><style>rect { fill: blue; }</style><script>alert(1)</script><rect width="4096" height="4096"/></svg>';
+        $this->post('/projects/'.$project->id, ['_method' => 'PUT', 'name' => 'Vector', 'status' => 'Idea', 'revision' => 1,
+            'icon_type' => 'image', 'icon_file' => UploadedFile::fake()->createWithContent('replacement.svg', $replacement)])
+            ->assertRedirect()->assertSessionHasNoErrors();
+        $project->refresh();
+        Storage::disk('local')->assertMissing($oldPath);
+        $this->assertSame($replacement, Storage::disk('local')->get($project->icon_path));
+        $this->get('/projects/'.$project->id.'/icon')->assertOk()->assertHeader('Content-Type', 'image/svg+xml')
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+
+        $this->post('/projects/'.$project->id, ['_method' => 'PUT', 'name' => 'Vector', 'status' => 'Idea', 'revision' => 2,
+            'icon_type' => 'image', 'icon_file' => UploadedFile::fake()->createWithContent('too-large.svg', $svg)->size(5121)])
+            ->assertSessionHasErrors('icon_file');
+        $this->assertSame($project->icon_path, $project->fresh()->icon_path);
+        $this->assertSame(2, $project->fresh()->revision);
+        $this->assertSame([$project->icon_path], Storage::disk('local')->allFiles('project-icons'));
+    }
+
+    public function test_valid_https_links_open_in_the_external_browser(): void
+    {
+        config(['nativephp-internal.running' => true]);
+        Shell::fake();
+        $project = Project::factory()->create();
+
+        foreach ([
+            'https://github.com/team/repo/commit/'.str_repeat('a', 40),
+            'https://gitlab.com/group/team/repo/-/commit/'.str_repeat('a', 40),
+            'https://www.npmjs.com/package/%40orbit%2Fui/v/1.2.3',
+            'https://packagist.org/packages/laravel/framework',
+        ] as $url) {
+            $this->postJson('/projects/'.$project->id.'/open-url', ['url' => $url])->assertExactJson(['opened' => true]);
+            Shell::assertOpenedExternal($url);
+        }
+    }
+
+    #[TestWith([null])]
+    #[TestWith(['file:///tmp/repo'])]
+    #[TestWith(['vscode://file/tmp/repo'])]
+    #[TestWith(['https://user:password@github.com/team/repo/commit/abc'])]
+    public function test_url_opener_rejects_missing_or_unsafe_urls(?string $url): void
+    {
+        config(['nativephp-internal.running' => true]);
+        $shell = Shell::fake();
+        $project = Project::factory()->create();
+
+        $this->postJson('/projects/'.$project->id.'/open-url', ['url' => $url])
+            ->assertUnprocessable()->assertJsonValidationErrors('url');
+
+        $this->assertEmpty($shell->openExternalCalls);
+    }
+
+    public function test_url_opener_is_unavailable_outside_the_desktop_app(): void
+    {
+        config(['nativephp-internal.running' => false]);
+        $shell = Shell::fake();
+        $project = Project::factory()->create();
+
+        $this->postJson('/projects/'.$project->id.'/open-url', ['url' => 'https://github.com/team/repo/commit/abc'])->assertForbidden();
+
+        $this->assertEmpty($shell->openExternalCalls);
+    }
+
+    public function test_url_opener_reports_native_bridge_failures(): void
+    {
+        config(['nativephp-internal.running' => true]);
+        $project = Project::factory()->create();
+        Shell::shouldReceive('openExternal')->once()->andThrow(new RuntimeException('Bridge unavailable'));
+
+        $this->postJson('/projects/'.$project->id.'/open-url', ['url' => 'https://github.com/team/repo/commit/abc'])
+            ->assertServiceUnavailable()->assertExactJson(['message' => 'The URL could not be opened. Try again.']);
     }
 
     public function test_native_open_actions_use_only_the_selected_saved_target(): void

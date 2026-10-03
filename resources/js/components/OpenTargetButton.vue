@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 const props = defineProps<{ projectId: string; kind: 'folders' | 'repositories' | 'links' | 'secrets'; id: string; native: boolean; href?: string; label?: string; compact?: boolean; size?: 'sm' | 'input'; text?: boolean }>();
 const request = useHttp({ target: '' });
 async function open() {
+    if (request.processing || !props.native) return;
     try {
         const result = await request.post(`/projects/${props.projectId}/open/${props.kind}/${props.id}`);
         if (!result) toast.error(String(Object.values(request.errors)[0] ?? 'The item could not be opened. Try again.'));
@@ -13,6 +14,7 @@ async function open() {
         toast.error('The item could not be opened. Try again.');
     }
 }
+defineExpose({ open });
 </script>
 
 <template>
